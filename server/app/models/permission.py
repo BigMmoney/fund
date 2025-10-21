@@ -1,0 +1,22 @@
+"""
+权限模型
+"""
+from sqlalchemy import Column, String, Text
+from .base import BaseModel
+
+class Permission(BaseModel):
+    """权限模型"""
+    __tablename__ = "permissions"
+    
+    # 权限标识符（主键）
+    id = Column(String(50), primary_key=True, comment="权限标签，如user, team等")
+    label = Column(String(255), nullable=False, comment="权限显示名称")
+    description = Column(Text, nullable=True, comment="权限描述")
+    
+    def to_dict(self):
+        """转换为字典"""
+        return {
+            "id": self.id,
+            "label": self.label,
+            "description": self.description
+        }

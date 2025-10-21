@@ -1,0 +1,222 @@
+"""
+Main FastAPI application
+"""
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import logging
+import uvicorn
+
+from .config import settings
+from .database import engine, Base
+from .api.routers import auth, users, health, portfolios, teams, snapshots, ceffu
+from .models import Permission
+from .services.scheduler import start_scheduler, stop_scheduler
+
+# P0改进：导入新增模块
+from .logging_config import setup_logging
+from .middlewares import (
+    RequestTracingMiddleware,
+    PerformanceMonitoringMiddleware,
+    SecurityHeadersMiddleware
+)
+from .exception_handlers import register_exception_handlers
+from .rate_limit import setup_rate_limiting
+
+# P0改进：初始化日志系统
+setup_logging(
+    log_level=settings.log_level if hasattr(settings, 'log_level') else "INFO",
+    log_file_path="logs/app.log",
+    environment="production" if hasattr(settings, 'database_url') and 'rds.amazonaws.com' in settings.database_url else "development"
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events"""
+    # Startup
+    logger.info("Starting application...")
+    
+    # Create database tables
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created successfully")
+        
+        # Initialize default permissions
+        await initialize_permissions()
+        
+        # Start snapshot scheduler
+        await start_scheduler()
+        logger.info("Snapshot scheduler started")
+        
+    except Exception as e:
+        logger.error(f"Failed to create database tables: {e}")
+        raise
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down application...")
+    await stop_scheduler()
+    logger.info("Snapshot scheduler stopped")
+
+
+async def initialize_permissions():
+    """Initialize default permissions in database"""
+    from database import SessionLocal
+    
+    db = SessionLocal()
+    try:
+        # Check if permissions already exist
+        existing_permissions = db.query(Permission).count()
+        if existing_permissions > 0:
+            logger.info("Permissions already initialized")
+            return
+        
+        # Create default permissions
+        default_permissions = [
+            Permission(
+                id="user",
+                label="User Management",
+                description="Manage users and their accounts"
+            ),
+            Permission(
+                id="team",
+                label="Team Management", 
+                description="Manage teams and team memberships"
+            ),
+            Permission(
+                id="profit",
+                label="Profit Management",
+                description="Manage profit allocation and distribution"
+            ),
+            Permission(
+                id="portfolio",
+                label="Portfolio Management",
+                description="Manage portfolios and investments"
+            ),
+            Permission(
+                id="blacklist",
+                label="Blacklist Management",
+                description="Manage wallet blacklist and security"
+            )
+        ]
+        
+        for permission in default_permissions:
+            db.add(permission)
+        
+        db.commit()
+        logger.info("Default permissions created successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize permissions: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="Fund Management API",
+    description="Comprehensive fund management system with portfolio tracking and profit distribution",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan
+)
+
+# P0改进：注册中间件（顺序很重要！）
+# 1. 安全头
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 2. 请求追踪（生成trace_id）
+app.add_middleware(RequestTracingMiddleware)
+
+# 3. 性能监控
+app.add_middleware(PerformanceMonitoringMiddleware)
+
+# 4. CORS（最后）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://13.113.11.170",
+        "https://fund-api.cedefi.com",
+        "http://fund-api.cedefi.com",
+        "http://localhost:3000",  # Development frontend
+        "http://localhost:8080",  # Development frontend
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# P0改进：注册异常处理器
+register_exception_handlers(app)
+
+# P0改进：设置API限流
+try:
+    setup_rate_limiting(
+        app,
+        redis_url=settings.redis_url if hasattr(settings, 'redis_url') else None
+    )
+    logger.info("✅ API rate limiting enabled")
+except Exception as e:
+    logger.warning(f"⚠️  Rate limiting setup failed (will continue without it): {e}")
+
+
+# Include routers - 完整的40个API接口
+app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(portfolios.router)
+app.include_router(teams.router)
+app.include_router(snapshots.router)
+app.include_router(ceffu.router)
+
+# Import and include all other routers
+from .api.routers import (
+    profits, blacklist, profit_analytics, flows, subaccounts, 
+    system, frontend_data, nav_ws, portfolio_nav, onetoken_api,
+    onetoken_standard_api, account_web, r
+)
+
+app.include_router(profits.router)
+app.include_router(blacklist.router)
+app.include_router(profit_analytics.router)
+app.include_router(flows.router)
+app.include_router(subaccounts.router)
+app.include_router(system.router)
+app.include_router(frontend_data.router)
+app.include_router(nav_ws.router)
+app.include_router(portfolio_nav.router)
+app.include_router(onetoken_api.router)
+app.include_router(onetoken_standard_api.router)
+app.include_router(account_web.router)
+app.include_router(r.router)
+
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "Fund Management API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8001,
+        reload=False
+    )

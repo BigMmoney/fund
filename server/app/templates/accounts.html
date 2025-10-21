@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API账号管理</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        table { border-collapse: collapse; width: 60%; margin-bottom: 20px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background: #f2f2f2; }
+        form { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h2>API账号录入</h2>
+    <form method="post" action="/accounts/add">
+        <label>平台：</label>
+        <select name="vendor">
+            <option value="ceffu">ceffu</option>
+            <option value="1token">1Token</option>
+        </select>
+        <label>账户名称：</label>
+        <input type="text" name="name" required>
+        <label>Key：</label>
+        <input type="text" name="api_key" required>
+        <label>密钥：</label>
+        <input type="text" name="api_secret" required>
+        <button type="submit">添加</button>
+    </form>
+    <h2>已录入账号</h2>
+    {% for vendor, accounts in accounts.items() %}
+        <h3>{{ vendor }}</h3>
+        <table>
+            <tr><th>账户名称</th><th>Key</th><th>密钥</th><th>操作</th></tr>
+            {% for acc in accounts %}
+            <tr>
+                <td>{{ acc.name }}</td>
+                <td>{{ acc.api_key }}</td>
+                <td>{{ acc.api_secret }}</td>
+                <td>
+                    <form method="post" action="/accounts/delete" style="display:inline;">
+                        <input type="hidden" name="vendor" value="{{ vendor }}">
+                        <input type="hidden" name="name" value="{{ acc.name }}">
+                        <button type="submit">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% endfor %}
+</body>
+</html>

@@ -1,0 +1,285 @@
+"""
+黑名单管理路由 - API [34-36]
+基于需求文档的黑名单管理系统
+"""
+from typing import Dict, Any, List
+from fastapi import APIRouter, Depends, Request, Path
+from sqlalchemy.orm import Session
+from pydantic import BaseModel, validator
+from datetime import datetime
+
+from ...database import get_db
+from ...models import BlacklistAddress, User
+from ...auth import (
+    AuthService, get_current_user, require_permission, Permissions
+)
+from ...responses import StandardResponse, ResponseMessages
+from ...logging_middleware import Operations
+from ...query_params import BlacklistQueryParams, apply_pagination, get_total_count
+
+router = APIRouter(prefix="/blacklist", tags=["Blacklist Management"])
+
+
+# 请求模型
+class AddBlacklistRequest(BaseModel):
+    """添加黑名单请求模型"""
+    address: str
+    note: str = ""
+    
+    @validator('address')
+    def validate_address(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('Address is required')
+        # 转换为小写
+        return v.strip().lower()
+    
+    @validator('note')
+    def validate_note(cls, v):
+        if v and len(v) > 500:
+            raise ValueError('Note too long (max 500 characters)')
+        return v.strip() if v else ""
+
+
+# API [34] POST /blacklist
+@router.post("")
+async def add_blacklist_address(
+    request: Request,
+    blacklist_data: AddBlacklistRequest,
+    current_user: User = Depends(require_permission(Permissions.BLACKLIST)),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """添加黑名单地址"""
+    try:
+        # 检查地址是否已存在
+        existing_address = db.query(BlacklistAddress).filter(
+            BlacklistAddress.address == blacklist_data.address
+        ).first()
+        
+        if existing_address:
+            return StandardResponse.error("Address already in blacklist")
+        
+        # 创建新黑名单记录
+        new_blacklist = BlacklistAddress(
+            address=blacklist_data.address,
+            note=blacklist_data.note,
+            created_by=current_user.id
+        )
+        
+        db.add(new_blacklist)
+        db.commit()
+        db.refresh(new_blacklist)
+        
+        # 格式化响应数据
+        blacklist_response = {
+            "id": new_blacklist.id,
+            "address": new_blacklist.address,
+            "node": new_blacklist.note,  # 需求文档写的是 node
+            "createdAt": int(new_blacklist.created_at.timestamp())
+        }
+        
+        # 记录操作日志
+        from ...logging_middleware import OperationLogger
+        await OperationLogger.log_operation(
+            db=db,
+            user=current_user,
+            operation=Operations.BLACKLIST_ADD,
+            resource_type="blacklist",
+            resource_id=str(new_blacklist.id),
+            details={
+                "address": new_blacklist.address,
+                "note": new_blacklist.note,
+                "added_by": current_user.email
+            },
+            request=request
+        )
+        
+        return StandardResponse.object_success(blacklist_response)
+        
+    except Exception as e:
+        return StandardResponse.error(f"Failed to add blacklist address: {str(e)}")
+
+
+# API [35] GET /blacklist
+@router.get("")
+async def get_blacklist_addresses(
+    params: BlacklistQueryParams = Depends(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """获取黑名单列表"""
+    try:
+        # 构建基础查询
+        query = db.query(BlacklistAddress)
+        
+        # 获取总数
+        total = get_total_count(query)
+        
+        # 应用排序（按创建时间倒序）
+        query = query.order_by(BlacklistAddress.created_at.desc())
+        
+        # 应用分页
+        query = apply_pagination(query, params)
+        
+        # 执行查询
+        blacklist_addresses = query.all()
+        
+        # 格式化数据
+        address_list = []
+        for addr in blacklist_addresses:
+            addr_data = {
+                "id": addr.id,
+                "address": addr.address,
+                "node": addr.note,  # 需求文档写的是 node
+                "createdAt": int(addr.created_at.timestamp())
+            }
+            address_list.append(addr_data)
+        
+        return StandardResponse.list_success(address_list, total)
+        
+    except Exception as e:
+        return StandardResponse.error(f"Failed to get blacklist: {str(e)}")
+
+
+# API [36] DELETE /blacklist/{id}
+@router.delete("/{id}")
+async def remove_blacklist_address(
+    request: Request,
+    id: int = Path(..., description="黑名单记录ID"),
+    current_user: User = Depends(require_permission(Permissions.BLACKLIST)),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """删除黑名单地址"""
+    try:
+        # 查找黑名单记录
+        blacklist_record = db.query(BlacklistAddress).filter(
+            BlacklistAddress.id == id
+        ).first()
+        
+        if not blacklist_record:
+            return StandardResponse.error("Blacklist address not found")
+        
+        # 保存删除的记录信息用于日志 - 按照需求文档格式
+        deleted_address = {
+            "id": blacklist_record.id,
+            "address": blacklist_record.address,
+            "node": blacklist_record.note,  # 需求文档写的是 node
+            "createdAt": int(blacklist_record.created_at.timestamp())
+        }
+        
+        # 删除记录
+        db.delete(blacklist_record)
+        db.commit()
+        
+        # 记录操作日志
+        from ...logging_middleware import OperationLogger
+        await OperationLogger.log_operation(
+            db=db,
+            user=current_user,
+            operation=Operations.BLACKLIST_REMOVE,
+            resource_type="blacklist",
+            resource_id=str(id),  # 修正变量名
+            details={
+                "deleted_address": deleted_address["address"],
+                "deleted_note": blacklist_record.note,
+                "removed_by": current_user.email
+            },
+            request=request
+        )
+        
+        return StandardResponse.object_success(deleted_address)
+        
+    except Exception as e:
+        return StandardResponse.error(f"Failed to remove blacklist address: {str(e)}")
+
+
+# 辅助函数：检查地址是否在黑名单中
+async def is_address_blacklisted(db: Session, address: str) -> bool:
+    """检查地址是否在黑名单中"""
+    try:
+        normalized_address = address.lower().strip()
+        blacklist_record = db.query(BlacklistAddress).filter(
+            BlacklistAddress.address == normalized_address
+        ).first()
+        return blacklist_record is not None
+    except Exception:
+        return False
+
+
+# 辅助函数：批量检查地址
+@router.post("/check")
+async def check_addresses(
+    request: Request,
+    addresses: List[str],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """批量检查地址是否在黑名单中"""
+    try:
+        if not addresses:
+            return StandardResponse.error("Address list is empty")
+        
+        if len(addresses) > 100:
+            return StandardResponse.error("Too many addresses (max 100)")
+        
+        # 标准化地址列表
+        normalized_addresses = [addr.lower().strip() for addr in addresses]
+        
+        # 查询黑名单中的地址
+        blacklisted = db.query(BlacklistAddress.address).filter(
+            BlacklistAddress.address.in_(normalized_addresses)
+        ).all()
+        
+        blacklisted_set = {addr.address for addr in blacklisted}
+        
+        # 构建结果
+        results = []
+        for original_addr, normalized_addr in zip(addresses, normalized_addresses):
+            results.append({
+                "address": original_addr,
+                "isBlacklisted": normalized_addr in blacklisted_set
+            })
+        
+        return StandardResponse.success({
+            "results": results,
+            "totalChecked": len(addresses),
+            "blacklistedCount": len(blacklisted_set)
+        })
+        
+    except Exception as e:
+        return StandardResponse.error(f"Failed to check addresses: {str(e)}")
+
+
+# 搜索黑名单地址
+@router.get("/search")
+async def search_blacklist(
+    q: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """搜索黑名单地址"""
+    try:
+        if not q or len(q.strip()) < 3:
+            return StandardResponse.error("Search query must be at least 3 characters")
+        
+        search_term = f"%{q.strip().lower()}%"
+        
+        # 搜索地址或备注中包含关键词的记录
+        addresses = db.query(BlacklistAddress).filter(
+            (BlacklistAddress.address.like(search_term)) |
+            (BlacklistAddress.note.like(search_term))
+        ).order_by(BlacklistAddress.created_at.desc()).limit(50).all()
+        
+        # 格式化结果
+        results = []
+        for addr in addresses:
+            results.append({
+                "id": addr.id,
+                "address": addr.address,
+                "node": addr.note,  # 需求文档写的是 node
+                "createdAt": int(addr.created_at.timestamp())
+            })
+        
+        return StandardResponse.list_success(results, len(results))
+        
+    except Exception as e:
+        return StandardResponse.error(f"Failed to search blacklist: {str(e)}")

@@ -1,0 +1,76 @@
+"""
+服务器配置管理
+"""
+from typing import Optional
+import os
+
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    # 环境配置
+    environment: str = os.getenv("ENVIRONMENT", "development")
+    
+    # MySQL数据库配置
+    mysql_host: str = "127.0.0.1"
+    mysql_port: int = 3306
+    mysql_user: str = "root"
+    mysql_password: str = "123456"
+    mysql_db: str = "re_demo"
+    
+    # 用户管理配置
+    default_user_password: str = "123456"  # API [08] 重置密码使用的默认密码
+    
+    # OneToken API配置 - 生产环境
+    ONETOKEN_BASE_URL: str = "https://stakestone.1token.tech/api/v1"  # 正确的API端点URL
+    ONETOKEN_API_KEY: str = ""  # 从环境变量提供，留空防止误用
+    ONETOKEN_SECRET: str = ""  # 从环境变量提供，留空防止误用
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 如果主密钥为空，尝试使用编号密钥
+        if not self.ONETOKEN_API_KEY:
+            self.ONETOKEN_API_KEY = os.getenv("ONETOKEN_API_KEY_1", "")
+        if not self.ONETOKEN_SECRET:
+            self.ONETOKEN_SECRET = os.getenv("ONETOKEN_API_SECRET_1", "")
+    
+    # Ceffu API配置
+    CEFFU_API_KEY: Optional[str] = None
+    CEFFU_PUBLIC_KEY: Optional[str] = None
+    CEFFU_PRIVATE_KEY: Optional[str] = None
+    
+    # 数据库配置
+    DATABASE_URL: Optional[str] = None
+    DATABASE_PATH: Optional[str] = None
+    
+    # 系统配置
+    LOG_LEVEL: str = "INFO"
+    UPDATE_INTERVAL: Optional[str] = None
+    
+    # 服务器配置
+    SERVER_HOST: Optional[str] = None
+    SERVER_PORT: Optional[str] = None
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        extra = "ignore"  # 忽略环境中出现但模型未声明的变量，避免测试环境杂项变量导致报错
+
+# 创建全局设置实例
+settings = Settings()
+
+# 生产环境配置
+def get_settings():
+    """根据环境返回相应的配置"""
+    env = os.getenv("ENVIRONMENT", "development")
+    
+    if env == "production":
+        from .production_config import production_settings
+        return production_settings
+    else:
+        return settings
+
+# 获取当前环境配置
+current_settings = get_settings()

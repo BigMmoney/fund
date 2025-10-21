@@ -1,0 +1,20 @@
+# 存储所有 API 账号信息
+# 示例格式
+ceffu:
+  - name: "ceffu_account_1"
+    api_key: "your_ceffu_api_key_1"
+    api_secret: "your_ceffu_api_secret_1"
+    base_url: "https://api.ceffu.com"
+  - name: "ceffu_account_2"
+    api_key: "your_ceffu_api_key_2"
+    api_secret: "your_ceffu_api_secret_2"
+    base_url: "https://api.ceffu.com"
+1token:
+  - name: "1token_account_1"
+    api_key: "your_1token_api_key_1"
+    api_secret: "your_1token_api_secret_1"
+    base_url: "https://openapi.1token.trade"
+  - name: "1token_account_2"
+    api_key: "your_1token_api_key_2"
+    api_secret: "your_1token_api_secret_2"
+    base_url: "https://openapi.1token.trade"

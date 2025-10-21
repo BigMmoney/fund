@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environments
+venv/
+*.venv/
+1token_env/
+
+# Environment & secrets
+.env
+.env.local
+.env.production
+.env.*.local
+*.pem
+*.key
+*.crt
+*.der
+secrets*/
+!/.env.template
+!/.env.example
+
+# Databases & data dumps
+*.db
+*.sqlite
+data/**/*.json
+data/*.json
+*.tar.gz
+backup*/
+
+# Logs & reports (sensitive runtime info)
+logs/**
+*full_api_test_results.json
+server_full_api_test_results.json
+1token_production_data.json
+successful_api_results_*.json
+failed_api_results_*.json
+
+# Node / web build (if any appears later)
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.cover
+*.py,cover
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/ditor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
