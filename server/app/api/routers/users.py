@@ -7,15 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-from server.app.database import get_db
-from server.app.schemas import (
+from app.core.database import get_db
+from app.schemas import (
     UserCreate, UserUpdate, UserResponse, BaseResponse,
     PaginationParams, ListResponse, PaginationResponse
 )
-from server.app.models import User
-from server.app.auth import get_password_hash
-from server.app.api.dependencies import require_super_admin, require_user_permission
-from server.app.config import settings
+from app.models import User
+from app.auth import get_password_hash
+from app.api.dependencies import require_super_admin, require_user_permission
+from app.core.config import settings
 
 router = APIRouter(prefix="/users", tags=["User Management"])
 
@@ -57,53 +57,66 @@ async def list_users(
         return StandardResponse.error(f"Failed to get users: {str(e)}")
 
 
-@router.get("/{user_id}", response_model=UserResponse)
+@router.get("/{user_id}")
 async def get_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user_permission)
 ):
     """Get user by ID"""
+    from app.responses import StandardResponse
+    from app.auth import AuthService
+    
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return StandardResponse.error("User not found", error_code=404)
     
-    return user
+    # 获取用户权限
+    permissions = AuthService.get_user_permissions(db, user.id)
+    
+    # 格式化用户响应（驼峰命名）
+    user_data = AuthService.format_user_response(user, permissions)
+    
+    return StandardResponse.object_success(user_data)
 
 
-@router.post("", response_model=UserResponse)
+@router.post("")
 async def create_user(
     user_data: UserCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin)
 ):
     """Create a new user (super admin only)"""
+    from app.responses import StandardResponse
+    from app.auth import AuthService
+    
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+        return StandardResponse.error("Email already registered", error_code=400)
     
     # Create new user
     hashed_password = get_password_hash(user_data.password)
     new_user = User(
         email=user_data.email,
         password_hash=hashed_password,
-        name=user_data.name,
-        is_super=user_data.is_super,
-        is_active=user_data.is_active
+        is_super=user_data.is_super
     )
     
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     
-    return new_user
+    # 获取用户权限（新用户权限为空）
+    permissions = AuthService.get_user_permissions(db, new_user.id)
+    
+    # 格式化用户响应（驼峰命名）
+    user_data = AuthService.format_user_response(new_user, permissions)
+    
+    return StandardResponse.object_success(user_data)
 
 
-@router.put("/{user_id}", response_model=UserResponse)
+@router.put("/{user_id}")
 async def update_user(
     user_id: int,
     user_data: UserUpdate,
@@ -111,9 +124,12 @@ async def update_user(
     current_user: User = Depends(require_super_admin)
 ):
     """Update user (super admin only)"""
+    from app.responses import StandardResponse
+    from app.auth import AuthService
+    
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return StandardResponse.error("User not found", error_code=404)
     
     # Check if email is already taken by another user
     if user_data.email and user_data.email != user.email:
@@ -122,10 +138,7 @@ async def update_user(
             User.id != user_id
         ).first()
         if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already taken"
-            )
+            return StandardResponse.error("Email already taken", error_code=400)
     
     # Update fields
     update_data = user_data.dict(exclude_unset=True)
@@ -135,50 +148,72 @@ async def update_user(
     db.commit()
     db.refresh(user)
     
-    return user
+    # 获取用户权限
+    permissions = AuthService.get_user_permissions(db, user.id)
+    
+    # 格式化用户响应（驼峰命名）
+    user_data = AuthService.format_user_response(user, permissions)
+    
+    return StandardResponse.object_success(user_data)
 
 
-@router.patch("/{user_id}/activate", response_model=UserResponse)
+@router.patch("/{user_id}/activate")
 async def activate_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin)
 ):
     """Activate user account"""
+    from app.responses import StandardResponse
+    from app.auth import AuthService
+    
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return StandardResponse.error("User not found", error_code=404)
     
     user.is_active = True
+    user.suspended = False  # 同时取消禁用
     db.commit()
     db.refresh(user)
     
-    return user
+    # 获取用户权限
+    permissions = AuthService.get_user_permissions(db, user.id)
+    
+    # 格式化用户响应（驼峰命名）
+    user_data = AuthService.format_user_response(user, permissions)
+    
+    return StandardResponse.object_success(user_data)
 
 
-@router.patch("/{user_id}/deactivate", response_model=UserResponse)
+@router.patch("/{user_id}/deactivate")
 async def deactivate_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin)
 ):
     """Deactivate user account"""
+    from app.responses import StandardResponse
+    from app.auth import AuthService
+    
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return StandardResponse.error("User not found", error_code=404)
     
     # Prevent deactivating self
     if user.id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot deactivate your own account"
-        )
+        return StandardResponse.error("Cannot deactivate your own account", error_code=400)
     
     user.is_active = False
     db.commit()
     db.refresh(user)
     
-    return user
+    # 获取用户权限
+    permissions = AuthService.get_user_permissions(db, user.id)
+    
+    # 格式化用户响应（驼峰命名）
+    user_data = AuthService.format_user_response(user, permissions)
+    
+    return StandardResponse.object_success(user_data)
 
 
 # API [08] PATCH /users/{id}/reset
@@ -256,7 +291,7 @@ async def update_user_permissions(
         db.refresh(user)
         
         # 获取更新后的权限列表
-        from server.app.auth import AuthService
+        from app.auth import AuthService
         updated_permissions = AuthService.get_user_permissions(db, user_id)
         
         # 格式化用户数据
