@@ -57,7 +57,6 @@ class PaginationResponse(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     permissions: Optional[List[str]] = []  # 用户权限列表
-    name: Optional[str] = None
     # password 由系统自动生成
     # is_super 默认为 False（不允许通过API创建超级管理员）
 

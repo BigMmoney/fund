@@ -95,51 +95,73 @@ async def create_user(
     from app.models import Permission, UserPermission
     import secrets
     import string
+    import logging
     
-    # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
-    if existing_user:
-        return StandardResponse.error("Email already registered", error_code=400)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Creating new user with email: {user_data.email}")
+    logger.info(f"Requested permissions: {user_data.permissions}")
     
-    # 生成随机初始密码（8位字母+数字）
-    initial_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
-    hashed_password = get_password_hash(initial_password)
-    
-    # Create new user (is_super 固定为 False，不允许创建超级管理员)
-    new_user = User(
-        email=user_data.email,
-        password_hash=hashed_password,
-        is_super=False,  # 通过API创建的用户不能是超级管理员
-        name=user_data.name
-    )
-    
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    
-    # 添加用户权限
-    if user_data.permissions:
-        for perm_id in user_data.permissions:
-            # 验证权限是否存在
-            permission = db.query(Permission).filter(Permission.id == perm_id).first()
-            if permission:
-                user_perm = UserPermission(
-                    user_id=new_user.id,
-                    permission_id=perm_id
-                )
-                db.add(user_perm)
+    try:
+        # Check if user already exists
+        existing_user = db.query(User).filter(User.email == user_data.email).first()
+        if existing_user:
+            logger.warning(f"Email already registered: {user_data.email}")
+            return StandardResponse.error("Email already registered", error_code=400)
+        
+        # 生成随机初始密码（8位字母+数字）
+        initial_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
+        hashed_password = get_password_hash(initial_password)
+        logger.info(f"Generated initial password (length: {len(initial_password)})")
+        
+        # Create new user (is_super 固定为 False，不允许创建超级管理员)
+        new_user = User(
+            email=user_data.email,
+            password_hash=hashed_password,
+            is_super=False  # 通过API创建的用户不能是超级管理员
+        )
+        
+        db.add(new_user)
         db.commit()
-    
-    # 获取用户权限
-    permissions = AuthService.get_user_permissions(db, new_user.id)
-    
-    # 格式化用户响应（驼峰命名）
-    formatted_user = AuthService.format_user_response(new_user, permissions)
-    
-    # 在响应中包含初始密码
-    formatted_user["initialPassword"] = initial_password
-    
-    return StandardResponse.object_success(formatted_user)
+        db.refresh(new_user)
+        logger.info(f"User created with ID: {new_user.id}")
+        
+        # 添加用户权限
+        if user_data.permissions:
+            logger.info(f"Processing {len(user_data.permissions)} permissions...")
+            for perm_id in user_data.permissions:
+                logger.info(f"Checking permission: {perm_id} (type: {type(perm_id)})")
+                # 验证权限是否存在
+                permission = db.query(Permission).filter(Permission.id == perm_id).first()
+                if permission:
+                    logger.info(f"Permission {perm_id} found, adding to user")
+                    user_perm = UserPermission(
+                        user_id=new_user.id,
+                        permission_id=perm_id
+                    )
+                    db.add(user_perm)
+                else:
+                    logger.warning(f"Permission {perm_id} not found in database")
+            db.commit()
+            logger.info("Permissions committed to database")
+        
+        # 获取用户权限
+        permissions = AuthService.get_user_permissions(db, new_user.id)
+        logger.info(f"Retrieved {len(permissions)} permissions for user")
+        
+        # 格式化用户响应（驼峰命名）
+        formatted_user = AuthService.format_user_response(new_user, permissions)
+        logger.info("User response formatted")
+        
+        # 在响应中包含初始密码
+        formatted_user["initialPassword"] = initial_password
+        
+        logger.info(f"User creation successful: {user_data.email}")
+        return StandardResponse.object_success(formatted_user)
+        
+    except Exception as e:
+        logger.error(f"Error creating user: {str(e)}", exc_info=True)
+        db.rollback()
+        raise
 
 
 @router.put("/{user_id}")
