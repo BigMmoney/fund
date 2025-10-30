@@ -56,10 +56,10 @@ class PaginationResponse(BaseModel):
 # User schemas
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
-    name: str
-    is_super: bool = False
-    is_active: bool = True
+    permissions: Optional[List[str]] = []  # 用户权限列表
+    name: Optional[str] = None
+    # password 由系统自动生成
+    # is_super 默认为 False（不允许通过API创建超级管理员）
 
 
 class UserUpdate(BaseModel):
@@ -72,9 +72,9 @@ class UserUpdate(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
-    name: str
+    name: Optional[str] = None
     is_super: bool
-    is_active: bool
+    is_active: Optional[bool] = None
     created_at: datetime
     
     class Config:

@@ -86,34 +86,60 @@ async def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin)
 ):
-    """Create a new user (super admin only)"""
+    """
+    添加新用户，和权限，用户密码是系统初始密码
+    Create a new user with permissions. Password is auto-generated.
+    """
     from app.responses import StandardResponse
     from app.auth import AuthService
+    from app.models import Permission, UserPermission
+    import secrets
+    import string
     
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         return StandardResponse.error("Email already registered", error_code=400)
     
-    # Create new user
-    hashed_password = get_password_hash(user_data.password)
+    # 生成随机初始密码（8位字母+数字）
+    initial_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
+    hashed_password = get_password_hash(initial_password)
+    
+    # Create new user (is_super 固定为 False，不允许创建超级管理员)
     new_user = User(
         email=user_data.email,
         password_hash=hashed_password,
-        is_super=user_data.is_super
+        is_super=False,  # 通过API创建的用户不能是超级管理员
+        name=user_data.name
     )
     
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     
-    # 获取用户权限（新用户权限为空）
+    # 添加用户权限
+    if user_data.permissions:
+        for perm_id in user_data.permissions:
+            # 验证权限是否存在
+            permission = db.query(Permission).filter(Permission.id == perm_id).first()
+            if permission:
+                user_perm = UserPermission(
+                    user_id=new_user.id,
+                    permission_id=perm_id
+                )
+                db.add(user_perm)
+        db.commit()
+    
+    # 获取用户权限
     permissions = AuthService.get_user_permissions(db, new_user.id)
     
     # 格式化用户响应（驼峰命名）
-    user_data = AuthService.format_user_response(new_user, permissions)
+    formatted_user = AuthService.format_user_response(new_user, permissions)
     
-    return StandardResponse.object_success(user_data)
+    # 在响应中包含初始密码
+    formatted_user["initialPassword"] = initial_password
+    
+    return StandardResponse.object_success(formatted_user)
 
 
 @router.put("/{user_id}")
