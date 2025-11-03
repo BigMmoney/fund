@@ -93,15 +93,14 @@ async def create_user(
     from app.responses import StandardResponse
     from app.auth import AuthService
     from app.models import Permission, UserPermission
+    from app.utils.time_utils import get_current_timestamp
     import secrets
     import string
     import logging
-    
+
     logger = logging.getLogger(__name__)
     logger.info(f"Creating new user with email: {user_data.email}")
-    logger.info(f"Requested permissions: {user_data.permissions}")
-    
-    try:
+    logger.info(f"Requested permissions: {user_data.permissions}")    try:
         # Check if user already exists
         existing_user = db.query(User).filter(User.email == user_data.email).first()
         if existing_user:
@@ -114,12 +113,15 @@ async def create_user(
         logger.info(f"Generated initial password (length: {len(initial_password)})")
         
         # Create new user (is_super 固定为 False，不允许创建超级管理员)
+        current_time = get_current_timestamp()
         new_user = User(
             email=user_data.email,
             password_hash=hashed_password,
-            is_super=False  # 通过API创建的用户不能是超级管理员
+            is_super=False,  # 通过API创建的用户不能是超级管理员
+            created_at=current_time,
+            updated_at=current_time
         )
-        
+
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
@@ -129,22 +131,22 @@ async def create_user(
         if user_data.permissions:
             logger.info(f"Processing {len(user_data.permissions)} permissions...")
             for perm_id in user_data.permissions:
-                logger.info(f"Checking permission: {perm_id} (type: {type(perm_id)})")
+                logger.info(f"Checking permission: {perm_id} (type: {type(perm_id)})")       
                 # 验证权限是否存在
-                permission = db.query(Permission).filter(Permission.id == perm_id).first()
+                permission = db.query(Permission).filter(Permission.id == perm_id).first()   
                 if permission:
                     logger.info(f"Permission {perm_id} found, adding to user")
                     user_perm = UserPermission(
                         user_id=new_user.id,
-                        permission_id=perm_id
+                        permission_id=perm_id,
+                        created_at=current_time,
+                        updated_at=current_time
                     )
                     db.add(user_perm)
                 else:
                     logger.warning(f"Permission {perm_id} not found in database")
             db.commit()
-            logger.info("Permissions committed to database")
-        
-        # 获取用户权限
+            logger.info("Permissions committed to database")        # 获取用户权限
         permissions = AuthService.get_user_permissions(db, new_user.id)
         logger.info(f"Retrieved {len(permissions)} permissions for user")
         

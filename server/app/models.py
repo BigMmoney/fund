@@ -1,11 +1,9 @@
 """
 Database Models using SQLAlchemy ORM
 """
-from sqlalchemy import Column, Integer, BigInteger, String, Text, Boolean, DECIMAL, TIMESTAMP, ForeignKey, JSON, Enum
+from sqlalchemy import Column, Integer, BigInteger, String, Text, Boolean, DECIMAL, ForeignKey, JSON, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from datetime import datetime
 import enum
 
 Base = declarative_base()
@@ -24,8 +22,8 @@ class User(Base):
     is_super = Column(Boolean, default=False, comment="是否超级管理员")
     is_active = Column(Boolean, default=True, comment="是否激活")
     suspended = Column(Boolean, default=False, comment="是否被禁用")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
-    updated_at = Column(TIMESTAMP, default=func.current_timestamp(), onupdate=func.current_timestamp())
+    created_at = Column(BigInteger)
+    updated_at = Column(BigInteger)
     
     # Relationships
     permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
@@ -38,7 +36,7 @@ class Permission(Base):
     id = Column(String(50), primary_key=True, comment="权限标识符")
     label = Column(String(100), nullable=False, comment="权限显示名称")
     description = Column(Text, comment="权限描述")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     
     # Relationships
     user_permissions = relationship("UserPermission", back_populates="permission")
@@ -50,7 +48,7 @@ class UserPermission(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     permission_id = Column(String(50), ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     
     # Relationships
     user = relationship("User", back_populates="permissions")
@@ -63,8 +61,8 @@ class UserSession(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(500), nullable=False, unique=True, comment="JWT Token")
-    expires_at = Column(TIMESTAMP, nullable=False, comment="过期时间")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    expires_at = Column(BigInteger, nullable=False, comment="过期时间")
+    created_at = Column(BigInteger)
     
     # Relationships
     user = relationship("User", back_populates="sessions")
@@ -81,8 +79,8 @@ class Team(Base):
     name = Column(String(255), nullable=False, unique=True, comment="团队名称")
     description = Column(Text, comment="团队描述")
     is_active = Column(Boolean, default=True, comment="是否激活")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
-    updated_at = Column(TIMESTAMP, default=func.current_timestamp(), onupdate=func.current_timestamp())
+    created_at = Column(BigInteger)
+    updated_at = Column(BigInteger)
     created_by = Column(BigInteger, ForeignKey("users.id"), comment="创建者ID")
     
     # Relationships
@@ -97,7 +95,7 @@ class TeamMember(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     team_id = Column(BigInteger, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    joined_at = Column(TIMESTAMP, default=func.current_timestamp())
+    joined_at = Column(BigInteger)
     
     # Relationships
     team = relationship("Team", back_populates="members")
@@ -116,7 +114,7 @@ class Portfolio(Base):
     # 1Token系统信息
     fund_name = Column(String(255), nullable=False, comment="1Token投组标识")
     fund_alias = Column(String(255), comment="1Token投组显示名称")
-    inception_time = Column(TIMESTAMP, comment="1Token投组创始时间")
+    inception_time = Column(BigInteger, comment="1Token投组创始时间")
     
     # Binance子账号信息
     account_name = Column(String(255), comment="Binance子账号名称")
@@ -132,8 +130,8 @@ class Portfolio(Base):
     
     # 状态和元数据
     is_active = Column(Boolean, default=True, comment="是否激活")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
-    updated_at = Column(TIMESTAMP, default=func.current_timestamp(), onupdate=func.current_timestamp())
+    created_at = Column(BigInteger)
+    updated_at = Column(BigInteger)
     created_by = Column(BigInteger, ForeignKey("users.id"), comment="创建者ID")
     
     # Relationships
@@ -151,34 +149,34 @@ class NavSnapshot(Base):
     __tablename__ = "nav_snapshots"
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    snapshot_at = Column(TIMESTAMP, nullable=False, comment="快照时间(整点)")
+    snapshot_at = Column(BigInteger, nullable=False, comment="快照时间(整点)")
     nav = Column(DECIMAL(20, 8), nullable=False, comment="NAV值")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
 
 
 class RateSnapshot(Base):
     __tablename__ = "rate_snapshots"
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    snapshot_at = Column(TIMESTAMP, nullable=False, comment="快照时间(整点)")
+    snapshot_at = Column(BigInteger, nullable=False, comment="快照时间(整点)")
     base_currency = Column(String(10), nullable=False, default="USD", comment="基础货币")
     target_currency = Column(String(10), nullable=False, default="CNY", comment="目标货币")
     exchange_rate = Column(DECIMAL(20, 8), nullable=False, comment="汇率值")
-    snapshot_date = Column(TIMESTAMP, nullable=False, comment="快照日期")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    snapshot_date = Column(BigInteger, nullable=False, comment="快照日期")
+    created_at = Column(BigInteger)
 
 
 class AssetsSnapshot(Base):
     __tablename__ = "assets_snapshots"
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    snapshot_at = Column(TIMESTAMP, nullable=False, comment="快照时间(整点)")
+    snapshot_at = Column(BigInteger, nullable=False, comment="快照时间(整点)")
     wallet_id = Column(String(100), comment="钱包ID")
     asset_symbol = Column(String(20), comment="资产符号")
     balance = Column(DECIMAL(20, 8), comment="资产余额")
     assets_value = Column(DECIMAL(20, 8), nullable=False, comment="资产USD价值")
-    snapshot_date = Column(TIMESTAMP, nullable=False, comment="快照日期")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    snapshot_date = Column(BigInteger, nullable=False, comment="快照日期")
+    created_at = Column(BigInteger)
 
 
 # ==========================================
@@ -189,18 +187,18 @@ class AccProfitUserSnapshot(Base):
     __tablename__ = "acc_profit_user_snapshots"
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    snapshot_at = Column(TIMESTAMP, nullable=False, comment="快照时间(整点)")
+    snapshot_at = Column(BigInteger, nullable=False, comment="快照时间(整点)")
     acc_profit = Column(DECIMAL(20, 8), nullable=False, comment="累计收益USD")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
 
 
 class AccProfitPlatformSnapshot(Base):
     __tablename__ = "acc_profit_platform_snapshots"
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    snapshot_at = Column(TIMESTAMP, nullable=False, comment="快照时间(整点)")
+    snapshot_at = Column(BigInteger, nullable=False, comment="快照时间(整点)")
     acc_profit = Column(DECIMAL(20, 8), nullable=False, comment="累计收益USD")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
 
 
 class AccProfitTeamSnapshot(Base):
@@ -208,9 +206,9 @@ class AccProfitTeamSnapshot(Base):
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     portfolio_id = Column(BigInteger, ForeignKey("portfolios.id"), nullable=False, comment="投资组合ID")
-    snapshot_at = Column(TIMESTAMP, nullable=False, comment="快照时间(整点)")
+    snapshot_at = Column(BigInteger, nullable=False, comment="快照时间(整点)")
     acc_profit = Column(DECIMAL(20, 8), nullable=False, comment="累计分给团队的收益USD")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     
     # Relationships
     portfolio = relationship("Portfolio")
@@ -222,9 +220,9 @@ class AccProfitFromPortfolio(Base):
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     portfolio_id = Column(BigInteger, ForeignKey("portfolios.id"), nullable=False, comment="投资组合在数据库中的id")
-    snapshot_at = Column(TIMESTAMP, nullable=False, comment="整时快照秒级时间戳")
+    snapshot_at = Column(BigInteger, nullable=False, comment="整时快照秒级时间戳")
     acc_profit = Column(DECIMAL(20, 8), nullable=False, comment="投资组合累计到snapshotAt时刻的收益")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp(), comment="这条记录的入库时间")
+    created_at = Column(BigInteger, comment="这条记录的入库时间")
     
     # Relationships
     portfolio = relationship("Portfolio")
@@ -237,7 +235,7 @@ class AccProfitPortfolioSnapshot(Base):
     portfolio_id = Column(BigInteger, ForeignKey("portfolios.id"), nullable=False, comment="投资组合ID")
     hour_index = Column(BigInteger, nullable=False, comment="小时索引")
     acc_points = Column(DECIMAL(20, 8), nullable=False, comment="累计收益点数")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     
     # Relationships
     portfolio = relationship("Portfolio")
@@ -252,7 +250,7 @@ class ProfitAllocationRatio(Base):
     to_team = Column(Integer, nullable=False, comment="团队分配比例(10000=100%)")
     to_platform = Column(Integer, nullable=False, comment="平台分配比例(10000=100%)")
     to_user = Column(Integer, nullable=False, comment="用户分配比例(10000=100%)")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     created_by = Column(BigInteger, ForeignKey("users.id"), comment="创建者ID")
     
     # Relationships
@@ -266,7 +264,7 @@ class ProfitAllocationLog(Base):
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     portfolio_id = Column(BigInteger, ForeignKey("portfolios.id"), nullable=False, comment="关联的投资组合id")
-    hour_end_at = Column(TIMESTAMP, nullable=False, comment="整时结算时刻时间戳")
+    hour_end_at = Column(BigInteger, nullable=False, comment="整时结算时刻时间戳")
     
     # 快照关联
     hourly_snapshot_prev_id = Column(BigInteger, ForeignKey("acc_profit_from_portfolio.id"), comment="acc_profit_from_portfolio前一个小时id")
@@ -281,7 +279,7 @@ class ProfitAllocationLog(Base):
     # 分配比例依据
     allocation_ratio_id = Column(BigInteger, ForeignKey("profit_allocation_ratios.id"), nullable=False, comment="分配比例参数的id")
     
-    created_at = Column(TIMESTAMP, default=func.current_timestamp(), comment="本条记录入库时间")
+    created_at = Column(BigInteger, comment="本条记录入库时间")
     
     # Relationships  
     portfolio = relationship("Portfolio")
@@ -295,11 +293,11 @@ class HourlyProfitUser(Base):
     __tablename__ = "hourly_profit_user"
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    hour_end_at = Column(TIMESTAMP, nullable=False, comment="小时结束时间戳")
+    hour_end_at = Column(BigInteger, nullable=False, comment="小时结束时间戳")
     profit_delta = Column(DECIMAL(20, 8), nullable=False, comment="当前小时变动")
     delta_from_fund = Column(DECIMAL(20, 8), nullable=False, comment="基金量化收益，可正可负")
     delta_from_reallocation = Column(DECIMAL(20, 8), nullable=False, comment="调账，转出为负转入为正")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
 
 
 # API [29] - 平台一小时内收益变动模型  
@@ -307,12 +305,12 @@ class HourlyProfitPlatform(Base):
     __tablename__ = "hourly_profit_platform"
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    hour_end_at = Column(TIMESTAMP, nullable=False, comment="小时结束时间戳")
+    hour_end_at = Column(BigInteger, nullable=False, comment="小时结束时间戳")
     profit_delta = Column(DECIMAL(20, 8), nullable=False, comment="一小时内profit变动，可正数或负数")
     delta_from_fund = Column(DECIMAL(20, 8), nullable=False, comment="基金量化收益")
     delta_from_reallocation = Column(DECIMAL(20, 8), nullable=False, comment="调账变动")
     delta_from_withdraw = Column(DECIMAL(20, 8), nullable=False, comment="提现变动")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
 
 
 # API [30] - 团队投资组合一小时内收益变动模型
@@ -321,12 +319,12 @@ class HourlyProfitTeam(Base):
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     portfolio_id = Column(BigInteger, ForeignKey("portfolios.id"), nullable=False, comment="投资组合ID")
-    hour_end_at = Column(TIMESTAMP, nullable=False, comment="小时结束时间戳")
+    hour_end_at = Column(BigInteger, nullable=False, comment="小时结束时间戳")
     profit_delta = Column(DECIMAL(20, 8), nullable=False, comment="一小时内profit变动，可正可负")
     delta_from_fund = Column(DECIMAL(20, 8), nullable=False, comment="量化基金收益，盈利为正，回撤为负")
     delta_from_reallocation = Column(DECIMAL(20, 8), nullable=False, comment="调账进出，转出为负，转入为正")
     delta_from_withdraw = Column(DECIMAL(20, 8), nullable=False, comment="提现转出，应该是负数")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     
     # Relationships
     portfolio = relationship("Portfolio")
@@ -350,11 +348,11 @@ class ProfitWithdrawal(Base):
     team_id = Column(BigInteger, ForeignKey("teams.id"), comment="团队ID(team类型时必填)")
     chain_id = Column(String(100), nullable=False, comment="链ID")
     transaction_hash = Column(String(255), nullable=False, unique=True, comment="交易哈希")
-    transaction_time = Column(TIMESTAMP, nullable=False, comment="交易时间")
+    transaction_time = Column(BigInteger, nullable=False, comment="交易时间")
     usd_value = Column(DECIMAL(20, 8), nullable=False, comment="USD价值")
     assets = Column(Enum(AssetsType), nullable=False, comment="资产类型")
     assets_amount = Column(DECIMAL(20, 8), nullable=False, comment="资产数量")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     created_by = Column(BigInteger, ForeignKey("users.id"), comment="创建者ID")
     
     # Relationships
@@ -384,7 +382,7 @@ class ProfitReallocation(Base):
     to_team_id = Column(BigInteger, ForeignKey("teams.id"), comment="转入团队ID")
     usd_value = Column(DECIMAL(20, 8), nullable=False, comment="USD价值")
     reason = Column(Text, nullable=False, comment="调账原因")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     created_by = Column(BigInteger, ForeignKey("users.id"), comment="创建者ID")
     
     # Relationships
@@ -402,7 +400,7 @@ class BlacklistAddress(Base):
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     address = Column(String(255), nullable=False, unique=True, comment="地址(小写)")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     created_by = Column(BigInteger, ForeignKey("users.id"), comment="创建者ID")
     
     # Relationships
@@ -424,7 +422,7 @@ class OperationLog(Base):
     details = Column(JSON, comment="操作详情")
     ip_address = Column(String(45), comment="IP地址")
     user_agent = Column(Text, comment="用户代理")
-    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    created_at = Column(BigInteger)
     
     # Relationships
     user = relationship("User")
