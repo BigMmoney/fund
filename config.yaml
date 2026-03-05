@@ -1,0 +1,86 @@
+# Prediction Platform Configuration
+
+# API Gateway
+api:
+  port: 8080
+  host: "0.0.0.0"
+  cors_enabled: true
+  rate_limit: 1000 # requests per minute
+
+# Ledger Service
+ledger:
+  port: 8081
+  confirmation_timeout: 5s
+  wal_enabled: true
+  wal_path: "./data/ledger_wal"
+
+# Matching Engine
+matching:
+  port: 8082
+  batch_window_ms: 500
+  max_intents_per_batch: 10000
+  enable_pro_rata: true
+
+# Indexer Service
+indexer:
+  port: 8083
+  chain_id: "1"
+  rpc_url: "https://eth-mainnet.example.com"
+  confirmations: 6
+  poll_interval_ms: 2000
+  reorg_check_interval: 10 # blocks
+
+# Risk Service
+risk:
+  port: 8084
+  monitoring_interval: 5s
+  default_max_position: 100000 # cents ($1000)
+  default_fee: 0.01 # 1%
+  kill_switch_enabled: true
+
+# Event Bus (Redpanda/Kafka)
+eventbus:
+  type: "memory" # or "redpanda" in production
+  brokers:
+    - "localhost:9092"
+  topics:
+    - "intents"
+    - "fills"
+    - "ledger"
+    - "chain"
+
+# Database (for production)
+database:
+  type: "postgres"
+  host: "localhost"
+  port: 5432
+  name: "prediction_platform"
+  user: "postgres"
+  password: "changeme"
+  max_connections: 100
+
+# Redis (for caching)
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: ""
+
+# Security
+security:
+  jwt_secret: "change-this-in-production"
+  api_key_enabled: true
+  rate_limiting_enabled: true
+
+# Monitoring
+monitoring:
+  prometheus_port: 9090
+  metrics_enabled: true
+  log_level: "info" # debug, info, warn, error
+
+# Feature Flags
+features:
+  withdrawals_enabled: true
+  deposits_enabled: true
+  trading_enabled: true
+  websocket_enabled: true

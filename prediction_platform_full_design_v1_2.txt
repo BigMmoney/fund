@@ -1,0 +1,241 @@
+
+PREDICTION PLATFORM DUAL-RAIL (OFFCHAIN + ONCHAIN)
+FULL TECHNICAL DESIGN DOCUMENT (v1.2)
+
+=================================================
+SECTION 0. PURPOSE
+-------------------------------------------------
+This document consolidates:
+- Core architecture & service design
+- External & internal APIs (REST / gRPC / WS)
+- FBA matching engine logic
+- Ledger double-entry templates
+- Security & multi-layer protection
+- Critical missing pieces: ledger validation, indexer reorg handling,
+  risk state machine, failure recovery, and operational runbooks
+
+This TXT is designed to be:
+- Readable offline
+- Greppable by engineers
+- Directly usable for implementation
+
+=================================================
+SECTION 1. CORE PRINCIPLES
+-------------------------------------------------
+1. Ledger-first: all asset changes go through double-entry ledger
+2. Matching engine NEVER mutates balances
+3. Chain is final truth for settlement
+4. Everything is idempotent & replayable
+5. Fail closed, not open
+6. Every critical action has a kill switch
+
+=================================================
+SECTION 2. SERVICE LIST
+-------------------------------------------------
+EDGE
+- api-gateway
+- ws-hub
+
+CORE
+- auth-service
+- market-service
+- resolution-service
+- ledger-service
+- positions-service
+- risk-service
+- event-bus (Redpanda)
+
+OFFCHAIN TRADING
+- order-intake
+- matching-engine (FBA)
+- marketdata-service
+
+ONCHAIN
+- indexer
+- tx-orchestrator (optional)
+- solidity contracts
+
+VAULT (HIGH TRUST)
+- signing-treasury
+- reconciliation-audit
+- control-plane
+
+=================================================
+SECTION 3. API OVERVIEW
+-------------------------------------------------
+POST /v1/intents
+POST /v1/orders/{id}/cancel
+GET  /v1/markets
+GET  /v1/markets/{id}/book
+GET  /v1/positions
+GET  /v1/balances
+POST /v1/withdrawals
+
+WebSocket channels:
+- book
+- trades
+- orders
+- balances
+
+=================================================
+SECTION 4. FBA MATCHING ENGINE (CORE LOGIC)
+-------------------------------------------------
+Batch window: 250–1000ms
+
+For each batch:
+1. Collect intents & cancels
+2. Drop expired / invalid intents
+3. Aggregate L2 orderbook
+4. Compute clearing price p*
+5. Allocate fills proportionally
+6. Emit fills + ledger_deltas
+7. Wait for ledger commit
+
+Clearing price:
+maximise min(demand(p), supply(p))
+
+=================================================
+SECTION 5. LEDGER DOUBLE-ENTRY RULES
+-------------------------------------------------
+RULES:
+- Sum(debits) == Sum(credits)
+- No negative balances
+- Account version monotonic
+- op_id unique globally
+- Holds must resolve (commit or release)
+
+ACCOUNTS:
+- U:USDC
+- U:USDC:HOLD
+- U:OUTCOME:<market>:<outcome>
+- M:<market>:ESCROW:USDC
+- M:<market>:FEE:USDC
+- SYS:ONCHAIN_VAULT:USDC
+
+=================================================
+SECTION 6. LEDGER TEMPLATES
+-------------------------------------------------
+HOLD:
+U:USDC -> U:USDC:HOLD
+
+RELEASE:
+U:USDC:HOLD -> U:USDC
+
+FILL BUY:
+U:USDC:HOLD -> M:ESCROW
+M:OUTCOME_POOL -> U:OUTCOME
+U:USDC:HOLD -> M:FEE
+
+FILL SELL:
+U:OUTCOME -> M:OUTCOME_POOL
+M:ESCROW -> U:USDC
+
+SETTLEMENT:
+M:ESCROW -> U:USDC
+U:OUTCOME -> BURN
+
+DEPOSIT:
+SYS:ONCHAIN_VAULT -> U:USDC
+
+WITHDRAW:
+U:USDC -> U:USDC:HOLD_WITHDRAW
+U:USDC:HOLD_WITHDRAW -> SYS:ONCHAIN_VAULT
+
+=================================================
+SECTION 7. LEDGER COMMIT VALIDATION (NEW)
+-------------------------------------------------
+On CommitDelta:
+1. Check op_id not seen
+2. Validate entries balanced
+3. Lock all affected accounts (optimistic)
+4. Verify sufficient balance
+5. Apply entries atomically
+6. Increment account versions
+7. Emit LedgerCommitted
+
+Reject reasons:
+- INSUFFICIENT_FUNDS
+- VERSION_CONFLICT
+- DUPLICATE_OP
+- INVALID_ENTRY
+
+=================================================
+SECTION 8. INDEXER REORG HANDLING (NEW)
+-------------------------------------------------
+Indexer pipeline:
+- Observe event
+- Wait N confirmations
+- Commit to ledger
+
+If reorg detected:
+- Mark affected events INVALIDATED
+- Emit reverse ledger delta
+- Trigger reconciliation
+
+op_id format:
+chainId:txHash:logIndex
+
+=================================================
+SECTION 9. RISK STATE MACHINE (NEW)
+-------------------------------------------------
+MARKET STATES:
+OPEN
+CLOSE_ONLY
+CLOSED
+PROPOSED
+FINALIZED
+
+Rules:
+- CLOSE_ONLY: no new positions
+- FINALIZED: trading disabled
+
+Dynamic risk tightening:
+- Increase fees
+- Reduce max position
+- Extend batch window
+
+=================================================
+SECTION 10. FAILURE RECOVERY
+-------------------------------------------------
+Matching engine crash:
+- Rebuild from event stream
+- Ignore already-committed op_id
+
+Ledger crash:
+- WAL replay
+- Reconcile with shadow ledger
+
+Indexer lag:
+- Pause withdrawals
+- Resume after sync
+
+=================================================
+SECTION 11. SECURITY & MULTI-INSURANCE
+-------------------------------------------------
+- Key separation: funds / resolution / config
+- Two-phase withdrawals
+- HSM/KMS signing
+- Timelock upgrades
+- Shadow ledger
+- Automatic kill switches (L1–L4)
+
+=================================================
+SECTION 12. KILL SWITCH LEVELS
+-------------------------------------------------
+L1: Stop new positions
+L2: Stop withdrawals
+L3: Stop signing / chain tx
+L4: Read-only mode
+
+=================================================
+SECTION 13. GO-LIVE CHECKLIST
+-------------------------------------------------
+[ ] All APIs idempotent
+[ ] Ledger invariant tests
+[ ] Reorg simulation tested
+[ ] Kill switch drill completed
+[ ] Backup & restore verified
+[ ] Monitoring & alerts live
+
+=================================================
+END OF DOCUMENT
