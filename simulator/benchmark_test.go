@@ -45,6 +45,16 @@ type aggregateResult struct {
 	CI95LatencyArbitrageProfit     float64      `json:"ci95_latency_arbitrage_profit"`
 	MeanExecutionDispersion        float64      `json:"mean_execution_dispersion"`
 	CI95ExecutionDispersion        float64      `json:"ci95_execution_dispersion"`
+	MeanRetailSurplusPerUnit       float64      `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64      `json:"ci95_retail_surplus_per_unit"`
+	MeanArbitrageurSurplusPerUnit  float64      `json:"mean_arbitrageur_surplus_per_unit"`
+	CI95ArbitrageurSurplusPerUnit  float64      `json:"ci95_arbitrageur_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64      `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64      `json:"ci95_retail_adverse_selection_rate"`
+	MeanWelfareDispersion          float64      `json:"mean_welfare_dispersion"`
+	CI95WelfareDispersion          float64      `json:"ci95_welfare_dispersion"`
+	MeanSurplusTransferGap         float64      `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64      `json:"ci95_surplus_transfer_gap"`
 	NegativeBalanceViolationsTotal int          `json:"negative_balance_violations_total"`
 	ConservationBreachesTotal      int          `json:"conservation_breaches_total"`
 	RiskRejectionsTotal            int          `json:"risk_rejections_total"`
@@ -66,6 +76,10 @@ type gridSweepResult struct {
 	CI95QueuePriorityAdvantage     float64 `json:"ci95_queue_priority_advantage"`
 	MeanLatencyArbitrageProfit     float64 `json:"mean_latency_arbitrage_profit"`
 	CI95LatencyArbitrageProfit     float64 `json:"ci95_latency_arbitrage_profit"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
 }
 
 type cubeSweepResult struct {
@@ -85,6 +99,38 @@ type cubeSweepResult struct {
 	CI95QueuePriorityAdvantage     float64 `json:"ci95_queue_priority_advantage"`
 	MeanLatencyArbitrageProfit     float64 `json:"mean_latency_arbitrage_profit"`
 	CI95LatencyArbitrageProfit     float64 `json:"ci95_latency_arbitrage_profit"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
+}
+
+type hypercubeSweepResult struct {
+	ArbitrageurIntensityMultiplier int     `json:"arbitrageur_intensity_multiplier"`
+	RetailIntensityMultiplier      int     `json:"retail_intensity_multiplier"`
+	InformedIntensityMultiplier    int     `json:"informed_intensity_multiplier"`
+	MakerQuoteWidthMultiplier      int     `json:"maker_quote_width_multiplier"`
+	Runs                           int     `json:"runs"`
+	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
+	CI95OrdersPerSec               float64 `json:"ci95_orders_per_sec"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
+	MeanAveragePriceImpact         float64 `json:"mean_average_price_impact"`
+	CI95AveragePriceImpact         float64 `json:"ci95_average_price_impact"`
+	MeanQueuePriorityAdvantage     float64 `json:"mean_queue_priority_advantage"`
+	CI95QueuePriorityAdvantage     float64 `json:"ci95_queue_priority_advantage"`
+	MeanLatencyArbitrageProfit     float64 `json:"mean_latency_arbitrage_profit"`
+	CI95LatencyArbitrageProfit     float64 `json:"ci95_latency_arbitrage_profit"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
+	MeanWelfareDispersion          float64 `json:"mean_welfare_dispersion"`
+	CI95WelfareDispersion          float64 `json:"ci95_welfare_dispersion"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
 }
 
 func simulatorScenarios() []ScenarioConfig {
@@ -100,14 +146,14 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
-			Name:            "SpeedBump-50ms",
-			Mode:            ModeSpeedBump,
-			SpeedBumpSteps:  5,
-			StepDuration:    10 * time.Millisecond,
-			TotalSteps:      120,
-			Seed:            42,
-			Agents:          DefaultPopulation(),
-			Risk:            RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+			Name:           "SpeedBump-50ms",
+			Mode:           ModeSpeedBump,
+			SpeedBumpSteps: 5,
+			StepDuration:   10 * time.Millisecond,
+			TotalSteps:     120,
+			Seed:           42,
+			Agents:         DefaultPopulation(),
+			Risk:           RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
 			Name:             "FBA-100ms",
@@ -227,6 +273,21 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
+			Name:                   "Policy-LearnedOfflineContextual-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			PolicyController:       PolicyLearnedOfflineContextual,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
 			Name:             "FBA-250ms-Stress",
 			Mode:             ModeBatch,
 			BatchWindowSteps: 25,
@@ -249,36 +310,36 @@ func runScenario(cfg ScenarioConfig) BenchmarkResult {
 func ablationScenarios() []ScenarioConfig {
 	return []ScenarioConfig{
 		{
-			Name:                    "Ablation-Control",
-			Mode:                    ModeBatch,
-			BatchWindowSteps:        25,
-			StepDuration:            10 * time.Millisecond,
-			TotalSteps:              125,
-			Seed:                    77,
-			Agents:                  StressPopulation(),
-			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+			Name:             "Ablation-Control",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             77,
+			Agents:           StressPopulation(),
+			Risk:             RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
 		},
 		{
-			Name:                    "Ablation-RelaxedRisk",
-			Mode:                    ModeBatch,
-			BatchWindowSteps:        25,
-			DisableRiskLimits:       true,
-			StepDuration:            10 * time.Millisecond,
-			TotalSteps:              125,
-			Seed:                    77,
-			Agents:                  StressPopulation(),
-			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+			Name:              "Ablation-RelaxedRisk",
+			Mode:              ModeBatch,
+			BatchWindowSteps:  25,
+			DisableRiskLimits: true,
+			StepDuration:      10 * time.Millisecond,
+			TotalSteps:        125,
+			Seed:              77,
+			Agents:            StressPopulation(),
+			Risk:              RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
 		},
 		{
-			Name:                    "Ablation-RandomTieBreak",
-			Mode:                    ModeBatch,
-			BatchWindowSteps:        25,
-			RandomizeBatchTieBreak:  true,
-			StepDuration:            10 * time.Millisecond,
-			TotalSteps:              125,
-			Seed:                    77,
-			Agents:                  StressPopulation(),
-			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+			Name:                   "Ablation-RandomTieBreak",
+			Mode:                   ModeBatch,
+			BatchWindowSteps:       25,
+			RandomizeBatchTieBreak: true,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   77,
+			Agents:                 StressPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
 		},
 		{
 			Name:                    "Ablation-NoSettlementChecks",
@@ -439,6 +500,49 @@ func parameterCubeScenarios() []ScenarioConfig {
 					Agents:           agents,
 					Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 				})
+			}
+		}
+	}
+	return scenarios
+}
+
+func parameterHypercubeScenarios() []ScenarioConfig {
+	arbMultipliers := []int{0, 1, 2, 3}
+	retailMultipliers := []int{1, 2, 3}
+	informedMultipliers := []int{1, 2, 3}
+	makerMultipliers := []int{1, 2, 3}
+	scenarios := make([]ScenarioConfig, 0, len(arbMultipliers)*len(retailMultipliers)*len(informedMultipliers)*len(makerMultipliers))
+	for _, arb := range arbMultipliers {
+		for _, retail := range retailMultipliers {
+			for _, informed := range informedMultipliers {
+				for _, maker := range makerMultipliers {
+					agents := DefaultPopulation()
+					switch {
+					case arb == 0:
+						agents = WithoutAgentClass(agents, AgentArbitrageur)
+					case arb > 1:
+						agents = AdjustClassBaseSize(ScaleClassIntensity(agents, AgentArbitrageur, arb, 1), AgentArbitrageur, 1)
+					}
+					if retail > 1 {
+						agents = ScaleClassIntensity(agents, AgentRetail, retail, 1)
+					}
+					if informed > 1 {
+						agents = ScaleClassIntensity(agents, AgentInformed, informed, 1)
+					}
+					if maker > 1 {
+						agents = ScaleClassQuoteWidth(agents, AgentMarketMaker, maker, 1)
+					}
+					scenarios = append(scenarios, ScenarioConfig{
+						Name:             fmt.Sprintf("Hyper-Arb%d-Retail%d-Informed%d-Maker%d", arb, retail, informed, maker),
+						Mode:             ModeBatch,
+						BatchWindowSteps: 25,
+						StepDuration:     10 * time.Millisecond,
+						TotalSteps:       125,
+						Seed:             281,
+						Agents:           agents,
+						Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+					})
+				}
 			}
 		}
 	}
@@ -613,6 +717,19 @@ func TestTinyMLPPolicyImprovesFillsVersusBurstAware(t *testing.T) {
 	learned := runScenario(scenarioByName(t, "Policy-LearnedTinyMLP-100-250ms"))
 	if learned.FillsPerSec <= burst.FillsPerSec {
 		t.Fatalf("expected gradient-trained tiny MLP to improve fills, burst=%+v learned=%+v", burst, learned)
+	}
+}
+
+func TestOfflineContextualPolicyProducesNamedResult(t *testing.T) {
+	result := runScenario(scenarioByName(t, "Policy-LearnedOfflineContextual-100-250ms"))
+	if result.Name != "Policy-LearnedOfflineContextual-100-250ms" {
+		t.Fatalf("expected offline contextual policy result name, got %+v", result)
+	}
+	if result.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected offline contextual controller to record adaptive window stats, got %+v", result)
+	}
+	if result.RetailAdverseSelectionRate < 0 || result.RetailAdverseSelectionRate > 1 {
+		t.Fatalf("expected retail adverse-selection rate to be bounded, got %+v", result)
 	}
 }
 
@@ -818,6 +935,39 @@ func TestGenerateSimulatorParameterCubeArtifacts(t *testing.T) {
 	}
 }
 
+func TestGenerateSimulatorParameterHypercubeArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_HYPER") != "1" {
+		t.Skip("set RUN_SIM_HYPER=1 to generate simulator parameter-hypercube artifacts")
+	}
+
+	seeds := []int64{101, 103, 107, 109}
+	hyperResults := make([]hypercubeSweepResult, 0, len(parameterHypercubeScenarios()))
+	for _, base := range parameterHypercubeScenarios() {
+		runs := make([]BenchmarkResult, 0, len(seeds))
+		for _, seed := range seeds {
+			cfg := base
+			cfg.Seed = seed
+			runs = append(runs, runScenario(cfg))
+		}
+		hyperResults = append(hyperResults, summarizeHypercubeRun(base, runs))
+	}
+
+	control := findHypercubeResult(t, hyperResults, 1, 1, 1, 1)
+	noArb := findHypercubeResult(t, hyperResults, 0, 1, 1, 1)
+	retailHigh := findHypercubeResult(t, hyperResults, 1, 3, 1, 1)
+	if noArb.MeanLatencyArbitrageProfit >= control.MeanLatencyArbitrageProfit {
+		t.Fatalf("expected hypercube no-arbitrage cell to reduce arbitrage profit, control=%+v noArb=%+v", control, noArb)
+	}
+	if retailHigh.MeanOrdersPerSec <= control.MeanOrdersPerSec {
+		t.Fatalf("expected hypercube high-retail cell to raise throughput, control=%+v retailHigh=%+v", control, retailHigh)
+	}
+
+	if err := writeSimulatorHypercubeArtifacts(hyperResults, seeds); err != nil {
+		t.Fatalf("write hypercube artifacts: %v", err)
+	}
+}
+
 func writeSimulatorArtifacts(results []BenchmarkResult) error {
 	base := filepath.Join("..", "docs", "benchmarks")
 	if err := os.MkdirAll(base, 0o755); err != nil {
@@ -839,20 +989,20 @@ func writeSimulatorArtifacts(results []BenchmarkResult) error {
 
 	var md strings.Builder
 	md.WriteString("# Simulator Benchmark Profile\n\n")
-	md.WriteString("| Scenario | Mode | Window (ms) | Speed Bump (ms) | Orders/s | Fills/s | p50 (ms) | p95 (ms) | Spread | Price Impact | Queue Advantage | Arb Profit | Dispersion | Risk Rejects |\n")
-	md.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Scenario | Mode | Window (ms) | Speed Bump (ms) | Orders/s | Fills/s | p50 (ms) | p95 (ms) | Spread | Price Impact | Queue Advantage | Arb Profit | Retail Surplus | Retail Adverse | Welfare Gap | Risk Rejects |\n")
+	md.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,orders_per_sec,fills_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,average_spread,average_price_impact,queue_priority_advantage,latency_arbitrage_profit,execution_dispersion,risk_rejections,negative_balance_violations,conservation_breaches\n")
+	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,orders_per_sec,fills_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,average_spread,average_price_impact,queue_priority_advantage,latency_arbitrage_profit,execution_dispersion,retail_surplus_per_unit,arbitrageur_surplus_per_unit,retail_adverse_selection_rate,welfare_dispersion,surplus_transfer_gap,risk_rejections,negative_balance_violations,conservation_breaches\n")
 
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.4f | %.2f | %.4f | %d |\n",
+		md.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.4f | %.2f | %.4f | %.4f | %.4f | %d |\n",
 			r.Name, r.Mode, r.BatchWindowMs, r.SpeedBumpMs, r.OrdersPerSec, r.FillsPerSec, r.P50LatencyMs, r.P95LatencyMs,
-			r.AverageSpread, r.AveragePriceImpact, r.QueuePriorityAdvantage, r.LatencyArbitrageProfit, r.ExecutionDispersion, r.RiskRejections))
-		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.4f,%.6f,%d,%d,%d\n",
+			r.AverageSpread, r.AveragePriceImpact, r.QueuePriorityAdvantage, r.LatencyArbitrageProfit, r.RetailSurplusPerUnit, r.RetailAdverseSelectionRate, r.SurplusTransferGap, r.RiskRejections))
+		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.4f,%.6f,%.4f,%.4f,%.6f,%.6f,%.6f,%d,%d,%d\n",
 			r.Name, r.Mode, r.BatchWindowMs, r.SpeedBumpMs, r.OrdersPerSec, r.FillsPerSec, r.P50LatencyMs, r.P95LatencyMs,
 			r.P99LatencyMs, r.AverageSpread, r.AveragePriceImpact, r.QueuePriorityAdvantage, r.LatencyArbitrageProfit,
-			r.ExecutionDispersion, r.RiskRejections, r.NegativeBalanceViolations, r.ConservationBreaches))
+			r.ExecutionDispersion, r.RetailSurplusPerUnit, r.ArbitrageurSurplusPerUnit, r.RetailAdverseSelectionRate, r.WelfareDispersion, r.SurplusTransferGap, r.RiskRejections, r.NegativeBalanceViolations, r.ConservationBreaches))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
@@ -863,13 +1013,13 @@ func writeSimulatorArtifacts(results []BenchmarkResult) error {
 
 func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult {
 	agg := aggregateResult{
-		Name:          base.Name,
-		Mode:          base.Mode,
-		BatchWindowMs: int(base.StepDuration.Milliseconds()) * base.BatchWindowSteps,
-		SpeedBumpMs:   int(base.StepDuration.Milliseconds()) * base.SpeedBumpSteps,
+		Name:                base.Name,
+		Mode:                base.Mode,
+		BatchWindowMs:       int(base.StepDuration.Milliseconds()) * base.BatchWindowSteps,
+		SpeedBumpMs:         int(base.StepDuration.Milliseconds()) * base.SpeedBumpSteps,
 		AdaptiveWindowMinMs: int(base.StepDuration.Milliseconds()) * base.AdaptiveMinWindowSteps,
 		AdaptiveWindowMaxMs: int(base.StepDuration.Milliseconds()) * base.AdaptiveMaxWindowSteps,
-		Runs:          len(runs),
+		Runs:                len(runs),
 	}
 	orders := make([]float64, 0, len(runs))
 	fills := make([]float64, 0, len(runs))
@@ -881,6 +1031,11 @@ func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult 
 	queue := make([]float64, 0, len(runs))
 	arb := make([]float64, 0, len(runs))
 	dispersion := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	arbSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	welfare := make([]float64, 0, len(runs))
+	surplusGap := make([]float64, 0, len(runs))
 	for _, run := range runs {
 		orders = append(orders, run.OrdersPerSec)
 		fills = append(fills, run.FillsPerSec)
@@ -892,6 +1047,11 @@ func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult 
 		queue = append(queue, run.QueuePriorityAdvantage)
 		arb = append(arb, run.LatencyArbitrageProfit)
 		dispersion = append(dispersion, run.ExecutionDispersion)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		arbSurplus = append(arbSurplus, run.ArbitrageurSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		welfare = append(welfare, run.WelfareDispersion)
+		surplusGap = append(surplusGap, run.SurplusTransferGap)
 		if run.AdaptiveWindowMinMs > 0 {
 			agg.AdaptiveWindowMinMs = run.AdaptiveWindowMinMs
 			agg.AdaptiveWindowMaxMs = run.AdaptiveWindowMaxMs
@@ -919,6 +1079,11 @@ func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult 
 	agg.MeanQueuePriorityAdvantage, agg.CI95QueuePriorityAdvantage = meanCI95(queue)
 	agg.MeanLatencyArbitrageProfit, agg.CI95LatencyArbitrageProfit = meanCI95(arb)
 	agg.MeanExecutionDispersion, agg.CI95ExecutionDispersion = meanCI95(dispersion)
+	agg.MeanRetailSurplusPerUnit, agg.CI95RetailSurplusPerUnit = meanCI95(retailSurplus)
+	agg.MeanArbitrageurSurplusPerUnit, agg.CI95ArbitrageurSurplusPerUnit = meanCI95(arbSurplus)
+	agg.MeanRetailAdverseSelectionRate, agg.CI95RetailAdverseSelectionRate = meanCI95(retailAdverse)
+	agg.MeanWelfareDispersion, agg.CI95WelfareDispersion = meanCI95(welfare)
+	agg.MeanSurplusTransferGap, agg.CI95SurplusTransferGap = meanCI95(surplusGap)
 	return agg
 }
 
@@ -947,18 +1112,19 @@ func writeSimulatorMultiSeedArtifacts(results []aggregateResult, seeds []int64) 
 	var md strings.Builder
 	md.WriteString("# Simulator Multi-Seed Benchmark Profile\n\n")
 	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
-	md.WriteString("| Scenario | Runs | Window (ms) | Speed Bump (ms) | Adaptive Mean (ms) | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |\n")
-	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Scenario | Runs | Window (ms) | Speed Bump (ms) | Adaptive Mean (ms) | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) | Retail Surplus (mean +/- CI95) | Retail Adverse (mean +/- CI95) | Welfare Gap (mean +/- CI95) |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,adaptive_window_min_ms,adaptive_window_max_ms,adaptive_window_mean_ms,runs,mean_orders_per_sec,std_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,ci95_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,ci95_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,ci95_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,ci95_p99_latency_ms,mean_average_spread,ci95_average_spread,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_execution_dispersion,ci95_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
+	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,adaptive_window_min_ms,adaptive_window_max_ms,adaptive_window_mean_ms,runs,mean_orders_per_sec,std_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,ci95_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,ci95_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,ci95_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,ci95_p99_latency_ms,mean_average_spread,ci95_average_spread,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_execution_dispersion,ci95_execution_dispersion,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_arbitrageur_surplus_per_unit,ci95_arbitrageur_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_welfare_dispersion,ci95_welfare_dispersion,mean_surplus_transfer_gap,ci95_surplus_transfer_gap,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
 
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %s | %d | %d | %d | %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+		md.WriteString(fmt.Sprintf("| %s | %d | %d | %d | %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
 			r.Name, r.Runs, r.BatchWindowMs, r.SpeedBumpMs, r.AdaptiveWindowMeanMs, r.MeanOrdersPerSec, r.CI95OrdersPerSec, r.MeanFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP50LatencyMs, r.CI95P50LatencyMs, r.MeanP95LatencyMs, r.CI95P95LatencyMs, r.MeanP99LatencyMs, r.CI95P99LatencyMs,
-			r.MeanAverageSpread, r.CI95AverageSpread, r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
-			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage, r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
+			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact, r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit, r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit,
+			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate, r.MeanSurplusTransferGap, r.CI95SurplusTransferGap))
 		fields := []string{
 			r.Name,
 			string(r.Mode),
@@ -993,6 +1159,16 @@ func writeSimulatorMultiSeedArtifacts(results []aggregateResult, seeds []int64) 
 			fmt.Sprintf("%.4f", r.CI95LatencyArbitrageProfit),
 			fmt.Sprintf("%.6f", r.MeanExecutionDispersion),
 			fmt.Sprintf("%.6f", r.CI95ExecutionDispersion),
+			fmt.Sprintf("%.6f", r.MeanRetailSurplusPerUnit),
+			fmt.Sprintf("%.6f", r.CI95RetailSurplusPerUnit),
+			fmt.Sprintf("%.6f", r.MeanArbitrageurSurplusPerUnit),
+			fmt.Sprintf("%.6f", r.CI95ArbitrageurSurplusPerUnit),
+			fmt.Sprintf("%.6f", r.MeanRetailAdverseSelectionRate),
+			fmt.Sprintf("%.6f", r.CI95RetailAdverseSelectionRate),
+			fmt.Sprintf("%.6f", r.MeanWelfareDispersion),
+			fmt.Sprintf("%.6f", r.CI95WelfareDispersion),
+			fmt.Sprintf("%.6f", r.MeanSurplusTransferGap),
+			fmt.Sprintf("%.6f", r.CI95SurplusTransferGap),
 			fmt.Sprintf("%d", r.NegativeBalanceViolationsTotal),
 			fmt.Sprintf("%d", r.ConservationBreachesTotal),
 			fmt.Sprintf("%d", r.RiskRejectionsTotal),
@@ -1108,6 +1284,8 @@ func summarizeGridRun(base ScenarioConfig, runs []BenchmarkResult) gridSweepResu
 	impact := make([]float64, 0, len(runs))
 	queue := make([]float64, 0, len(runs))
 	arb := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
 	for _, run := range runs {
 		orders = append(orders, run.OrdersPerSec)
 		fills = append(fills, run.FillsPerSec)
@@ -1115,6 +1293,8 @@ func summarizeGridRun(base ScenarioConfig, runs []BenchmarkResult) gridSweepResu
 		impact = append(impact, run.AveragePriceImpact)
 		queue = append(queue, run.QueuePriorityAdvantage)
 		arb = append(arb, run.LatencyArbitrageProfit)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
 	}
 	meanOrders, stdOrders := meanStd(orders)
 	meanFills, stdFills := meanStd(fills)
@@ -1122,6 +1302,8 @@ func summarizeGridRun(base ScenarioConfig, runs []BenchmarkResult) gridSweepResu
 	meanImpact, ciImpact := meanCI95(impact)
 	meanQueue, ciQueue := meanCI95(queue)
 	meanArb, ciArb := meanCI95(arb)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
 	return gridSweepResult{
 		ArbitrageurIntensityMultiplier: arbMultiplier,
 		MakerQuoteWidthMultiplier:      makerWidth,
@@ -1138,6 +1320,10 @@ func summarizeGridRun(base ScenarioConfig, runs []BenchmarkResult) gridSweepResu
 		CI95QueuePriorityAdvantage:     ciQueue,
 		MeanLatencyArbitrageProfit:     meanArb,
 		CI95LatencyArbitrageProfit:     ciArb,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
 	}
 }
 
@@ -1157,6 +1343,8 @@ func summarizeCubeRun(base ScenarioConfig, runs []BenchmarkResult) cubeSweepResu
 	impact := make([]float64, 0, len(runs))
 	queue := make([]float64, 0, len(runs))
 	arb := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
 	for _, run := range runs {
 		orders = append(orders, run.OrdersPerSec)
 		fills = append(fills, run.FillsPerSec)
@@ -1164,6 +1352,8 @@ func summarizeCubeRun(base ScenarioConfig, runs []BenchmarkResult) cubeSweepResu
 		impact = append(impact, run.AveragePriceImpact)
 		queue = append(queue, run.QueuePriorityAdvantage)
 		arb = append(arb, run.LatencyArbitrageProfit)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
 	}
 	meanOrders, stdOrders := meanStd(orders)
 	meanFills, stdFills := meanStd(fills)
@@ -1171,23 +1361,102 @@ func summarizeCubeRun(base ScenarioConfig, runs []BenchmarkResult) cubeSweepResu
 	meanImpact, ciImpact := meanCI95(impact)
 	meanQueue, ciQueue := meanCI95(queue)
 	meanArb, ciArb := meanCI95(arb)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
 	return cubeSweepResult{
-		RetailIntensityMultiplier:   retailMultiplier,
-		InformedIntensityMultiplier: informedMultiplier,
-		MakerQuoteWidthMultiplier:   makerWidth,
-		Runs:                        len(runs),
-		MeanOrdersPerSec:            meanOrders,
-		CI95OrdersPerSec:            ci95HalfWidth(stdOrders, len(orders)),
-		MeanFillsPerSec:             meanFills,
-		CI95FillsPerSec:             ci95HalfWidth(stdFills, len(fills)),
-		MeanP99LatencyMs:            meanP99,
-		CI95P99LatencyMs:            ci95HalfWidth(stdP99, len(p99)),
-		MeanAveragePriceImpact:      meanImpact,
-		CI95AveragePriceImpact:      ciImpact,
-		MeanQueuePriorityAdvantage:  meanQueue,
-		CI95QueuePriorityAdvantage:  ciQueue,
-		MeanLatencyArbitrageProfit:  meanArb,
-		CI95LatencyArbitrageProfit:  ciArb,
+		RetailIntensityMultiplier:      retailMultiplier,
+		InformedIntensityMultiplier:    informedMultiplier,
+		MakerQuoteWidthMultiplier:      makerWidth,
+		Runs:                           len(runs),
+		MeanOrdersPerSec:               meanOrders,
+		CI95OrdersPerSec:               ci95HalfWidth(stdOrders, len(orders)),
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ci95HalfWidth(stdFills, len(fills)),
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ci95HalfWidth(stdP99, len(p99)),
+		MeanAveragePriceImpact:         meanImpact,
+		CI95AveragePriceImpact:         ciImpact,
+		MeanQueuePriorityAdvantage:     meanQueue,
+		CI95QueuePriorityAdvantage:     ciQueue,
+		MeanLatencyArbitrageProfit:     meanArb,
+		CI95LatencyArbitrageProfit:     ciArb,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+	}
+}
+
+func summarizeHypercubeRun(base ScenarioConfig, runs []BenchmarkResult) hypercubeSweepResult {
+	arbMultiplier := 0
+	retailMultiplier := 1
+	informedMultiplier := 1
+	makerWidth := 1
+	if _, err := fmt.Sscanf(base.Name, "Hyper-Arb%d-Retail%d-Informed%d-Maker%d", &arbMultiplier, &retailMultiplier, &informedMultiplier, &makerWidth); err != nil {
+		arbMultiplier = 0
+		retailMultiplier = 1
+		informedMultiplier = 1
+		makerWidth = 1
+	}
+
+	orders := make([]float64, 0, len(runs))
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	impact := make([]float64, 0, len(runs))
+	queue := make([]float64, 0, len(runs))
+	arb := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	welfare := make([]float64, 0, len(runs))
+	surplusGap := make([]float64, 0, len(runs))
+	for _, run := range runs {
+		orders = append(orders, run.OrdersPerSec)
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		impact = append(impact, run.AveragePriceImpact)
+		queue = append(queue, run.QueuePriorityAdvantage)
+		arb = append(arb, run.LatencyArbitrageProfit)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		welfare = append(welfare, run.WelfareDispersion)
+		surplusGap = append(surplusGap, run.SurplusTransferGap)
+	}
+	meanOrders, stdOrders := meanStd(orders)
+	meanFills, stdFills := meanStd(fills)
+	meanP99, stdP99 := meanStd(p99)
+	meanImpact, ciImpact := meanCI95(impact)
+	meanQueue, ciQueue := meanCI95(queue)
+	meanArb, ciArb := meanCI95(arb)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
+	meanWelfare, ciWelfare := meanCI95(welfare)
+	meanGap, ciGap := meanCI95(surplusGap)
+	return hypercubeSweepResult{
+		ArbitrageurIntensityMultiplier: arbMultiplier,
+		RetailIntensityMultiplier:      retailMultiplier,
+		InformedIntensityMultiplier:    informedMultiplier,
+		MakerQuoteWidthMultiplier:      makerWidth,
+		Runs:                           len(runs),
+		MeanOrdersPerSec:               meanOrders,
+		CI95OrdersPerSec:               ci95HalfWidth(stdOrders, len(orders)),
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ci95HalfWidth(stdFills, len(fills)),
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ci95HalfWidth(stdP99, len(p99)),
+		MeanAveragePriceImpact:         meanImpact,
+		CI95AveragePriceImpact:         ciImpact,
+		MeanQueuePriorityAdvantage:     meanQueue,
+		CI95QueuePriorityAdvantage:     ciQueue,
+		MeanLatencyArbitrageProfit:     meanArb,
+		CI95LatencyArbitrageProfit:     ciArb,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+		MeanWelfareDispersion:          meanWelfare,
+		CI95WelfareDispersion:          ciWelfare,
+		MeanSurplusTransferGap:         meanGap,
+		CI95SurplusTransferGap:         ciGap,
 	}
 }
 
@@ -1215,6 +1484,20 @@ func findCubeResult(t *testing.T, results []cubeSweepResult, retail, informed, m
 	return cubeSweepResult{}
 }
 
+func findHypercubeResult(t *testing.T, results []hypercubeSweepResult, arb, retail, informed, maker int) hypercubeSweepResult {
+	t.Helper()
+	for _, result := range results {
+		if result.ArbitrageurIntensityMultiplier == arb &&
+			result.RetailIntensityMultiplier == retail &&
+			result.InformedIntensityMultiplier == informed &&
+			result.MakerQuoteWidthMultiplier == maker {
+			return result
+		}
+	}
+	t.Fatalf("hypercube cell arb=%d retail=%d informed=%d maker=%d not found", arb, retail, informed, maker)
+	return hypercubeSweepResult{}
+}
+
 func writeSimulatorGridArtifacts(results []gridSweepResult, seeds []int64) error {
 	base := filepath.Join("..", "docs", "benchmarks")
 	if err := os.MkdirAll(base, 0o755); err != nil {
@@ -1240,28 +1523,30 @@ func writeSimulatorGridArtifacts(results []gridSweepResult, seeds []int64) error
 	var md strings.Builder
 	md.WriteString("# Simulator Parameter Grid Profile\n\n")
 	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
-	md.WriteString("| Arb Multiplier | Maker Width Multiplier | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit |\n")
-	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Arb Multiplier | Maker Width Multiplier | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit | Retail Surplus | Retail Adverse |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("arbitrageur_intensity_multiplier,maker_quote_width_multiplier,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit\n")
+	csv.WriteString("arbitrageur_intensity_multiplier,maker_quote_width_multiplier,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate\n")
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+		md.WriteString(fmt.Sprintf("| %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
 			r.ArbitrageurIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
 			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
 			r.MeanFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
 			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
 			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
-			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
-		csv.WriteString(fmt.Sprintf("%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f\n",
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit, r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit, r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate))
+		csv.WriteString(fmt.Sprintf("%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f\n",
 			r.ArbitrageurIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
 			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
 			r.MeanFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
 			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
 			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
-			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit,
+			r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit,
+			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
@@ -1295,28 +1580,93 @@ func writeSimulatorCubeArtifacts(results []cubeSweepResult, seeds []int64) error
 	var md strings.Builder
 	md.WriteString("# Simulator Parameter Cube Profile\n\n")
 	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
-	md.WriteString("| Retail Multiplier | Informed Multiplier | Maker Width Multiplier | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit |\n")
-	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Retail Multiplier | Informed Multiplier | Maker Width Multiplier | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit | Retail Surplus | Retail Adverse |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("retail_intensity_multiplier,informed_intensity_multiplier,maker_quote_width_multiplier,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit\n")
+	csv.WriteString("retail_intensity_multiplier,informed_intensity_multiplier,maker_quote_width_multiplier,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate\n")
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %d | %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+		md.WriteString(fmt.Sprintf("| %d | %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
 			r.RetailIntensityMultiplier, r.InformedIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
 			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
 			r.MeanFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
 			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
 			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
-			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
-		csv.WriteString(fmt.Sprintf("%d,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f\n",
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit, r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit, r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate))
+		csv.WriteString(fmt.Sprintf("%d,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f\n",
 			r.RetailIntensityMultiplier, r.InformedIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
 			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
 			r.MeanFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
 			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
 			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
-			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit,
+			r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit,
+			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorHypercubeArtifacts(results []hypercubeSweepResult, seeds []int64) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_parameter_hypercube_profile.json")
+	mdPath := filepath.Join(base, "simulator_parameter_hypercube_profile.md")
+	csvPath := filepath.Join(base, "simulator_parameter_hypercube_profile.csv")
+
+	payload := map[string]any{
+		"seeds":   seeds,
+		"results": results,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Parameter Hypercube Profile\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
+	md.WriteString("| Arb | Retail | Informed | Maker Width | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit | Retail Surplus | Retail Adverse | Welfare Dispersion | Welfare Gap |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+
+	var csv strings.Builder
+	csv.WriteString("arbitrageur_intensity_multiplier,retail_intensity_multiplier,informed_intensity_multiplier,maker_quote_width_multiplier,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_welfare_dispersion,ci95_welfare_dispersion,mean_surplus_transfer_gap,ci95_surplus_transfer_gap\n")
+	for _, r := range results {
+		md.WriteString(fmt.Sprintf("| %d | %d | %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
+			r.ArbitrageurIntensityMultiplier, r.RetailIntensityMultiplier, r.InformedIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
+			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
+			r.MeanFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit,
+			r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit,
+			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate,
+			r.MeanWelfareDispersion, r.CI95WelfareDispersion,
+			r.MeanSurplusTransferGap, r.CI95SurplusTransferGap))
+		csv.WriteString(fmt.Sprintf("%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+			r.ArbitrageurIntensityMultiplier, r.RetailIntensityMultiplier, r.InformedIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
+			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
+			r.MeanFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit,
+			r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit,
+			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate,
+			r.MeanWelfareDispersion, r.CI95WelfareDispersion,
+			r.MeanSurplusTransferGap, r.CI95SurplusTransferGap))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {

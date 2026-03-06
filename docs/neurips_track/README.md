@@ -1,51 +1,46 @@
 # NeurIPS Track
 
-This directory is a parallel paper track. It does not replace the existing `docs/arxiv/` manuscript.
+This directory is a parallel benchmark-paper line. It does not replace the original systems-paper material in `docs/PAPER_MANUSCRIPT.md` or `docs/arxiv/`.
 
 ## Purpose
 
-The original paper line is a market-infrastructure systems paper. This track upgrades the repo toward a benchmark/simulator paper with:
+This track upgrades the repo toward a benchmark/simulator paper with:
 
 - a seedable agent-based market simulator
 - multiple market-design regimes
 - a step-wise `Reset/Step/Observe/Metrics` API
-- adapter-driven control baselines
-- an expanded control surface: batch window, risk scale, tie-break mode, release cadence, and price aggression
-- ledger-aware settlement semantics
-- reproducible benchmark artifacts
-- mechanism and agent/workload sweeps
+- a gym-style adapter with runtime controls for batch window, risk scale, tie-break mode, release cadence, and price aggression
+- adapter-driven policy baselines, including an offline contextual controller
+- ledger-aware settlement semantics and explicit invariant checks
+- reproducible benchmark artifacts, sweeps, and appendix figures
+- welfare/behavior metrics in addition to latency and fairness proxies
 
-## New Components
+## Key Components
 
-- `simulator/`: benchmark environment, agent models, metrics, step API, and tests
-- `simulator/adapter.go`: minimal gym-style adapter with five runtime control channels and reward-bearing timesteps
+- `simulator/`: environment, agent models, metrics, adapter, and benchmark tests
 - `docs/benchmarks/simulator_benchmark_profile.*`: generated single-seed outputs
 - `docs/benchmarks/simulator_multiseed_profile.*`: multi-seed aggregate outputs
 - `docs/benchmarks/simulator_ablation_profile.*`: mechanism ablation outputs
-- `docs/benchmarks/simulator_agent_ablation_profile.*`: agent and workload sweep outputs
-- `docs/benchmarks/simulator_parameter_grid_profile.*`: full parameter-grid outputs
-- `docs/benchmarks/simulator_parameter_cube_profile.*`: three-dimensional retail / informed / maker cube outputs
+- `docs/benchmarks/simulator_agent_ablation_profile.*`: agent/workload ablation outputs
+- `docs/benchmarks/simulator_parameter_grid_profile.*`: arbitrage x maker grid
+- `docs/benchmarks/simulator_parameter_cube_profile.*`: retail x informed x maker cube
+- `docs/benchmarks/simulator_parameter_hypercube_profile.*`: arbitrage x retail x informed x maker unified sweep
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
-- `ENVIRONMENT_SCHEMA.md`: observation, action, and metrics schema
-- `APPENDIX_TABLES.md`: appendix-ready ablation and sweep tables
-- `APPENDIX_FIGURES.md`: repository-hosted appendix figure set
-- `arxiv/`: isolated LaTeX source for the NeurIPS-track paper
+- `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
+- `APPENDIX_TABLES.md`: appendix-ready controller, ablation, and sweep tables
+- `APPENDIX_FIGURES.md`: repository-hosted figure set
+- `arxiv/`: isolated LaTeX source and compiled PDF for this paper line
 
-## Current Benchmark Snapshot
+## Current Single-Seed Snapshot
 
 From `docs/benchmarks/simulator_benchmark_profile.json`:
 
-- `Immediate-Surrogate`: `1360.0 orders/s`, `p50 10 ms`, `p99 10 ms`
-- `SpeedBump-50ms`: `1305.6 orders/s`, `p50 60 ms`, `p99 60 ms`
-- `FBA-100ms`: `1348.8 orders/s`, `p50 50 ms`, `p99 310 ms`
-- `FBA-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 490 ms`
-- `FBA-500ms`: `1349.7 orders/s`, `p50 190 ms`, `p99 910 ms`
-- `Adaptive-100-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 290 ms`
-- `Adaptive-OrderFlow-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 480 ms`
-- `Adaptive-QueueLoad-100-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 410 ms`
-- `Policy-BurstAware-100-250ms`: `1343.7 orders/s`, `p50 80 ms`, `p99 400 ms`
-- `Policy-LearnedLinUCB-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 120 ms`
-- `Policy-LearnedTinyMLP-100-250ms`: `1346.0 orders/s`, `p50 50 ms`, `p99 330 ms`
+- `Immediate-Surrogate`: `1360.0 orders/s`, `p50 10 ms`, `p99 10 ms`, retail surplus `-0.3237`
+- `SpeedBump-50ms`: `1305.6 orders/s`, `p50 60 ms`, `p99 60 ms`, retail adverse rate `0.5078`
+- `FBA-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 490 ms`, retail surplus `-0.4599`
+- `Policy-LearnedLinUCB-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 130 ms`, retail surplus `0.3975`
+- `Policy-LearnedTinyMLP-100-250ms`: `1347.6 orders/s`, `p50 60 ms`, `p99 300 ms`, price impact `4.24`
+- `Policy-LearnedOfflineContextual-100-250ms`: `1349.2 orders/s`, `p50 80 ms`, `p99 200 ms`, impact `3.18`, retail adverse rate `0.4014`
 - `FBA-250ms-Stress`: `1761.1 orders/s`, `p50 100 ms`, `p99 590 ms`
 
 All generated scenarios currently report:
@@ -53,105 +48,74 @@ All generated scenarios currently report:
 - `0` negative-balance violations
 - `0` conservation breaches
 
-## Multi-Seed Experimental Snapshot
+## Multi-Seed Snapshot
 
 From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `[7, 11, 19, 23, 29, 31, 37, 41]` and reported as `mean +/- CI95`:
 
-- `Immediate-Surrogate`: `1348.23 +/- 3.99 orders/s`, `p50 10.00 +/- 0.00 ms`, `p99 10.00 +/- 0.00 ms`
-- `SpeedBump-50ms`: `1294.30 +/- 3.84 orders/s`, `p50 60.00 +/- 0.00 ms`, `p99 60.00 +/- 0.00 ms`
-- `FBA-100ms`: `1337.09 +/- 3.96 orders/s`, `p50 46.25 +/- 3.35 ms`, `p99 146.25 +/- 35.83 ms`
-- `FBA-250ms`: `1337.60 +/- 3.88 orders/s`, `p50 97.50 +/- 4.58 ms`, `p99 452.50 +/- 16.16 ms`
-- `FBA-500ms`: `1338.82 +/- 3.24 orders/s`, `p50 213.75 +/- 24.48 ms`, `p99 835.00 +/- 84.37 ms`
-- `Adaptive-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 207.14 ms`, `p99 360.00 +/- 69.38 ms`
-- `Adaptive-OrderFlow-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 216.67 ms`, `p99 406.25 +/- 46.22 ms`
-- `Adaptive-QueueLoad-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 209.29 ms`, `p99 386.25 +/- 65.09 ms`
-- `Policy-BurstAware-100-250ms`: `1338.89 +/- 2.97 orders/s`, `policy mean window 250.00 ms`, `p99 400.00 +/- 57.25 ms`
-- `Policy-LearnedLinUCB-100-250ms`: `1337.60 +/- 3.88 orders/s`, `policy mean window 100.00 ms`, `p99 158.75 +/- 15.66 ms`
-- `Policy-LearnedTinyMLP-100-250ms`: `1338.39 +/- 2.62 orders/s`, `policy mean window 200.00 ms`, `p99 305.00 +/- 49.00 ms`
-- `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `p50 97.50 +/- 5.75 ms`, `p99 373.75 +/- 70.24 ms`
+- `Immediate-Surrogate`: `1348.23 +/- 3.99 orders/s`, `p99 10.00 +/- 0.00 ms`, retail surplus `-0.3710 +/- 0.1264`, welfare gap `2.0430 +/- 0.2444`
+- `FBA-250ms`: `1337.60 +/- 3.88 orders/s`, `p99 452.50 +/- 16.16 ms`, queue `0.0273 +/- 0.0182`, welfare gap `0.8896 +/- 0.8264`
+- `Adaptive-100-250ms`: `1337.60 +/- 3.88 orders/s`, adaptive mean `207.14 ms`, impact `4.71 +/- 0.49`, welfare gap `0.0278 +/- 0.6078`
+- `Policy-BurstAware-100-250ms`: `1338.89 +/- 2.97 orders/s`, `p99 400.00 +/- 57.25 ms`, arb `621.00 +/- 94.21`, retail adverse `0.5019 +/- 0.0203`
+- `Policy-LearnedLinUCB-100-250ms`: `1337.60 +/- 3.88 orders/s`, `755.65 +/- 27.48 fills/s`, `p99 155.00 +/- 17.32 ms`, retail surplus `0.0795 +/- 0.1353`, welfare gap `2.1694 +/- 0.7433`
+- `Policy-LearnedTinyMLP-100-250ms`: `1337.60 +/- 3.88 orders/s`, `769.35 +/- 20.85 fills/s`, `p99 221.25 +/- 57.40 ms`, arb `856.13 +/- 107.16`, retail surplus `-0.3128 +/- 0.1535`
+- `Policy-LearnedOfflineContextual-100-250ms`: `1337.40 +/- 3.91 orders/s`, `762.80 +/- 36.22 fills/s`, `p99 215.00 +/- 47.25 ms`, impact `4.94 +/- 0.57`, queue `0.0294 +/- 0.0156`, arb `771.25 +/- 113.73`, retail surplus `-0.1090 +/- 0.1191`
+- `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `900.50 +/- 23.67 fills/s`, `p99 373.75 +/- 70.24 ms`, arb `2057.00 +/- 235.64`
 
-Measured observations:
+Current controller interpretation:
 
-- immediate execution keeps the lowest latency tail but also the widest quoted spread (`1.98`)
-- the `50 ms` speed-bump baseline lands between immediate and batched regimes on latency (`60 ms`) but keeps the immediate-style queue-advantage proxy (`0.0742 +/- 0.0078`)
-- the `250 ms` batch lowers mean queue-priority advantage to `0.0273 +/- 0.0182`, below both immediate and speed-bump baselines
-- the balanced adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`
-- the burst-aware policy drives the adapter to the slow end of the window range (`250 ms`) and improves fairness-adjacent proxies relative to the learned controller
-- the learned LinUCB controller drives the adapter to a fast release profile (`100 ms` mean window), improving fills (`745.24 +/- 34.21`) and tail latency (`p99 158.75 +/- 15.66 ms`), but worsening queue-advantage and arbitrage-profit proxies (`0.0447`, `959.62`)
-- the gradient-trained TinyMLP controller settles at a `200 ms` mean window, slightly improves fills over burst-aware (`689.78 +/- 28.40` vs `670.83 +/- 28.54`), and reduces p99 to `305.00 +/- 49.00 ms`, but pays noticeably higher impact (`8.86 +/- 0.51`) and arbitrage-profit proxy (`1229.00 +/- 108.83`)
-- the stress configuration raises throughput to `1769.25 orders/s` and arbitrage profit to `2057.00`
+- `LinUCB` remains the fastest learned controller on tail latency, but pays the highest welfare gap (`2.1694`) among the learned baselines.
+- `TinyMLP` improves fills, but still leaves retail surplus negative and keeps arbitrage capture high.
+- `OfflineContextual` is the most balanced learned baseline in the current repo: it keeps p99 far below burst-aware, cuts price impact below both `LinUCB` and `TinyMLP`, and brings queue advantage close to the batch-style heuristics.
 
-## Step API
+## Welfare / Behavior Metrics
 
-The simulator now exposes a step-wise control surface:
+The benchmark now reports more than proxy fairness signals. In addition to queue advantage and arbitrage-profit proxy, the simulator tracks:
 
-- `Reset()`
-- `Observe()`
-- `Step()`
-- `Metrics()`
+- `retail_surplus_per_unit`
+- `arbitrageur_surplus_per_unit`
+- `retail_adverse_selection_rate`
+- `welfare_dispersion`
+- `surplus_transfer_gap`
 
-The repository also includes an adapter layer:
+These metrics are computed per fill from the ex post surplus implied by the synthetic fundamental. They are written into both `MetricsSnapshot` and `BenchmarkResult`, propagated into multi-seed aggregates, and used by the learned-controller reward layer.
 
-- `NewAdapter(cfg)` for scenario-backed environment construction
-- `Reset()` returning observation, metrics, reward, done, and info
-- `Step(action)` with:
-  - batch-window control
-  - risk-scale control
-  - tie-break toggle
-  - release-cadence control
-  - price-aggression bias
-- `ActionSpec()` advertising which controls a scenario supports
+## Sweeps
 
-Current policy baselines:
+The benchmark now exposes three sweep families:
 
-- `Policy-BurstAware-100-250ms`
-  - hand-written controller over the expanded adapter action space
-  - settles on slower windows and better fairness-adjacent proxy scores
-- `Policy-LearnedLinUCB-100-250ms`
-  - contextual linear bandit over discrete action bundles and normalized observation features
-  - optimizes toward stronger latency/fill outcomes, not fairness-adjacent proxy minima
-- `Policy-LearnedTinyMLP-100-250ms`
-  - small two-layer policy network with burst-aware supervised warm-start and gradient-based policy updates
-  - improves on burst-aware tail latency, but now exposes a sharper impact / arbitrage tradeoff than the earlier search-based version
+1. `parameter_grid_profile`
+- arbitrageur intensity `{0, 1, 2, 3}`
+- maker quote width `{1, 2, 3}`
 
-## Ablation and Sweep Snapshot
+2. `parameter_cube_profile`
+- retail intensity `{1, 2, 3}`
+- informed intensity `{1, 2, 3}`
+- maker quote width `{1, 2, 3}`
 
-From `docs/benchmarks/simulator_ablation_profile.json` over seeds `[13, 17, 19, 23]`:
+3. `parameter_hypercube_profile`
+- arbitrageur intensity `{0, 1, 2, 3}`
+- retail intensity `{1, 2, 3}`
+- informed intensity `{1, 2, 3}`
+- maker quote width `{1, 2, 3}`
 
-- `Ablation-RelaxedRisk`: `1770.24 orders/s`, `0` risk rejections
-- `Ablation-RandomTieBreak`: `p99 402.50 ms`, worse tail than control `320.00 ms`
-- `Ablation-NoSettlementChecks`: no throughput gain over control
+Selected hypercube observations from `docs/benchmarks/simulator_parameter_hypercube_profile.json` over seeds `[101, 103, 107, 109]`:
 
-From `docs/benchmarks/simulator_agent_ablation_profile.json` over seeds `[43, 47, 53, 59]`:
-
-- `AgentAblation-NoArbitrageurs`: drives arbitrage-profit proxy to `0.00`
-- `AgentSweep-RetailBurst`: pushes throughput to `2532.94 orders/s`
-- `AgentSweep-ArbIntensityHigh`: raises arbitrage-profit proxy to `1730.75`
-- `AgentSweep-MakersWide`: pushes p99 out to `485.00 ms`
-
-From `docs/benchmarks/simulator_parameter_grid_profile.json` over seeds `[61, 67, 71, 73]`:
-
-- arbitrageur intensity and maker quote width now have a full `4 x 3` grid
-- `Arb x3 / Maker x3` reaches `2151.00` arbitrage-profit proxy
-- `Arb x0 / Maker x1` collapses arbitrage-profit proxy to `0.00`
-- wider maker quotes systematically increase p99 and reduce fills under elevated arbitrage pressure
-
-From `docs/benchmarks/simulator_parameter_cube_profile.json` over seeds `[79, 83, 89, 97]`:
-
-- the benchmark now also exposes a full `3 x 3 x 3` cube over retail intensity, informed intensity, and maker quote width
-- `Retail x3 / Informed x3 / Maker x1` reaches `2292.86 orders/s` and `1159.92 fills/s`
-- `Maker x3` systematically compresses fills inside each retail slice, even when orders/s continues to rise
-- the cube keeps arbitrage-profit proxy in a tighter band than the arbitrage-specific grid, which helps separate throughput stress from latency-arbitrage stress
+- `(arb=0, retail=1, informed=2, maker=1)`: `1350.60 orders/s`, arb profit `0.00`, welfare gap `0.2376`
+- `(arb=3, retail=1, informed=2, maker=1)`: `1542.86 orders/s`, arb profit `1982.00`, welfare gap `1.2839`
+- `(arb=0, retail=3, informed=2, maker=1)`: `2147.02 orders/s`, `1105.75 fills/s`, welfare gap `0.1335`
+- `(arb=3, retail=3, informed=2, maker=3)`: `2291.67 orders/s`, `1005.95 fills/s`, retail adverse `0.5434`, welfare gap `1.8005`
 
 ## Visualizations
 
-Generated from `docs/benchmarks/simulator_multiseed_profile.json`:
+Generated by `scripts/generate_neurips_figures.py`:
 
 ![Throughput comparison](figures/throughput.svg)
 
 ![Latency profile](figures/latency.svg)
 
 ![Fairness proxy comparison](figures/fairness.svg)
+
+![Welfare and behavior comparison](figures/welfare.svg)
 
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
@@ -166,23 +130,26 @@ Full appendix figure set: `APPENDIX_FIGURES.md`
 ## Regeneration
 
 ```powershell
-$env:RUN_SIM_BENCH='1'
+$env:RUN_SIM_BENCH="1"
 go test ./simulator -run TestGenerateSimulatorBenchmarkArtifacts -v
 
-$env:RUN_SIM_BENCH_MULTI='1'
+$env:RUN_SIM_BENCH_MULTI="1"
 go test ./simulator -run TestGenerateSimulatorMultiSeedArtifacts -v
 
-$env:RUN_SIM_ABLATION='1'
+$env:RUN_SIM_ABLATION="1"
 go test ./simulator -run TestGenerateSimulatorAblationArtifacts -v
 
-$env:RUN_SIM_AGENT_ABLATION='1'
+$env:RUN_SIM_AGENT_ABLATION="1"
 go test ./simulator -run TestGenerateSimulatorAgentAblationArtifacts -v
 
-$env:RUN_SIM_GRID='1'
+$env:RUN_SIM_GRID="1"
 go test ./simulator -run TestGenerateSimulatorParameterGridArtifacts -v
 
-$env:RUN_SIM_CUBE='1'
+$env:RUN_SIM_CUBE="1"
 go test ./simulator -run TestGenerateSimulatorParameterCubeArtifacts -v
+
+$env:RUN_SIM_HYPER="1"
+go test ./simulator -run TestGenerateSimulatorParameterHypercubeArtifacts -v
 
 python scripts/generate_neurips_figures.py
 ```

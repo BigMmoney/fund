@@ -22,10 +22,11 @@ const (
 type PolicyController string
 
 const (
-	PolicyNone           PolicyController = ""
-	PolicyBurstAware     PolicyController = "burst_aware"
-	PolicyLearnedLinUCB  PolicyController = "learned_linucb"
-	PolicyLearnedTinyMLP PolicyController = "learned_tiny_mlp"
+	PolicyNone                     PolicyController = ""
+	PolicyBurstAware               PolicyController = "burst_aware"
+	PolicyLearnedLinUCB            PolicyController = "learned_linucb"
+	PolicyLearnedTinyMLP           PolicyController = "learned_tiny_mlp"
+	PolicyLearnedOfflineContextual PolicyController = "learned_offline_contextual"
 )
 
 type AgentClass string
@@ -130,48 +131,58 @@ type Observation struct {
 }
 
 type MetricsSnapshot struct {
-	OrdersSubmitted           int     `json:"orders_submitted"`
-	OrdersAccepted            int     `json:"orders_accepted"`
-	Fills                     int     `json:"fills"`
-	AverageSpread             float64 `json:"average_spread"`
-	AveragePriceImpact        float64 `json:"average_price_impact"`
-	QueuePriorityAdvantage    float64 `json:"queue_priority_advantage"`
-	LatencyArbitrageProfit    float64 `json:"latency_arbitrage_profit"`
-	ExecutionDispersion       float64 `json:"execution_dispersion"`
-	NegativeBalanceViolations int     `json:"negative_balance_violations"`
-	ConservationBreaches      int     `json:"conservation_breaches"`
-	RiskRejections            int     `json:"risk_rejections"`
+	OrdersSubmitted            int     `json:"orders_submitted"`
+	OrdersAccepted             int     `json:"orders_accepted"`
+	Fills                      int     `json:"fills"`
+	AverageSpread              float64 `json:"average_spread"`
+	AveragePriceImpact         float64 `json:"average_price_impact"`
+	QueuePriorityAdvantage     float64 `json:"queue_priority_advantage"`
+	LatencyArbitrageProfit     float64 `json:"latency_arbitrage_profit"`
+	ExecutionDispersion        float64 `json:"execution_dispersion"`
+	RetailSurplusPerUnit       float64 `json:"retail_surplus_per_unit"`
+	ArbitrageurSurplusPerUnit  float64 `json:"arbitrageur_surplus_per_unit"`
+	RetailAdverseSelectionRate float64 `json:"retail_adverse_selection_rate"`
+	WelfareDispersion          float64 `json:"welfare_dispersion"`
+	SurplusTransferGap         float64 `json:"surplus_transfer_gap"`
+	NegativeBalanceViolations  int     `json:"negative_balance_violations"`
+	ConservationBreaches       int     `json:"conservation_breaches"`
+	RiskRejections             int     `json:"risk_rejections"`
 }
 
 type StepResult struct {
-	Observation Observation    `json:"observation"`
+	Observation Observation     `json:"observation"`
 	Metrics     MetricsSnapshot `json:"metrics"`
 }
 
 type BenchmarkResult struct {
-	Name                      string        `json:"name"`
-	Mode                      MatchingMode  `json:"mode"`
-	BatchWindowMs             int           `json:"batch_window_ms"`
-	SpeedBumpMs               int           `json:"speed_bump_ms"`
-	AdaptiveWindowMinMs       int           `json:"adaptive_window_min_ms"`
-	AdaptiveWindowMaxMs       int           `json:"adaptive_window_max_ms"`
-	AdaptiveWindowMeanMs      float64       `json:"adaptive_window_mean_ms"`
-	Seed                      int64         `json:"seed"`
-	OrdersSubmitted           int           `json:"orders_submitted"`
-	OrdersAccepted            int           `json:"orders_accepted"`
-	Fills                     int           `json:"fills"`
-	OrdersPerSec              float64       `json:"orders_per_sec"`
-	FillsPerSec               float64       `json:"fills_per_sec"`
-	P50LatencyMs              float64       `json:"p50_latency_ms"`
-	P95LatencyMs              float64       `json:"p95_latency_ms"`
-	P99LatencyMs              float64       `json:"p99_latency_ms"`
-	AverageSpread             float64       `json:"average_spread"`
-	AveragePriceImpact        float64       `json:"average_price_impact"`
-	QueuePriorityAdvantage    float64       `json:"queue_priority_advantage"`
-	LatencyArbitrageProfit    float64       `json:"latency_arbitrage_profit"`
-	ExecutionDispersion       float64       `json:"execution_dispersion"`
-	NegativeBalanceViolations int           `json:"negative_balance_violations"`
-	ConservationBreaches      int           `json:"conservation_breaches"`
-	RiskRejections            int           `json:"risk_rejections"`
-	Elapsed                   time.Duration `json:"-"`
+	Name                       string        `json:"name"`
+	Mode                       MatchingMode  `json:"mode"`
+	BatchWindowMs              int           `json:"batch_window_ms"`
+	SpeedBumpMs                int           `json:"speed_bump_ms"`
+	AdaptiveWindowMinMs        int           `json:"adaptive_window_min_ms"`
+	AdaptiveWindowMaxMs        int           `json:"adaptive_window_max_ms"`
+	AdaptiveWindowMeanMs       float64       `json:"adaptive_window_mean_ms"`
+	Seed                       int64         `json:"seed"`
+	OrdersSubmitted            int           `json:"orders_submitted"`
+	OrdersAccepted             int           `json:"orders_accepted"`
+	Fills                      int           `json:"fills"`
+	OrdersPerSec               float64       `json:"orders_per_sec"`
+	FillsPerSec                float64       `json:"fills_per_sec"`
+	P50LatencyMs               float64       `json:"p50_latency_ms"`
+	P95LatencyMs               float64       `json:"p95_latency_ms"`
+	P99LatencyMs               float64       `json:"p99_latency_ms"`
+	AverageSpread              float64       `json:"average_spread"`
+	AveragePriceImpact         float64       `json:"average_price_impact"`
+	QueuePriorityAdvantage     float64       `json:"queue_priority_advantage"`
+	LatencyArbitrageProfit     float64       `json:"latency_arbitrage_profit"`
+	ExecutionDispersion        float64       `json:"execution_dispersion"`
+	RetailSurplusPerUnit       float64       `json:"retail_surplus_per_unit"`
+	ArbitrageurSurplusPerUnit  float64       `json:"arbitrageur_surplus_per_unit"`
+	RetailAdverseSelectionRate float64       `json:"retail_adverse_selection_rate"`
+	WelfareDispersion          float64       `json:"welfare_dispersion"`
+	SurplusTransferGap         float64       `json:"surplus_transfer_gap"`
+	NegativeBalanceViolations  int           `json:"negative_balance_violations"`
+	ConservationBreaches       int           `json:"conservation_breaches"`
+	RiskRejections             int           `json:"risk_rejections"`
+	Elapsed                    time.Duration `json:"-"`
 }

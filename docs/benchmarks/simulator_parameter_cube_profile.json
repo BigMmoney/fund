@@ -16,7 +16,11 @@
       "mean_queue_priority_advantage": 0.006041126289683618,
       "ci95_queue_priority_advantage": 0.024321962770323433,
       "mean_latency_arbitrage_profit": 508.5,
-      "ci95_latency_arbitrage_profit": 170.7599030803192
+      "ci95_latency_arbitrage_profit": 170.7599030803192,
+      "mean_retail_surplus_per_unit": -0.00788498394642409,
+      "ci95_retail_surplus_per_unit": 0.1984819032294333,
+      "mean_retail_adverse_selection_rate": 0.3986359239938878,
+      "ci95_retail_adverse_selection_rate": 0.06989660469778007
     },
     {
       "retail_intensity_multiplier": 1,
@@ -34,7 +38,11 @@
       "mean_queue_priority_advantage": 0.01318422802084751,
       "ci95_queue_priority_advantage": 0.03062484624020927,
       "mean_latency_arbitrage_profit": 508.25,
-      "ci95_latency_arbitrage_profit": 156.21608071834345
+      "ci95_latency_arbitrage_profit": 156.21608071834345,
+      "mean_retail_surplus_per_unit": -0.42951851388357787,
+      "ci95_retail_surplus_per_unit": 0.4000970820961363,
+      "mean_retail_adverse_selection_rate": 0.43294460382942274,
+      "ci95_retail_adverse_selection_rate": 0.07582802762391505
     },
     {
       "retail_intensity_multiplier": 1,
@@ -52,7 +60,11 @@
       "mean_queue_priority_advantage": 0.012658138010034264,
       "ci95_queue_priority_advantage": 0.02294031902346308,
       "mean_latency_arbitrage_profit": 470.25,
-      "ci95_latency_arbitrage_profit": 189.10492874327733
+      "ci95_latency_arbitrage_profit": 189.10492874327733,
+      "mean_retail_surplus_per_unit": -0.37051879871430926,
+      "ci95_retail_surplus_per_unit": 0.08796367458414298,
+      "mean_retail_adverse_selection_rate": 0.4811216892031659,
+      "ci95_retail_adverse_selection_rate": 0.047587912153681404
     },
     {
       "retail_intensity_multiplier": 1,
@@ -70,7 +82,11 @@
       "mean_queue_priority_advantage": 0.0011960838206815094,
       "ci95_queue_priority_advantage": 0.04187090003213308,
       "mean_latency_arbitrage_profit": 489.25,
-      "ci95_latency_arbitrage_profit": 169.9083390390242
+      "ci95_latency_arbitrage_profit": 169.9083390390242,
+      "mean_retail_surplus_per_unit": -0.2261994287640448,
+      "ci95_retail_surplus_per_unit": 0.3012421675573548,
+      "mean_retail_adverse_selection_rate": 0.4208206183826086,
+      "ci95_retail_adverse_selection_rate": 0.07306051997346336
     },
     {
       "retail_intensity_multiplier": 1,
@@ -88,7 +104,11 @@
       "mean_queue_priority_advantage": -0.01266307485729104,
       "ci95_queue_priority_advantage": 0.04252782007720518,
       "mean_latency_arbitrage_profit": 461,
-      "ci95_latency_arbitrage_profit": 148.78097795081197
+      "ci95_latency_arbitrage_profit": 148.78097795081197,
+      "mean_retail_surplus_per_unit": -0.5875365290050505,
+      "ci95_retail_surplus_per_unit": 0.34915663628352506,
+      "mean_retail_adverse_selection_rate": 0.4305359729001485,
+      "ci95_retail_adverse_selection_rate": 0.06136959891738978
     },
     {
       "retail_intensity_multiplier": 1,
@@ -106,7 +126,11 @@
       "mean_queue_priority_advantage": -0.005508187379204915,
       "ci95_queue_priority_advantage": 0.022537554086229886,
       "mean_latency_arbitrage_profit": 446,
-      "ci95_latency_arbitrage_profit": 166.99297769666842
+      "ci95_latency_arbitrage_profit": 166.99297769666842,
+      "mean_retail_surplus_per_unit": -0.45236932985990236,
+      "ci95_retail_surplus_per_unit": 0.4109897027581929,
+      "mean_retail_adverse_selection_rate": 0.4777045169354347,
+      "ci95_retail_adverse_selection_rate": 0.014913602415611387
     },
     {
       "retail_intensity_multiplier": 1,
@@ -124,7 +148,11 @@
       "mean_queue_priority_advantage": 0.022220173562819467,
       "ci95_queue_priority_advantage": 0.04095985194927979,
       "mean_latency_arbitrage_profit": 445.75,
-      "ci95_latency_arbitrage_profit": 200.51884269314942
+      "ci95_latency_arbitrage_profit": 200.51884269314942,
+      "mean_retail_surplus_per_unit": -0.12710132397476703,
+      "ci95_retail_surplus_per_unit": 0.17198163506889674,
+      "mean_retail_adverse_selection_rate": 0.4131266068089622,
+      "ci95_retail_adverse_selection_rate": 0.08817887736479615
     },
     {
       "retail_intensity_multiplier": 1,
@@ -142,7 +170,11 @@
       "mean_queue_priority_advantage": 0.01325163483578956,
       "ci95_queue_priority_advantage": 0.049147980086076314,
       "mean_latency_arbitrage_profit": 432,
-      "ci95_latency_arbitrage_profit": 158.06127103120485
+      "ci95_latency_arbitrage_profit": 158.06127103120485,
+      "mean_retail_surplus_per_unit": -0.24241549834969678,
+      "ci95_retail_surplus_per_unit": 0.30246015278139304,
+      "mean_retail_adverse_selection_rate": 0.41709342536679805,
+      "ci95_retail_adverse_selection_rate": 0.04825834931526612
     },
     {
       "retail_intensity_multiplier": 1,
@@ -160,7 +192,11 @@
       "mean_queue_priority_advantage": -0.0010481617391043807,
       "ci95_queue_priority_advantage": 0.03832284854708309,
       "mean_latency_arbitrage_profit": 413.5,
-      "ci95_latency_arbitrage_profit": 165.96250088498908
+      "ci95_latency_arbitrage_profit": 165.96250088498908,
+      "mean_retail_surplus_per_unit": -0.41368819154407016,
+      "ci95_retail_surplus_per_unit": 0.2208121513878642,
+      "mean_retail_adverse_selection_rate": 0.4480683666599175,
+      "ci95_retail_adverse_selection_rate": 0.04667411550639971
     },
     {
       "retail_intensity_multiplier": 2,
@@ -178,7 +214,11 @@
       "mean_queue_priority_advantage": 0.026042807300664272,
       "ci95_queue_priority_advantage": 0.02443952355608058,
       "mean_latency_arbitrage_profit": 554.75,
-      "ci95_latency_arbitrage_profit": 157.36764049511578
+      "ci95_latency_arbitrage_profit": 157.36764049511578,
+      "mean_retail_surplus_per_unit": -0.15920814896100868,
+      "ci95_retail_surplus_per_unit": 0.1521491841629877,
+      "mean_retail_adverse_selection_rate": 0.4211849968891527,
+      "ci95_retail_adverse_selection_rate": 0.12119650646888175
     },
     {
       "retail_intensity_multiplier": 2,
@@ -196,7 +236,11 @@
       "mean_queue_priority_advantage": 0.026626505683038204,
       "ci95_queue_priority_advantage": 0.02581190495881242,
       "mean_latency_arbitrage_profit": 524.25,
-      "ci95_latency_arbitrage_profit": 190.70051514088786
+      "ci95_latency_arbitrage_profit": 190.70051514088786,
+      "mean_retail_surplus_per_unit": -0.35609517340422275,
+      "ci95_retail_surplus_per_unit": 0.3002108159489778,
+      "mean_retail_adverse_selection_rate": 0.45211839862857894,
+      "ci95_retail_adverse_selection_rate": 0.07961734999577234
     },
     {
       "retail_intensity_multiplier": 2,
@@ -214,7 +258,11 @@
       "mean_queue_priority_advantage": 0.021771388317064683,
       "ci95_queue_priority_advantage": 0.022132153664411458,
       "mean_latency_arbitrage_profit": 465,
-      "ci95_latency_arbitrage_profit": 160.0898316571043
+      "ci95_latency_arbitrage_profit": 160.0898316571043,
+      "mean_retail_surplus_per_unit": -0.47731414784571846,
+      "ci95_retail_surplus_per_unit": 0.20596246891480433,
+      "mean_retail_adverse_selection_rate": 0.4607817049873039,
+      "ci95_retail_adverse_selection_rate": 0.0809764045708073
     },
     {
       "retail_intensity_multiplier": 2,
@@ -232,7 +280,11 @@
       "mean_queue_priority_advantage": 0.018973305765662807,
       "ci95_queue_priority_advantage": 0.03321008337444215,
       "mean_latency_arbitrage_profit": 526.25,
-      "ci95_latency_arbitrage_profit": 130.3388486791256
+      "ci95_latency_arbitrage_profit": 130.3388486791256,
+      "mean_retail_surplus_per_unit": -0.24288446231358654,
+      "ci95_retail_surplus_per_unit": 0.16370352577217262,
+      "mean_retail_adverse_selection_rate": 0.4289868676364248,
+      "ci95_retail_adverse_selection_rate": 0.05770667879008707
     },
     {
       "retail_intensity_multiplier": 2,
@@ -250,7 +302,11 @@
       "mean_queue_priority_advantage": 0.02415985139023999,
       "ci95_queue_priority_advantage": 0.049230156716916426,
       "mean_latency_arbitrage_profit": 497,
-      "ci95_latency_arbitrage_profit": 163.1619067061917
+      "ci95_latency_arbitrage_profit": 163.1619067061917,
+      "mean_retail_surplus_per_unit": -0.45913385391823724,
+      "ci95_retail_surplus_per_unit": 0.2918760610553611,
+      "mean_retail_adverse_selection_rate": 0.39590252959072136,
+      "ci95_retail_adverse_selection_rate": 0.08721983741712072
     },
     {
       "retail_intensity_multiplier": 2,
@@ -268,7 +324,11 @@
       "mean_queue_priority_advantage": 0.01957464221899921,
       "ci95_queue_priority_advantage": 0.049924247364941846,
       "mean_latency_arbitrage_profit": 414,
-      "ci95_latency_arbitrage_profit": 123.49361036102232
+      "ci95_latency_arbitrage_profit": 123.49361036102232,
+      "mean_retail_surplus_per_unit": -0.5828152041752818,
+      "ci95_retail_surplus_per_unit": 0.22556651900941696,
+      "mean_retail_adverse_selection_rate": 0.44047030667875053,
+      "ci95_retail_adverse_selection_rate": 0.07018150765892076
     },
     {
       "retail_intensity_multiplier": 2,
@@ -286,7 +346,11 @@
       "mean_queue_priority_advantage": 0.02294827027817109,
       "ci95_queue_priority_advantage": 0.04388172689737481,
       "mean_latency_arbitrage_profit": 507,
-      "ci95_latency_arbitrage_profit": 153.1357796205707
+      "ci95_latency_arbitrage_profit": 153.1357796205707,
+      "mean_retail_surplus_per_unit": -0.37709241042012304,
+      "ci95_retail_surplus_per_unit": 0.31980631730288883,
+      "mean_retail_adverse_selection_rate": 0.4579370511646429,
+      "ci95_retail_adverse_selection_rate": 0.03937843659622661
     },
     {
       "retail_intensity_multiplier": 2,
@@ -304,7 +368,11 @@
       "mean_queue_priority_advantage": 0.021131076886281436,
       "ci95_queue_priority_advantage": 0.04288994338681481,
       "mean_latency_arbitrage_profit": 461,
-      "ci95_latency_arbitrage_profit": 128.09728412421552
+      "ci95_latency_arbitrage_profit": 128.09728412421552,
+      "mean_retail_surplus_per_unit": -0.5075152873855671,
+      "ci95_retail_surplus_per_unit": 0.38243839284745196,
+      "mean_retail_adverse_selection_rate": 0.4382465173473161,
+      "ci95_retail_adverse_selection_rate": 0.06309255673208068
     },
     {
       "retail_intensity_multiplier": 2,
@@ -322,7 +390,11 @@
       "mean_queue_priority_advantage": 0.005781940005077202,
       "ci95_queue_priority_advantage": 0.045729212006767106,
       "mean_latency_arbitrage_profit": 420.25,
-      "ci95_latency_arbitrage_profit": 117.94530035147648
+      "ci95_latency_arbitrage_profit": 117.94530035147648,
+      "mean_retail_surplus_per_unit": -0.7077799410825867,
+      "ci95_retail_surplus_per_unit": 0.4889796265259109,
+      "mean_retail_adverse_selection_rate": 0.4711020113441525,
+      "ci95_retail_adverse_selection_rate": 0.09239560860352003
     },
     {
       "retail_intensity_multiplier": 3,
@@ -340,7 +412,11 @@
       "mean_queue_priority_advantage": 0.032604624452242686,
       "ci95_queue_priority_advantage": 0.013044356498506953,
       "mean_latency_arbitrage_profit": 549.25,
-      "ci95_latency_arbitrage_profit": 207.055441548876
+      "ci95_latency_arbitrage_profit": 207.055441548876,
+      "mean_retail_surplus_per_unit": -0.15196059613406998,
+      "ci95_retail_surplus_per_unit": 0.13637781960221537,
+      "mean_retail_adverse_selection_rate": 0.41659282253719054,
+      "ci95_retail_adverse_selection_rate": 0.07660477771306196
     },
     {
       "retail_intensity_multiplier": 3,
@@ -358,7 +434,11 @@
       "mean_queue_priority_advantage": 0.03111647008326987,
       "ci95_queue_priority_advantage": 0.019505174522892976,
       "mean_latency_arbitrage_profit": 509.75,
-      "ci95_latency_arbitrage_profit": 211.48524316131372
+      "ci95_latency_arbitrage_profit": 211.48524316131372,
+      "mean_retail_surplus_per_unit": -0.32095247295800533,
+      "ci95_retail_surplus_per_unit": 0.17693691644455173,
+      "mean_retail_adverse_selection_rate": 0.4236252737706244,
+      "ci95_retail_adverse_selection_rate": 0.07516702028114881
     },
     {
       "retail_intensity_multiplier": 3,
@@ -376,7 +456,11 @@
       "mean_queue_priority_advantage": 0.039003128305094226,
       "ci95_queue_priority_advantage": 0.02351291262823262,
       "mean_latency_arbitrage_profit": 486.25,
-      "ci95_latency_arbitrage_profit": 217.432358389914
+      "ci95_latency_arbitrage_profit": 217.432358389914,
+      "mean_retail_surplus_per_unit": -0.38162706179989103,
+      "ci95_retail_surplus_per_unit": 0.24411578574072867,
+      "mean_retail_adverse_selection_rate": 0.4253711764167655,
+      "ci95_retail_adverse_selection_rate": 0.07980616167829034
     },
     {
       "retail_intensity_multiplier": 3,
@@ -394,7 +478,11 @@
       "mean_queue_priority_advantage": 0.005232295491301053,
       "ci95_queue_priority_advantage": 0.02453033292234892,
       "mean_latency_arbitrage_profit": 489,
-      "ci95_latency_arbitrage_profit": 157.4143589384399
+      "ci95_latency_arbitrage_profit": 157.4143589384399,
+      "mean_retail_surplus_per_unit": -0.1904507157520356,
+      "ci95_retail_surplus_per_unit": 0.1486502743581334,
+      "mean_retail_adverse_selection_rate": 0.4011445920837923,
+      "ci95_retail_adverse_selection_rate": 0.04358694848478674
     },
     {
       "retail_intensity_multiplier": 3,
@@ -412,7 +500,11 @@
       "mean_queue_priority_advantage": 0.004694098017782172,
       "ci95_queue_priority_advantage": 0.04122178468007241,
       "mean_latency_arbitrage_profit": 501.5,
-      "ci95_latency_arbitrage_profit": 176.9334295716895
+      "ci95_latency_arbitrage_profit": 176.9334295716895,
+      "mean_retail_surplus_per_unit": -0.3585729248887266,
+      "ci95_retail_surplus_per_unit": 0.2300485810410031,
+      "mean_retail_adverse_selection_rate": 0.4290962106418718,
+      "ci95_retail_adverse_selection_rate": 0.07517527667481239
     },
     {
       "retail_intensity_multiplier": 3,
@@ -430,7 +522,11 @@
       "mean_queue_priority_advantage": 0.005359607641123282,
       "ci95_queue_priority_advantage": 0.03245323641444848,
       "mean_latency_arbitrage_profit": 460.25,
-      "ci95_latency_arbitrage_profit": 209.45465398266995
+      "ci95_latency_arbitrage_profit": 209.45465398266995,
+      "mean_retail_surplus_per_unit": -0.4845058747686737,
+      "ci95_retail_surplus_per_unit": 0.27191680453244366,
+      "mean_retail_adverse_selection_rate": 0.4320572185997893,
+      "ci95_retail_adverse_selection_rate": 0.08102456650795152
     },
     {
       "retail_intensity_multiplier": 3,
@@ -448,7 +544,11 @@
       "mean_queue_priority_advantage": 0.0076849192031170355,
       "ci95_queue_priority_advantage": 0.03679294310118475,
       "mean_latency_arbitrage_profit": 501.5,
-      "ci95_latency_arbitrage_profit": 153.0204963395427
+      "ci95_latency_arbitrage_profit": 153.0204963395427,
+      "mean_retail_surplus_per_unit": -0.19277399011235252,
+      "ci95_retail_surplus_per_unit": 0.07022230110034537,
+      "mean_retail_adverse_selection_rate": 0.4391660641340661,
+      "ci95_retail_adverse_selection_rate": 0.047746822294129077
     },
     {
       "retail_intensity_multiplier": 3,
@@ -466,7 +566,11 @@
       "mean_queue_priority_advantage": 0.010805010732847925,
       "ci95_queue_priority_advantage": 0.04656706126716193,
       "mean_latency_arbitrage_profit": 489,
-      "ci95_latency_arbitrage_profit": 174.23203895954384
+      "ci95_latency_arbitrage_profit": 174.23203895954384,
+      "mean_retail_surplus_per_unit": -0.3083815626812899,
+      "ci95_retail_surplus_per_unit": 0.18569057955533694,
+      "mean_retail_adverse_selection_rate": 0.40593815449132914,
+      "ci95_retail_adverse_selection_rate": 0.05378296583431303
     },
     {
       "retail_intensity_multiplier": 3,
@@ -484,7 +588,11 @@
       "mean_queue_priority_advantage": 0.02240168080015384,
       "ci95_queue_priority_advantage": 0.035819095956726436,
       "mean_latency_arbitrage_profit": 461.75,
-      "ci95_latency_arbitrage_profit": 175.49167181094379
+      "ci95_latency_arbitrage_profit": 175.49167181094379,
+      "mean_retail_surplus_per_unit": -0.4057491757550895,
+      "ci95_retail_surplus_per_unit": 0.03659171616272616,
+      "mean_retail_adverse_selection_rate": 0.427242957544072,
+      "ci95_retail_adverse_selection_rate": 0.07770843225336023
     }
   ],
   "seeds": [

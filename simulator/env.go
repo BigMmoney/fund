@@ -9,35 +9,35 @@ import (
 )
 
 type Environment struct {
-	cfg                   ScenarioConfig
-	rng                   *rand.Rand
-	fundamentals          []int64
-	agents                map[string]AgentConfig
-	accounts              map[string]AccountState
-	initialCash           int64
-	initialUnits          int64
-	buys                  []Order
-	sells                 []Order
-	pending               []pendingOrder
-	seq                   int64
-	metricAcc             *metricAccumulator
-	ordersSubmitted       int
-	ordersAccepted        int
-	fills                 []Fill
-	latencies             []time.Duration
-	riskRejections        int
-	negViolations         int
-	conservationHits      int
-	maxActiveStep         int
-	currentStep           int
-	done                  bool
-	currentBatchWindow    int
-	batchCycleSteps       int
-	lastStepAccepted      int
-	adaptiveWindowHistory []int
-	runtimeRiskScale      float64
-	runtimeRandomTieBreak bool
-	runtimeReleaseCadence int
+	cfg                    ScenarioConfig
+	rng                    *rand.Rand
+	fundamentals           []int64
+	agents                 map[string]AgentConfig
+	accounts               map[string]AccountState
+	initialCash            int64
+	initialUnits           int64
+	buys                   []Order
+	sells                  []Order
+	pending                []pendingOrder
+	seq                    int64
+	metricAcc              *metricAccumulator
+	ordersSubmitted        int
+	ordersAccepted         int
+	fills                  []Fill
+	latencies              []time.Duration
+	riskRejections         int
+	negViolations          int
+	conservationHits       int
+	maxActiveStep          int
+	currentStep            int
+	done                   bool
+	currentBatchWindow     int
+	batchCycleSteps        int
+	lastStepAccepted       int
+	adaptiveWindowHistory  []int
+	runtimeRiskScale       float64
+	runtimeRandomTieBreak  bool
+	runtimeReleaseCadence  int
 	runtimePriceAggression int64
 }
 
@@ -125,17 +125,22 @@ func (e *Environment) Observe() Observation {
 
 func (e *Environment) Metrics() MetricsSnapshot {
 	return MetricsSnapshot{
-		OrdersSubmitted:           e.ordersSubmitted,
-		OrdersAccepted:            e.ordersAccepted,
-		Fills:                     len(e.fills),
-		AverageSpread:             e.metricAcc.averageSpread(),
-		AveragePriceImpact:        e.metricAcc.averagePriceImpact(),
-		QueuePriorityAdvantage:    e.metricAcc.queuePriorityAdvantage(),
-		LatencyArbitrageProfit:    e.metricAcc.ArbProfit,
-		ExecutionDispersion:       e.metricAcc.executionDispersion(),
-		NegativeBalanceViolations: e.negViolations,
-		ConservationBreaches:      e.conservationHits,
-		RiskRejections:            e.riskRejections,
+		OrdersSubmitted:            e.ordersSubmitted,
+		OrdersAccepted:             e.ordersAccepted,
+		Fills:                      len(e.fills),
+		AverageSpread:              e.metricAcc.averageSpread(),
+		AveragePriceImpact:         e.metricAcc.averagePriceImpact(),
+		QueuePriorityAdvantage:     e.metricAcc.queuePriorityAdvantage(),
+		LatencyArbitrageProfit:     e.metricAcc.ArbProfit,
+		ExecutionDispersion:        e.metricAcc.executionDispersion(),
+		RetailSurplusPerUnit:       e.metricAcc.retailSurplusPerUnit(),
+		ArbitrageurSurplusPerUnit:  e.metricAcc.arbitrageurSurplusPerUnit(),
+		RetailAdverseSelectionRate: e.metricAcc.retailAdverseSelectionRate(),
+		WelfareDispersion:          e.metricAcc.welfareDispersion(),
+		SurplusTransferGap:         e.metricAcc.surplusTransferGap(),
+		NegativeBalanceViolations:  e.negViolations,
+		ConservationBreaches:       e.conservationHits,
+		RiskRejections:             e.riskRejections,
 	}
 }
 
@@ -184,31 +189,36 @@ func (e *Environment) benchmarkResult(elapsed time.Duration) BenchmarkResult {
 	}
 	minAdaptiveMs, maxAdaptiveMs, meanAdaptiveMs := e.adaptiveWindowStats()
 	return BenchmarkResult{
-		Name:                      e.cfg.Name,
-		Mode:                      e.cfg.Mode,
-		BatchWindowMs:             int(e.cfg.StepDuration.Milliseconds()) * e.cfg.BatchWindowSteps,
-		SpeedBumpMs:               int(e.cfg.StepDuration.Milliseconds()) * e.cfg.SpeedBumpSteps,
-		AdaptiveWindowMinMs:       minAdaptiveMs,
-		AdaptiveWindowMaxMs:       maxAdaptiveMs,
-		AdaptiveWindowMeanMs:      meanAdaptiveMs,
-		Seed:                      e.cfg.Seed,
-		OrdersSubmitted:           e.ordersSubmitted,
-		OrdersAccepted:            e.ordersAccepted,
-		Fills:                     len(e.fills),
-		OrdersPerSec:              benchmark.ComputeThroughput(e.ordersAccepted, time.Duration(activeSteps)*e.cfg.StepDuration),
-		FillsPerSec:               benchmark.ComputeThroughput(len(e.fills), time.Duration(activeSteps)*e.cfg.StepDuration),
-		P50LatencyMs:              stats.P50Ms,
-		P95LatencyMs:              stats.P95Ms,
-		P99LatencyMs:              stats.P99Ms,
-		AverageSpread:             e.metricAcc.averageSpread(),
-		AveragePriceImpact:        e.metricAcc.averagePriceImpact(),
-		QueuePriorityAdvantage:    e.metricAcc.queuePriorityAdvantage(),
-		LatencyArbitrageProfit:    e.metricAcc.ArbProfit,
-		ExecutionDispersion:       e.metricAcc.executionDispersion(),
-		NegativeBalanceViolations: e.negViolations,
-		ConservationBreaches:      e.conservationHits,
-		RiskRejections:            e.riskRejections,
-		Elapsed:                   elapsed,
+		Name:                       e.cfg.Name,
+		Mode:                       e.cfg.Mode,
+		BatchWindowMs:              int(e.cfg.StepDuration.Milliseconds()) * e.cfg.BatchWindowSteps,
+		SpeedBumpMs:                int(e.cfg.StepDuration.Milliseconds()) * e.cfg.SpeedBumpSteps,
+		AdaptiveWindowMinMs:        minAdaptiveMs,
+		AdaptiveWindowMaxMs:        maxAdaptiveMs,
+		AdaptiveWindowMeanMs:       meanAdaptiveMs,
+		Seed:                       e.cfg.Seed,
+		OrdersSubmitted:            e.ordersSubmitted,
+		OrdersAccepted:             e.ordersAccepted,
+		Fills:                      len(e.fills),
+		OrdersPerSec:               benchmark.ComputeThroughput(e.ordersAccepted, time.Duration(activeSteps)*e.cfg.StepDuration),
+		FillsPerSec:                benchmark.ComputeThroughput(len(e.fills), time.Duration(activeSteps)*e.cfg.StepDuration),
+		P50LatencyMs:               stats.P50Ms,
+		P95LatencyMs:               stats.P95Ms,
+		P99LatencyMs:               stats.P99Ms,
+		AverageSpread:              e.metricAcc.averageSpread(),
+		AveragePriceImpact:         e.metricAcc.averagePriceImpact(),
+		QueuePriorityAdvantage:     e.metricAcc.queuePriorityAdvantage(),
+		LatencyArbitrageProfit:     e.metricAcc.ArbProfit,
+		ExecutionDispersion:        e.metricAcc.executionDispersion(),
+		RetailSurplusPerUnit:       e.metricAcc.retailSurplusPerUnit(),
+		ArbitrageurSurplusPerUnit:  e.metricAcc.arbitrageurSurplusPerUnit(),
+		RetailAdverseSelectionRate: e.metricAcc.retailAdverseSelectionRate(),
+		WelfareDispersion:          e.metricAcc.welfareDispersion(),
+		SurplusTransferGap:         e.metricAcc.surplusTransferGap(),
+		NegativeBalanceViolations:  e.negViolations,
+		ConservationBreaches:       e.conservationHits,
+		RiskRejections:             e.riskRejections,
+		Elapsed:                    elapsed,
 	}
 }
 
@@ -225,7 +235,7 @@ func (e *Environment) runStep(step int) {
 	acceptedThisStep := 0
 	generated := make([]Order, 0, len(e.cfg.Agents)*2)
 	for _, agent := range e.cfg.Agents {
-			orders := generateOrdersForAgent(agent, step, e.fundamentals, e.rng, &e.seq, e.accounts[agent.ID], e.runtimePriceAggression)
+		orders := generateOrdersForAgent(agent, step, e.fundamentals, e.rng, &e.seq, e.accounts[agent.ID], e.runtimePriceAggression)
 		for _, order := range orders {
 			e.ordersSubmitted++
 			e.metricAcc.addSubmitted(order.Class, order.Amount)
@@ -257,10 +267,10 @@ func (e *Environment) runStep(step int) {
 				sortSellBook(&e.sells)
 			}
 		case ModeSpeedBump:
-				e.pending = append(e.pending, pendingOrder{
-					ReleaseStep: step + e.effectiveReleaseCadence(maxInt(1, e.cfg.SpeedBumpSteps)),
-					Order:       order,
-				})
+			e.pending = append(e.pending, pendingOrder{
+				ReleaseStep: step + e.effectiveReleaseCadence(maxInt(1, e.cfg.SpeedBumpSteps)),
+				Order:       order,
+			})
 		}
 	}
 

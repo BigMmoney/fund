@@ -10,6 +10,7 @@ ABLATION_PATH = ROOT / "docs" / "benchmarks" / "simulator_ablation_profile.json"
 AGENT_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_agent_ablation_profile.json"
 GRID_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_grid_profile.json"
 CUBE_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_cube_profile.json"
+HYPER_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_profile.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
 
 
@@ -58,7 +59,11 @@ def bar_chart_with_ci(
     left, right, top, bottom = 90, 40, 70, 90
     chart_w = width - left - right
     chart_h = height - top - bottom
-    max_value = max(max(v + c for v, c in zip(values, cis)) for _, _, values, cis in series) * 1.12
+    max_value = max(max(v + c for v, c in zip(values, cis)) for _, _, values, cis in series)
+    min_value = min(min(v - c for v, c in zip(values, cis)) for _, _, values, cis in series)
+    max_value = max(max_value * 1.12, 1.0)
+    min_value = min(min_value * 1.12, 0.0)
+    value_span = max(max_value - min_value, 1e-6)
     group_w = chart_w / len(categories)
     bar_w = group_w / (len(series) + 1)
     body = [f'<text class="title" x="{left}" y="38">{title}</text>']
@@ -67,28 +72,34 @@ def bar_chart_with_ci(
     for i in range(6):
         y = top + chart_h * i / 5
         body.append(f'<line class="grid" x1="{left}" y1="{y:.1f}" x2="{left+chart_w}" y2="{y:.1f}"/>')
-        value = max_value * (5 - i) / 5
-        body.append(f'<text class="label" x="12" y="{y+4:.1f}">{value:.0f}</text>')
+        value = max_value - value_span * i / 5
+        body.append(f'<text class="label" x="12" y="{y+4:.1f}">{value:.1f}</text>')
 
     body.append(f'<line class="axis" x1="{left}" y1="{top}" x2="{left}" y2="{top+chart_h}"/>')
-    body.append(f'<line class="axis" x1="{left}" y1="{top+chart_h}" x2="{left+chart_w}" y2="{top+chart_h}"/>')
+    zero_y = top + chart_h - ((0 - min_value) / value_span) * chart_h
+    body.append(f'<line class="axis" x1="{left}" y1="{zero_y:.1f}" x2="{left+chart_w}" y2="{zero_y:.1f}"/>')
 
     for idx, category in enumerate(categories):
         base_x = left + idx * group_w
         for s_idx, (_, color, values, cis) in enumerate(series):
             value = values[idx]
             ci = cis[idx]
-            bar_h = (value / max_value) * chart_h
+            bar_h = abs(value) / value_span * chart_h
             x = base_x + bar_w * (s_idx + 0.5)
-            y = top + chart_h - bar_h
+            if value >= 0:
+                y = zero_y - bar_h
+            else:
+                y = zero_y
             cx = x + bar_w * 0.4
             body.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w*0.8:.1f}" height="{bar_h:.1f}" fill="{color}" rx="8"/>')
-            hi_y = top + chart_h - ((value + ci) / max_value) * chart_h
-            lo_y = top + chart_h - ((max(value - ci, 0)) / max_value) * chart_h
+            hi_y = top + chart_h - (((value + ci) - min_value) / value_span) * chart_h
+            lo_y = top + chart_h - (((value - ci) - min_value) / value_span) * chart_h
             body.append(f'<line class="err" x1="{cx:.1f}" y1="{hi_y:.1f}" x2="{cx:.1f}" y2="{lo_y:.1f}"/>')
             body.append(f'<line class="err" x1="{cx-7:.1f}" y1="{hi_y:.1f}" x2="{cx+7:.1f}" y2="{hi_y:.1f}"/>')
             body.append(f'<line class="err" x1="{cx-7:.1f}" y1="{lo_y:.1f}" x2="{cx+7:.1f}" y2="{lo_y:.1f}"/>')
-            body.append(f'<text class="value" x="{cx:.1f}" y="{max(hi_y-10, top+12):.1f}" text-anchor="middle">{value:.1f}</text>')
+            label_y = hi_y - 10 if value >= 0 else lo_y + 18
+            label_y = max(top + 12, min(top + chart_h - 8, label_y))
+            body.append(f'<text class="value" x="{cx:.1f}" y="{label_y:.1f}" text-anchor="middle">{value:.2f}</text>')
         body.append(f'<text class="label" x="{base_x+group_w/2:.1f}" y="{top+chart_h+28}" text-anchor="middle">{category}</text>')
 
     legend_x = width - 250
@@ -205,6 +216,7 @@ def generate() -> None:
     agent_sweeps = load_named_results(AGENT_SWEEP_PATH)
     grid_sweep = load_named_results(GRID_SWEEP_PATH)
     cube_sweep = load_named_results(CUBE_SWEEP_PATH)
+    hyper_sweep = load_named_results(HYPER_SWEEP_PATH)
     categories = []
     for r in results:
         label = r["name"].replace("Immediate-Surrogate", "Immediate")
@@ -256,6 +268,27 @@ def generate() -> None:
         categories,
         FIG_DIR / "fairness.svg",
         "Scaled proxy value",
+    )
+
+    bar_chart_with_ci(
+        "Welfare and Behavior Metrics (95% CI)",
+        [
+            (
+                "Retail Surplus / unit",
+                "#34d399",
+                [r["mean_retail_surplus_per_unit"] for r in results],
+                [r["ci95_retail_surplus_per_unit"] for r in results],
+            ),
+            (
+                "Retail Adverse Rate",
+                "#f59e0b",
+                [r["mean_retail_adverse_selection_rate"] for r in results],
+                [r["ci95_retail_adverse_selection_rate"] for r in results],
+            ),
+        ],
+        categories,
+        FIG_DIR / "welfare.svg",
+        "Per-unit welfare and adverse-selection rate",
     )
 
     bar_chart_with_ci(
@@ -374,6 +407,46 @@ def generate() -> None:
             informed_levels,
             FIG_DIR / f"cube_arb_retail{retail}.svg",
             "Rows: informed-flow intensity, columns: maker quote width",
+        )
+
+    hyper_arb_levels = sorted({r["arbitrageur_intensity_multiplier"] for r in hyper_sweep})
+    hyper_retail_levels = sorted({r["retail_intensity_multiplier"] for r in hyper_sweep})
+    hyper_maker_levels = sorted({r["maker_quote_width_multiplier"] for r in hyper_sweep})
+    fixed_informed = 2
+    for arb in hyper_arb_levels:
+        hyper_slice = [
+            r for r in hyper_sweep
+            if r["arbitrageur_intensity_multiplier"] == arb and r["informed_intensity_multiplier"] == fixed_informed
+        ]
+        hyper_p99 = {
+            (r["retail_intensity_multiplier"], r["maker_quote_width_multiplier"]): (
+                r["mean_p99_latency_ms"],
+                r["ci95_p99_latency_ms"],
+            )
+            for r in hyper_slice
+        }
+        hyper_welfare = {
+            (r["retail_intensity_multiplier"], r["maker_quote_width_multiplier"]): (
+                r["mean_surplus_transfer_gap"],
+                r["ci95_surplus_transfer_gap"],
+            )
+            for r in hyper_slice
+        }
+        heatmap_chart(
+            f"Hypercube: p99 Heatmap (Arb x{arb}, Informed x{fixed_informed})",
+            hyper_p99,
+            hyper_maker_levels,
+            hyper_retail_levels,
+            FIG_DIR / f"hyper_p99_arb{arb}.svg",
+            "Rows: retail-flow intensity, columns: maker quote width",
+        )
+        heatmap_chart(
+            f"Hypercube: Welfare Gap (Arb x{arb}, Informed x{fixed_informed})",
+            hyper_welfare,
+            hyper_maker_levels,
+            hyper_retail_levels,
+            FIG_DIR / f"hyper_welfare_arb{arb}.svg",
+            "Rows: retail-flow intensity, columns: maker quote width",
         )
 
 

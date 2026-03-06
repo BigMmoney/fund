@@ -2,30 +2,32 @@
 
 ## Abstract
 
-We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while mechanism changes induce clear latency and market-quality tradeoffs. The result is a benchmark draft for market-infrastructure research that is separate from the original systems-paper line and is intended as a foundation for stronger benchmark-style evaluation.
+We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. In addition to throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies, the benchmark now reports welfare and behavior signals including retail surplus per traded unit, retail adverse-selection rate, welfare dispersion, and surplus-transfer gap. The current version exposes a step-wise `Reset/Step/Observe/Metrics` API, an adapter-driven control surface, four policy baselines including an offline contextual controller, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. Across all measured runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare tradeoffs.
 
 ## 1. Introduction
 
-Electronic markets are shaped jointly by matching rules, latency structure, and settlement semantics. Frequent batch auction arguments motivate short batching windows as a response to latency-driven distortions in continuous markets. In practice, however, many evaluation artifacts study matching rules in isolation and do not explicitly couple them to settlement safety, replay behavior, or account-state correctness.
+Electronic markets are shaped jointly by matching rules, latency structure, and settlement semantics. Frequent batch auction arguments motivate short batching windows as a response to latency-driven distortions in continuous markets. In practice, however, evaluation artifacts often study matching rules in isolation and do not explicitly couple them to settlement safety, replay behavior, or account-state correctness.
 
-This manuscript defines a benchmark-oriented layer on top of an existing ledger-first market-infrastructure prototype. The goal is not to replace the original systems paper. The goal is to establish a reusable evaluation environment in which mechanism comparisons are made under explicit settlement constraints.
+This manuscript defines a benchmark-oriented layer on top of an existing ledger-first market-infrastructure prototype. The goal is not to replace the original systems paper. The goal is to establish a reusable evaluation environment in which mechanism comparisons and controller experiments are made under explicit settlement constraints and richer welfare measurements.
 
-The current benchmark line makes four concrete contributions:
+The current benchmark line makes five concrete contributions:
 
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-2. It provides a seedable multi-agent order-flow generator with four agent classes, twelve benchmark scenarios, explicit agent/workload sweeps, a full parameter grid over arbitrage intensity and maker quote width, and a three-dimensional parameter cube over retail intensity, informed intensity, and maker quote width.
-3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
-4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a gym-style adapter with five runtime control channels, three adapter-driven policy baselines, documented observation/action/metrics schemas, and ablation suites for both market-structure toggles and agent/workload perturbations.
+2. It provides a seedable multi-agent order-flow generator with four agent classes, thirteen benchmark scenarios, explicit agent/workload sweeps, and a unified four-dimensional stress surface over arbitrage, retail, informed, and maker-width multipliers.
+3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, arbitrage-profit proxy, and welfare/behavior metrics.
+4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a gym-style adapter with five runtime control channels, and four adapter-driven controllers, including a stronger offline contextual policy baseline.
+5. It preserves executable settlement invariants across all published artifacts, so controller improvements are evaluated under non-negativity and conservation constraints rather than in a matching-only simulator.
 
 ## 2. Research Question
 
-Can a ledger-aware benchmark environment make market-design tradeoffs measurable under realistic settlement constraints, instead of evaluating matching mechanisms in isolation?
+Can a ledger-aware benchmark environment make market-design and controller tradeoffs measurable under realistic settlement constraints, instead of evaluating matching mechanisms in isolation?
 
-The current artifact focuses on three concrete questions:
+The current artifact focuses on four concrete questions:
 
-1. How do immediate, speed-bump, adaptive, and batch execution regimes differ in latency and fill behavior?
+1. How do immediate, speed-bump, adaptive, and fixed-batch execution regimes differ in latency and fill behavior?
 2. Can fairness-adjacent proxies such as queue-priority advantage and arbitrage profit be measured in a reproducible environment?
-3. Do settlement invariants remain intact while the environment is stressed with heterogeneous agents and burstier order flow?
+3. Do welfare/behavior metrics such as retail surplus and adverse selection reveal controller tradeoffs that proxy metrics alone miss?
+4. Do settlement invariants remain intact while the environment is stressed with heterogeneous agents, burstier order flow, and higher-dimensional workload sweeps?
 
 ## 3. Problem Setting
 
@@ -43,7 +45,7 @@ Each scenario fixes:
 - risk thresholds
 - a population of agents
 
-The current artifact is not a learning benchmark in the narrow sense of supplying a reward function for a trained policy. Instead, it produces a structured set of metrics that later work can optimize against.
+The present artifact is benchmark-first rather than method-first. It provides a structured set of metrics and a controller interaction surface that later policy-learning work can optimize against.
 
 ## 4. Environment Design
 
@@ -53,17 +55,18 @@ The benchmark environment lives in `simulator/` and consists of:
 - `agents.go`: market-maker, retail, informed, and latency-arbitrageur order generation
 - `matching.go`: immediate, speed-bump, adaptive, and batch-clearing execution paths
 - `env.go`: state progression, settlement application, and invariant checks
-- `metrics.go`: market-quality and fairness-proxy measurements
+- `metrics.go`: market-quality, fairness-proxy, and welfare/behavior measurements
+- `adapter.go`: reward-bearing timesteps, control actions, and learned-controller baselines
 - `benchmark_test.go`: deterministic regression and artifact generation
 
-The environment also exposes a step-wise control surface:
+The environment exposes:
 
 - `Reset()`
 - `Observe()`
 - `Step()`
 - `Metrics()`
 
-On top of that control surface, the repository now includes an adapter layer that returns reward-bearing timesteps and advertises per-scenario action support. In the current version, the adapter exposes five explicit control channels:
+On top of that control surface, the repository now includes an adapter layer with five explicit runtime control channels:
 
 - batch-window override for adaptive scenarios
 - risk-limit scaling
@@ -71,7 +74,7 @@ On top of that control surface, the repository now includes an adapter layer tha
 - release-cadence control
 - price-aggression bias
 
-The design keeps ledger correctness in the loop. Benchmark results are only accepted if generated scenarios preserve:
+Benchmark results are only accepted if generated scenarios preserve:
 
 - conservation of cash and inventory
 - non-negative account balances and units
@@ -79,18 +82,18 @@ The design keeps ledger correctness in the loop. Benchmark results are only acce
 
 ## 5. Agent Models
 
-The current environment includes four agent classes:
+The environment includes four agent classes:
 
 - market makers
 - latency arbitrageurs
 - retail traders
 - informed traders
 
-These agents are deliberately simple. They are not intended to be a full behavioral model of real markets. Their purpose is to create heterogeneous and controllable order flow so that matching rules can be compared under a repeatable workload.
+These agents are intentionally simple. They are not intended as a full behavioral model of real markets. Their purpose is to create heterogeneous and controllable order flow so that matching rules and controller choices can be compared under a repeatable workload.
 
 ## 6. Tasks and Baselines
 
-The current benchmark suite exposes twelve scenarios:
+The current benchmark suite exposes thirteen scenarios:
 
 1. `Immediate-Surrogate`
 2. `SpeedBump-50ms`
@@ -103,15 +106,27 @@ The current benchmark suite exposes twelve scenarios:
 9. `Policy-BurstAware-100-250ms`
 10. `Policy-LearnedLinUCB-100-250ms`
 11. `Policy-LearnedTinyMLP-100-250ms`
-12. `FBA-250ms-Stress`
+12. `Policy-LearnedOfflineContextual-100-250ms`
+13. `FBA-250ms-Stress`
 
-These are not yet a complete NeurIPS-scale benchmark suite, but they are sufficient to establish a reproducible baseline for future agent-control or adaptive-window work.
+The controller suite now contains:
 
-The benchmark now includes three heuristic adaptive-window baselines and three adapter-driven policy controllers. The burst-aware controller is hand-written. The learned baselines are a contextual linear bandit and a small two-layer policy network with burst-aware supervised warm-start and gradient-based policy updates over the same discrete action bundle set.
+- a hand-written burst-aware baseline
+- a contextual linear bandit baseline
+- a gradient-trained TinyMLP baseline
+- an offline contextual controller trained from logged trajectories generated by burst-aware, LinUCB, TinyMLP, and random behavior policies
+
+The discrete action bundle shared by the learned controllers includes:
+
+- batch window
+- risk scale
+- tie-break mode
+- release cadence
+- price aggression
 
 ## 7. Metrics
 
-The current artifact reports four groups of signals.
+The artifact reports five groups of signals.
 
 ### 7.1 Systems Metrics
 
@@ -130,7 +145,17 @@ The current artifact reports four groups of signals.
 - latency-arbitrage profit
 - execution dispersion across agent classes
 
-### 7.4 Safety Metrics
+### 7.4 Welfare / Behavior Metrics
+
+- retail surplus per traded unit
+- arbitrageur surplus per traded unit
+- retail adverse-selection rate
+- welfare dispersion
+- surplus-transfer gap
+
+These metrics are computed directly from realized fills against the synthetic fundamental and are not simple rescalings of queue or arbitrage proxies.
+
+### 7.5 Safety Metrics
 
 - negative-balance violations
 - conservation breaches
@@ -147,13 +172,9 @@ The aggregate profile uses seeds:
 
 `[7, 11, 19, 23, 29, 31, 37, 41]`
 
+The mechanism ablation suite uses `[13, 17, 19, 23]`. The agent/workload sweep uses `[43, 47, 53, 59]`. The parameter grid uses `[61, 67, 71, 73]`. The parameter cube uses `[79, 83, 89, 97]`. The unified hypercube uses `[101, 103, 107, 109]`.
+
 All reported scenarios use the same simulator implementation and differ only in matching mode, batch-window size, seed, and population intensity. The current setup uses a discrete-time step duration of `10 ms`.
-
-The repository also materializes three figure assets for the current aggregate profile:
-
-- `docs/neurips_track/figures/throughput.svg`
-- `docs/neurips_track/figures/latency.svg`
-- `docs/neurips_track/figures/fairness.svg`
 
 ## 9. Current Results
 
@@ -164,32 +185,26 @@ We report two layers of results:
 
 ### 9.1 Multi-Seed Summary
 
-| Scenario | Runs | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Immediate-Surrogate | 8 | 1348.23 +/- 3.99 | 813.12 +/- 18.47 | 10.00 +/- 0.00 | 10.00 +/- 0.00 | 10.00 +/- 0.00 | 1.98 +/- 0.17 | 3.38 +/- 0.23 | 0.0742 +/- 0.0078 | 669.62 +/- 34.30 |
-| SpeedBump-50ms | 8 | 1294.30 +/- 3.84 | 780.60 +/- 17.73 | 60.00 +/- 0.00 | 60.00 +/- 0.00 | 60.00 +/- 0.00 | 1.96 +/- 0.17 | 5.96 +/- 0.22 | 0.0742 +/- 0.0078 | 1346.25 +/- 59.17 |
-| FBA-100ms | 8 | 1337.09 +/- 3.96 | 798.66 +/- 21.71 | 46.25 +/- 3.35 | 100.00 +/- 0.00 | 146.25 +/- 35.83 | 1.00 +/- 0.00 | 5.96 +/- 0.41 | 0.0571 +/- 0.0219 | 1015.75 +/- 44.06 |
-| FBA-250ms | 8 | 1337.60 +/- 3.88 | 686.41 +/- 17.80 | 97.50 +/- 4.58 | 300.00 +/- 56.08 | 452.50 +/- 16.16 | 1.00 +/- 0.00 | 5.36 +/- 0.60 | 0.0273 +/- 0.0182 | 627.25 +/- 107.67 |
-| FBA-500ms | 8 | 1338.82 +/- 3.24 | 626.90 +/- 19.72 | 213.75 +/- 24.48 | 505.00 +/- 30.40 | 835.00 +/- 84.37 | 1.00 +/- 0.00 | 5.08 +/- 1.17 | 0.0341 +/- 0.0191 | 827.62 +/- 294.22 |
-| Adaptive-100-250ms | 8 | 1337.60 +/- 3.88 | 714.29 +/- 22.20 | 81.25 +/- 6.42 | 236.25 +/- 10.92 | 360.00 +/- 69.38 | 1.00 +/- 0.00 | 4.71 +/- 0.49 | 0.0375 +/- 0.0165 | 522.00 +/- 86.23 |
-| Adaptive-OrderFlow-100-250ms | 8 | 1337.60 +/- 3.88 | 671.43 +/- 15.81 | 90.00 +/- 4.90 | 247.50 +/- 6.71 | 406.25 +/- 46.22 | 1.00 +/- 0.00 | 5.93 +/- 0.42 | 0.0244 +/- 0.0209 | 746.75 +/- 115.27 |
-| Adaptive-QueueLoad-100-250ms | 8 | 1337.60 +/- 3.88 | 691.57 +/- 27.02 | 90.00 +/- 7.75 | 261.25 +/- 44.83 | 386.25 +/- 65.09 | 1.00 +/- 0.00 | 4.88 +/- 0.59 | 0.0375 +/- 0.0239 | 624.25 +/- 56.37 |
-| Policy-BurstAware-100-250ms | 8 | 1338.89 +/- 2.97 | 670.83 +/- 28.54 | 98.75 +/- 4.15 | 263.75 +/- 47.63 | 400.00 +/- 57.25 | 1.00 +/- 0.00 | 5.31 +/- 0.52 | 0.0305 +/- 0.0214 | 621.00 +/- 94.21 |
-| Policy-LearnedLinUCB-100-250ms | 8 | 1337.60 +/- 3.88 | 745.24 +/- 34.21 | 47.50 +/- 3.00 | 101.25 +/- 2.29 | 158.75 +/- 15.66 | 1.00 +/- 0.00 | 5.94 +/- 0.40 | 0.0447 +/- 0.0223 | 959.62 +/- 63.59 |
-| Policy-LearnedTinyMLP-100-250ms | 8 | 1338.39 +/- 2.62 | 689.78 +/- 28.40 | 58.75 +/- 2.29 | 220.00 +/- 37.32 | 305.00 +/- 49.00 | 1.00 +/- 0.00 | 8.86 +/- 0.51 | 0.0278 +/- 0.0214 | 1229.00 +/- 108.83 |
-| FBA-250ms-Stress | 8 | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
+| Scenario | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit | Retail Surplus | Retail Adverse | Welfare Gap |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Immediate-Surrogate | 1348.23 +/- 3.99 | 813.13 +/- 18.47 | 10.00 +/- 0.00 | 3.38 +/- 0.23 | 0.0742 +/- 0.0078 | 669.63 +/- 34.30 | -0.3710 +/- 0.1264 | 0.5109 +/- 0.0183 | 2.0430 +/- 0.2444 |
+| FBA-250ms | 1337.60 +/- 3.88 | 686.41 +/- 17.80 | 452.50 +/- 16.16 | 5.36 +/- 0.60 | 0.0273 +/- 0.0182 | 627.25 +/- 107.67 | -0.3493 +/- 0.1951 | 0.5105 +/- 0.0268 | 0.8896 +/- 0.8264 |
+| Adaptive-100-250ms | 1337.60 +/- 3.88 | 714.29 +/- 22.20 | 360.00 +/- 69.38 | 4.71 +/- 0.49 | 0.0375 +/- 0.0165 | 522.00 +/- 86.23 | -0.1508 +/- 0.1950 | 0.4562 +/- 0.0682 | 0.0278 +/- 0.6078 |
+| Policy-BurstAware-100-250ms | 1338.89 +/- 2.97 | 670.83 +/- 28.54 | 400.00 +/- 57.25 | 5.31 +/- 0.52 | 0.0305 +/- 0.0214 | 621.00 +/- 94.21 | -0.2258 +/- 0.2212 | 0.5019 +/- 0.0203 | 0.7579 +/- 0.7681 |
+| Policy-LearnedLinUCB-100-250ms | 1337.60 +/- 3.88 | 755.65 +/- 27.48 | 155.00 +/- 17.32 | 5.90 +/- 0.37 | 0.0513 +/- 0.0254 | 976.63 +/- 68.56 | 0.0795 +/- 0.1353 | 0.4690 +/- 0.0231 | 2.1694 +/- 0.7433 |
+| Policy-LearnedTinyMLP-100-250ms | 1337.60 +/- 3.88 | 769.35 +/- 20.85 | 221.25 +/- 57.40 | 5.22 +/- 0.41 | 0.0336 +/- 0.0256 | 856.13 +/- 107.16 | -0.3128 +/- 0.1535 | 0.4924 +/- 0.0238 | 1.9719 +/- 0.8498 |
+| Policy-LearnedOfflineContextual-100-250ms | 1337.40 +/- 3.91 | 762.80 +/- 36.22 | 215.00 +/- 47.25 | 4.94 +/- 0.57 | 0.0294 +/- 0.0156 | 771.25 +/- 113.73 | -0.1090 +/- 0.1191 | 0.4980 +/- 0.0237 | 1.3769 +/- 0.8055 |
+| FBA-250ms-Stress | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 373.75 +/- 70.24 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 | -0.1494 +/- 0.1905 | 0.4995 +/- 0.0234 | 0.3805 +/- 0.8714 |
 
 ### 9.2 Observations
 
-- Immediate execution retains the lowest latency profile, with `10 ms` mean p50, p95, and p99 under the current discrete-time simulator.
-- The `50 ms` speed-bump baseline introduces a fixed `60 ms` latency profile and lower throughput (`1294.30 +/- 3.84 orders/s`) while keeping the immediate-style queue-priority-advantage proxy (`0.0742 +/- 0.0078`).
-- The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and the speed-bump baseline, and `0.0571 +/- 0.0219` for `100 ms` batches.
-- The balanced adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`.
-- The burst-aware policy controller saturates the mean window at `250.00 ms`, yielding lower queue-priority advantage (`0.0305 +/- 0.0214`) and lower arbitrage-profit proxy (`621.00 +/- 94.21`) than the learned controller, but at much higher latency tails.
-- The learned LinUCB controller collapses to a fast control policy (`100.00 ms` mean window), improving fills (`745.24 +/- 34.21`) and reducing p99 to `158.75 +/- 15.66 ms`, but worsening queue-priority advantage (`0.0447 +/- 0.0223`) and arbitrage-profit proxy (`959.62 +/- 63.59`) relative to the burst-aware controller.
-- The gradient-trained TinyMLP controller settles at a slower `200.00 ms` mean window, slightly improves fills over burst-aware (`689.78 +/- 28.40` versus `670.83 +/- 28.54`), and reduces p99 to `305.00 +/- 49.00 ms`, but it also pays materially higher price impact (`8.86 +/- 0.51`) and arbitrage-profit proxy (`1229.00 +/- 108.83`) than either burst-aware or LinUCB.
-- The stress scenario increases throughput to `1769.25 +/- 6.04 orders/s` and fill throughput to `900.50 +/- 23.67 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
-- Across all `12 x 8 = 96` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
+- Immediate execution retains the lowest latency profile, but it also carries the widest spread (`1.98 +/- 0.17`) and a high welfare gap (`2.0430 +/- 0.2444`).
+- The `50 ms` speed-bump baseline raises latency without reducing queue advantage; it keeps `0.0742 +/- 0.0078` queue advantage and worsens welfare gap to `4.1034 +/- 0.3793`.
+- The fixed `250 ms` batch regime lowers queue advantage to `0.0273 +/- 0.0182` and compresses welfare gap relative to immediate execution, but it gives up substantial tail latency.
+- The balanced adaptive heuristic is the best fixed logic in the current repo on combined welfare terms: it keeps price impact low (`4.71 +/- 0.49`), reduces arbitrage-profit proxy to `522.00 +/- 86.23`, and nearly closes the welfare gap (`0.0278 +/- 0.6078`).
+- `Policy-LearnedLinUCB-100-250ms` is still best on tail latency (`155.00 +/- 17.32 ms`) and strong on fill throughput, but it does so by widening queue advantage and surplus-transfer gap.
+- `Policy-LearnedTinyMLP-100-250ms` improves fills further, but leaves both retail surplus and welfare gap worse than the offline contextual baseline.
+- `Policy-LearnedOfflineContextual-100-250ms` is the strongest balanced learned baseline in the current repo: compared with `LinUCB`, it gives up some tail latency but cuts price impact (`4.94` versus `5.90`), lowers queue advantage (`0.0294` versus `0.0513`), lowers arbitrage-profit proxy (`771.25` versus `976.63`), and shrinks the welfare gap (`1.3769` versus `2.1694`).
 
 ### 9.3 Visual Summary
 
@@ -199,6 +214,8 @@ We report two layers of results:
 
 ![Fairness proxy comparison](figures/fairness.svg)
 
+![Welfare and behavior comparison](figures/welfare.svg)
+
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
 ![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
@@ -207,7 +224,7 @@ We report two layers of results:
 
 ![Parameter-grid arbitrage heatmap](figures/grid_arb_heatmap.svg)
 
-The full appendix figure set, including the three-dimensional cube slices, is collected in `APPENDIX_FIGURES.md`.
+The full appendix figure set, including cube and hypercube slices, is collected in `APPENDIX_FIGURES.md`.
 
 ### 9.4 Mechanism Ablation Snapshot
 
@@ -220,11 +237,7 @@ From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]
 | Ablation-RandomTieBreak | 1190.48 | 595.63 | 402.50 | -0.0540 | 738.50 | 2908 | 0 |
 | Ablation-NoSettlementChecks | 1190.48 | 605.36 | 320.00 | -0.0509 | 685.25 | 2922 | 0 |
 
-These ablations show three concrete effects:
-
-- relaxing risk limits sharply increases throughput and removes rejections, but it also lifts the arbitrage-profit proxy
-- randomizing tie-breaks worsens the latency tail and slightly reduces fill throughput under the stressed constrained setup
-- disabling settlement checks does not improve throughput in this setup, so invariant enforcement is not the dominant bottleneck
+These ablations show that relaxing risk limits is not a free lunch: it raises throughput, but also sharply increases arbitrage capture.
 
 ### 9.5 Agent and Workload Sweep Snapshot
 
@@ -240,64 +253,50 @@ From `docs/benchmarks/simulator_agent_ablation_profile.*` over seeds `[43, 47, 5
 | AgentSweep-InformedIntensityHigh | 1426.79 | 724.01 | 360.00 | 5.62 | 0.0111 | 685.50 |
 | AgentSweep-MakersWide | 1343.25 | 595.63 | 485.00 | 5.81 | 0.0469 | 754.50 |
 
-These sweeps make the benchmark more than a mechanism toggle suite:
+The sweeps make clear that the benchmark is sensitive to population composition and workload intensity, not only to the matching rule.
 
-- removing arbitrageurs collapses arbitrage-profit proxy to `0.00` and flips queue advantage negative
-- doubling arbitrage intensity raises arbitrage-profit proxy to `1730.75` while reducing p99 to `302.50 ms`
-- widening maker quotes pushes p99 to `485.00 ms` and reduces fills to `595.63`
-- increasing informed intensity raises throughput modestly while keeping arbitrage-profit proxy much closer to control than the arbitrage sweep
+### 9.6 Parameter Grid, Cube, and Unified Hypercube
 
-### 9.6 Parameter Grid Snapshot
+The benchmark now exposes three sensitivity surfaces:
 
-From `docs/benchmarks/simulator_parameter_grid_profile.*` over seeds `[61, 67, 71, 73]`, the benchmark now exposes a full `4 x 3` parameter grid:
+- a `4 x 3` arbitrage x maker grid
+- a `3 x 3 x 3` retail x informed x maker cube
+- a unified `4 x 3 x 3 x 3` hypercube over arbitrage, retail, informed, and maker width
 
-- arbitrageur intensity multiplier `{0, 1, 2, 3}`
-- maker quote-width multiplier `{1, 2, 3}`
+Selected hypercube cells from `docs/benchmarks/simulator_parameter_hypercube_profile.*` over seeds `[101, 103, 107, 109]`:
 
-This grid shows three concrete effects:
+| Arb | Retail | Informed | Maker Width | Orders/s | Fills/s | p99 (ms) | Arb Profit | Retail Surplus | Retail Adverse | Welfare Gap |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1 | 2 | 1 | 1350.60 | 676.39 | 412.50 | 0.00 | -0.2376 | 0.4963 | 0.2376 |
+| 3 | 1 | 2 | 1 | 1542.86 | 806.94 | 362.50 | 1982.00 | -0.5444 | 0.4823 | 1.2839 |
+| 0 | 3 | 2 | 1 | 2147.02 | 1105.75 | 397.50 | 0.00 | -0.1335 | 0.4819 | 0.1335 |
+| 3 | 3 | 2 | 3 | 2291.67 | 1005.95 | 402.50 | 2285.50 | -0.4598 | 0.5434 | 1.8005 |
 
-- removing arbitrageurs collapses the arbitrage-profit proxy to `0.00` across the entire first row and flips queue advantage strongly negative
-- increasing arbitrage intensity from `1` to `3` consistently raises throughput and arbitrage-profit proxy, reaching `2151.00 +/- 392.11` in the `(arb=3, maker=3)` cell
-- wider maker quotes raise p99 tails and suppress fills, especially once arbitrage pressure is already elevated
-
-### 9.7 Parameter Cube Snapshot
-
-From `docs/benchmarks/simulator_parameter_cube_profile.*` over seeds `[79, 83, 89, 97]`, the benchmark now also exposes a full `3 x 3 x 3` cube over:
-
-- retail intensity multiplier `{1, 2, 3}`
-- informed intensity multiplier `{1, 2, 3}`
-- maker quote-width multiplier `{1, 2, 3}`
-
-This cube shows three useful effects:
-
-- retail intensity is the strongest throughput lever in the current cube, pushing orders/s from `1339.68` in `(retail=1, informed=1, maker=1)` to `2132.54` in `(retail=3, informed=1, maker=1)`
-- informed intensity adds fills on top of retail pressure, reaching `2292.86 orders/s` and `1159.92 fills/s` in `(retail=3, informed=3, maker=1)`
-- wider maker quotes systematically suppress fills inside each retail slice; for example, under `(retail=3, informed=3)`, fills fall from `1159.92` at `maker=1` to `956.75` at `maker=3`
+These cells show that higher throughput does not imply better welfare. Adding arbitrage pressure widens the surplus-transfer gap even when p99 falls, while high retail intensity alone mainly loads throughput and fills.
 
 ## 10. Limitations
 
-The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
+The current artifact is stronger than the earlier benchmark draft, but it is still short of a mature top-tier benchmark submission. The most important limitations are:
 
-- proxy fairness metrics rather than richer behavioral or welfare metrics
-- the adapter action space is still narrow compared with a full exchange-control environment
-- the strongest learned controller is still a small gradient-trained policy network rather than a richer offline-RL or larger policy-learning setup
-- the current benchmark separates arbitrage-intensity sweeps from the retail / informed / maker cube instead of exposing a unified higher-dimensional stress surface
+- the learned-controller family is still lightweight and discrete-action
+- welfare metrics are derived from a synthetic fundamental rather than real market replay
+- the hypercube is slice-visualized rather than fully summarized in one compact figure family
+- the agent behaviors are stylized and do not yet include richer strategic adaptation
 
 ## 11. Related Work
 
-This NeurIPS-track manuscript should be treated as a separate line from the existing systems-paper manuscript in `docs/PAPER_MANUSCRIPT.md` and the original arXiv sources in `docs/arxiv/`. The systems paper argues for a ledger-first market-infrastructure design. This benchmark paper argues for a reusable evaluation environment built on top of those same settlement constraints.
+This NeurIPS-track manuscript should be treated as a separate line from the existing systems-paper manuscript in `docs/PAPER_MANUSCRIPT.md` and the original arXiv sources in `docs/arxiv/`. The systems paper argues for a ledger-first market-infrastructure design. This benchmark paper argues for a reusable evaluation environment built on top of the same settlement constraints.
 
-The benchmark is motivated by frequent-batch-auction market design and by the broader practice of reusable benchmark environments in machine learning. The present contribution sits between those two traditions: it is neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware evaluation layer.
+The benchmark is motivated directly by frequent-batch-auction market design and by the broader practice of reusable benchmark environments in machine learning. The present contribution sits between those traditions: it is neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware environment that aims to make later policy-learning work more credible.
 
 ## 12. Conclusion
 
-This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, adapter-driven policy, and batch matching regimes, while preserving executable settlement invariants.
+This NeurIPS-track benchmark line now supports a more defensible benchmark narrative than the earlier scaffold. It preserves settlement invariants, exposes a reusable interaction API, adds a stronger offline contextual baseline, expands fairness measurement into welfare/behavior signals, and merges arbitrage pressure into a unified higher-dimensional stress surface. The current results show a clear and useful tradeoff: controllers that optimize aggressively for latency and fills widen the surplus-transfer gap, while more balanced controllers can give up some tail performance to materially improve market-quality and welfare outcomes.
 
 ## 13. Next Upgrade Path
 
-To push this track toward a stronger benchmark paper:
+To push this track further:
 
-1. replace the current TinyMLP baseline with a stronger learned controller on the same action space
-2. add explicit agent-behavior experiments for queue advantage and arbitrage capture
-3. broaden the policy interface beyond batch window, risk scale, release cadence, price aggression, and tie-break toggles
-4. merge arbitrage intensity into the higher-dimensional sweep suite and keep expanding appendix-level confidence-interval plots
+1. replace the current offline contextual value model with a stronger offline-RL or compact policy-network training loop on the same action space
+2. add richer agent behavior and adaptation beyond the current stylized generators
+3. expand the hypercube into broader appendix-level sensitivity plots and summary statistics

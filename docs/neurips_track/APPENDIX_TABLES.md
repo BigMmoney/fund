@@ -6,17 +6,18 @@ This appendix summarizes the auxiliary benchmark tables used by the NeurIPS-trac
 
 Source: `docs/benchmarks/simulator_multiseed_profile.*`
 
-| Controller | Orders/s | Fills/s | Mean Window (ms) | p99 (ms) | Impact | Queue Adv. | Arb Profit |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Policy-BurstAware-100-250ms | 1338.89 | 670.83 | 250.00 | 400.00 | 5.31 | 0.0305 | 621.00 |
-| Policy-LearnedLinUCB-100-250ms | 1337.60 | 745.24 | 100.00 | 158.75 | 5.94 | 0.0447 | 959.62 |
-| Policy-LearnedTinyMLP-100-250ms | 1338.39 | 689.78 | 200.00 | 305.00 | 8.86 | 0.0278 | 1229.00 |
+| Controller | Orders/s | Fills/s | Mean Window (ms) | p99 (ms) | Impact | Queue Adv. | Arb Profit | Retail Surplus | Retail Adverse | Welfare Gap |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Policy-BurstAware-100-250ms | 1338.89 | 670.83 | 250.00 | 400.00 | 5.31 | 0.0305 | 621.00 | -0.2258 | 0.5019 | 0.7579 |
+| Policy-LearnedLinUCB-100-250ms | 1337.60 | 755.65 | 100.00 | 155.00 | 5.90 | 0.0513 | 976.63 | 0.0795 | 0.4690 | 2.1694 |
+| Policy-LearnedTinyMLP-100-250ms | 1337.60 | 769.35 | 150.00 | 221.25 | 5.22 | 0.0336 | 856.13 | -0.3128 | 0.4924 | 1.9719 |
+| Policy-LearnedOfflineContextual-100-250ms | 1337.40 | 762.80 | 138.59 | 215.00 | 4.94 | 0.0294 | 771.25 | -0.1090 | 0.4980 | 1.3769 |
 
 Interpretation:
 
-- `LinUCB` still dominates on tail latency and fill throughput.
-- the gradient-trained `TinyMLP` shifts toward slower windows, bringing queue-advantage proxy closer to the batch-style baselines.
-- that shift is not free: `TinyMLP` now pays materially higher price-impact and arbitrage-profit proxies than both burst-aware and LinUCB.
+- `LinUCB` remains best on tail latency, but it does so by widening the surplus transfer gap.
+- `TinyMLP` still improves fills, but it remains welfare-weak on retail surplus.
+- `OfflineContextual` is the most balanced learned baseline in the current repo: it keeps p99 and fills close to the learned policies while cutting impact, queue advantage, arbitrage-profit proxy, and welfare gap.
 
 ## Mechanism Ablation
 
@@ -54,18 +55,12 @@ Grid definition:
 
 Selected cells:
 
-| Arb Multiplier | Maker Width | Orders/s | Fills/s | p99 (ms) | Queue Adv. | Arb Profit |
-|---:|---:|---:|---:|---:|---:|---:|
-| 0 | 1 | 1272.42 | 612.50 | 390.00 | -0.6093 | 0.00 |
-| 1 | 1 | 1338.29 | 670.83 | 345.00 | 0.0075 | 676.00 |
-| 2 | 3 | 1404.17 | 580.75 | 462.50 | 0.0001 | 1534.25 |
-| 3 | 3 | 1470.04 | 682.54 | 462.50 | -0.0080 | 2151.00 |
-
-Interpretation:
-
-- removing arbitrageurs collapses the arbitrage-profit proxy and flips queue advantage strongly negative
-- increasing arbitrage intensity consistently raises arbitrage-profit proxy and throughput
-- wider maker quotes push p99 tails upward and reduce fills, especially once arbitrage pressure is already elevated
+| Arb Multiplier | Maker Width | Orders/s | Fills/s | p99 (ms) | Queue Adv. | Arb Profit | Retail Surplus | Retail Adverse |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1 | 1272.42 | 612.50 | 390.00 | -0.6093 | 0.00 | -0.0415 | 0.5045 |
+| 1 | 1 | 1338.29 | 670.83 | 345.00 | 0.0075 | 676.00 | -0.1160 | 0.5057 |
+| 2 | 3 | 1404.17 | 580.75 | 462.50 | 0.0001 | 1534.25 | -0.3538 | 0.4913 |
+| 3 | 3 | 1470.04 | 682.54 | 462.50 | -0.0080 | 2151.00 | -0.2109 | 0.4879 |
 
 ## Parameter Cube Sweep
 
@@ -79,15 +74,36 @@ Cube definition:
 
 Selected cells:
 
-| Retail Mult. | Informed Mult. | Maker Width | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 1 | 1 | 1339.68 | 650.60 | 400.00 | 4.40 | 0.0060 | 508.50 |
-| 1 | 3 | 1 | 1502.18 | 742.66 | 367.50 | 4.33 | 0.0222 | 445.75 |
-| 3 | 1 | 1 | 2132.54 | 1049.40 | 297.50 | 4.34 | 0.0326 | 549.25 |
-| 3 | 3 | 3 | 2292.86 | 956.75 | 397.50 | 4.10 | 0.0224 | 461.75 |
+| Retail Mult. | Informed Mult. | Maker Width | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit | Retail Surplus |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 1 | 1339.68 | 650.60 | 400.00 | 4.40 | 0.0060 | 508.50 | -0.0079 |
+| 1 | 3 | 1 | 1502.18 | 742.66 | 367.50 | 4.33 | 0.0222 | 445.75 | -0.1271 |
+| 3 | 1 | 1 | 2132.54 | 1049.40 | 297.50 | 4.34 | 0.0326 | 549.25 | -0.1520 |
+| 3 | 3 | 3 | 2292.86 | 956.75 | 397.50 | 4.10 | 0.0224 | 461.75 | -0.4057 |
+
+## Unified Hypercube Sweep
+
+Source: `docs/benchmarks/simulator_parameter_hypercube_profile.*`
+
+Hypercube definition:
+
+- arbitrageur intensity multiplier `{0, 1, 2, 3}`
+- retail intensity multiplier `{1, 2, 3}`
+- informed intensity multiplier `{1, 2, 3}`
+- maker quote-width multiplier `{1, 2, 3}`
+
+Selected cells:
+
+| Arb | Retail | Informed | Maker Width | Orders/s | Fills/s | p99 (ms) | Arb Profit | Retail Surplus | Retail Adverse | Welfare Gap |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1 | 2 | 1 | 1350.60 | 676.39 | 412.50 | 0.00 | -0.2376 | 0.4963 | 0.2376 |
+| 3 | 1 | 2 | 1 | 1542.86 | 806.94 | 362.50 | 1982.00 | -0.5444 | 0.4823 | 1.2839 |
+| 0 | 3 | 2 | 1 | 2147.02 | 1105.75 | 397.50 | 0.00 | -0.1335 | 0.4819 | 0.1335 |
+| 3 | 3 | 2 | 3 | 2291.67 | 1005.95 | 402.50 | 2285.50 | -0.4598 | 0.5434 | 1.8005 |
+| 3 | 3 | 3 | 3 | 2325.20 | 1017.86 | 310.00 | 2188.50 | -0.4978 | 0.4899 | 1.5473 |
 
 Interpretation:
 
-- retail intensity is the strongest throughput lever in the current cube, pushing orders/s from `1339.68` to `2132.54` even before informed flow is scaled
-- informed intensity adds more fills without widening arbitrage-profit proxy nearly as much as the arbitrage-specific grid
-- maker-width expansion systematically suppresses fills inside each retail slice, even when total orders/s keeps rising
+- adding arbitrage pressure widens the welfare gap even when throughput rises
+- higher retail intensity is mostly a throughput and fill-rate lever; it does not neutralize adverse selection on its own
+- the unified hypercube makes it possible to separate “high activity” from “high transfer-to-arbitrageur” regimes under one artifact family

@@ -4,95 +4,95 @@
 <text class="title" x="90" y="38">Agent and Workload Sweep Snapshot</text>
 <text class="label" x="90" y="520">Orders/s and scaled p99 latency</text>
 <line class="grid" x1="90" y1="70.0" x2="940" y2="70.0"/>
-<text class="label" x="12" y="74.0">2837</text>
+<text class="label" x="12" y="74.0">2836.9</text>
 <line class="grid" x1="90" y1="146.0" x2="940" y2="146.0"/>
-<text class="label" x="12" y="150.0">2270</text>
+<text class="label" x="12" y="150.0">2269.5</text>
 <line class="grid" x1="90" y1="222.0" x2="940" y2="222.0"/>
-<text class="label" x="12" y="226.0">1702</text>
+<text class="label" x="12" y="226.0">1702.1</text>
 <line class="grid" x1="90" y1="298.0" x2="940" y2="298.0"/>
-<text class="label" x="12" y="302.0">1135</text>
+<text class="label" x="12" y="302.0">1134.8</text>
 <line class="grid" x1="90" y1="374.0" x2="940" y2="374.0"/>
-<text class="label" x="12" y="378.0">567</text>
+<text class="label" x="12" y="378.0">567.4</text>
 <line class="grid" x1="90" y1="450.0" x2="940" y2="450.0"/>
-<text class="label" x="12" y="454.0">0</text>
+<text class="label" x="12" y="454.0">0.0</text>
 <line class="axis" x1="90" y1="70" x2="90" y2="450"/>
-<line class="axis" x1="90" y1="450" x2="940" y2="450"/>
+<line class="axis" x1="90" y1="450.0" x2="940" y2="450.0"/>
 <rect x="110.2" y="270.1" width="32.4" height="179.9" fill="#38bdf8" rx="8"/>
 <line class="err" x1="126.4" y1="270.1" x2="126.4" y2="270.1"/>
 <line class="err" x1="119.4" y1="270.1" x2="133.4" y2="270.1"/>
 <line class="err" x1="119.4" y1="270.1" x2="133.4" y2="270.1"/>
-<text class="value" x="126.4" y="260.1" text-anchor="middle">1343.3</text>
+<text class="value" x="126.4" y="260.1" text-anchor="middle">1343.25</text>
 <rect x="150.7" y="425.4" width="32.4" height="24.6" fill="#f59e0b" rx="8"/>
 <line class="err" x1="166.9" y1="425.4" x2="166.9" y2="425.4"/>
 <line class="err" x1="159.9" y1="425.4" x2="173.9" y2="425.4"/>
 <line class="err" x1="159.9" y1="425.4" x2="173.9" y2="425.4"/>
-<text class="value" x="166.9" y="415.4" text-anchor="middle">183.8</text>
+<text class="value" x="166.9" y="415.4" text-anchor="middle">183.75</text>
 <text class="label" x="150.7" y="478" text-anchor="middle">Control</text>
 <rect x="231.7" y="279.0" width="32.4" height="171.0" fill="#38bdf8" rx="8"/>
 <line class="err" x1="247.9" y1="279.0" x2="247.9" y2="279.0"/>
 <line class="err" x1="240.9" y1="279.0" x2="254.9" y2="279.0"/>
 <line class="err" x1="240.9" y1="279.0" x2="254.9" y2="279.0"/>
-<text class="value" x="247.9" y="269.0" text-anchor="middle">1276.6</text>
+<text class="value" x="247.9" y="269.0" text-anchor="middle">1276.59</text>
 <rect x="272.1" y="425.4" width="32.4" height="24.6" fill="#f59e0b" rx="8"/>
 <line class="err" x1="288.3" y1="425.4" x2="288.3" y2="425.4"/>
 <line class="err" x1="281.3" y1="425.4" x2="295.3" y2="425.4"/>
 <line class="err" x1="281.3" y1="425.4" x2="295.3" y2="425.4"/>
-<text class="value" x="288.3" y="415.4" text-anchor="middle">183.8</text>
+<text class="value" x="288.3" y="415.4" text-anchor="middle">183.75</text>
 <text class="label" x="272.1" y="478" text-anchor="middle">NoArbitrageurs</text>
 <rect x="353.1" y="281.6" width="32.4" height="168.4" fill="#38bdf8" rx="8"/>
 <line class="err" x1="369.3" y1="281.6" x2="369.3" y2="281.6"/>
 <line class="err" x1="362.3" y1="281.6" x2="376.3" y2="281.6"/>
 <line class="err" x1="362.3" y1="281.6" x2="376.3" y2="281.6"/>
-<text class="value" x="369.3" y="271.6" text-anchor="middle">1257.1</text>
+<text class="value" x="369.3" y="271.6" text-anchor="middle">1257.14</text>
 <rect x="393.6" y="427.6" width="32.4" height="22.4" fill="#f59e0b" rx="8"/>
 <line class="err" x1="409.8" y1="427.6" x2="409.8" y2="427.6"/>
 <line class="err" x1="402.8" y1="427.6" x2="416.8" y2="427.6"/>
 <line class="err" x1="402.8" y1="427.6" x2="416.8" y2="427.6"/>
-<text class="value" x="409.8" y="417.6" text-anchor="middle">167.5</text>
+<text class="value" x="409.8" y="417.6" text-anchor="middle">167.50</text>
 <text class="label" x="393.6" y="478" text-anchor="middle">NoInformed</text>
 <rect x="474.5" y="110.7" width="32.4" height="339.3" fill="#38bdf8" rx="8"/>
 <line class="err" x1="490.7" y1="110.7" x2="490.7" y2="110.7"/>
 <line class="err" x1="483.7" y1="110.7" x2="497.7" y2="110.7"/>
 <line class="err" x1="483.7" y1="110.7" x2="497.7" y2="110.7"/>
-<text class="value" x="490.7" y="100.7" text-anchor="middle">2532.9</text>
+<text class="value" x="490.7" y="100.7" text-anchor="middle">2532.94</text>
 <rect x="515.0" y="418.7" width="32.4" height="31.3" fill="#f59e0b" rx="8"/>
 <line class="err" x1="531.2" y1="418.7" x2="531.2" y2="418.7"/>
 <line class="err" x1="524.2" y1="418.7" x2="538.2" y2="418.7"/>
 <line class="err" x1="524.2" y1="418.7" x2="538.2" y2="418.7"/>
-<text class="value" x="531.2" y="408.7" text-anchor="middle">233.8</text>
+<text class="value" x="531.2" y="408.7" text-anchor="middle">233.75</text>
 <text class="label" x="515.0" y="478" text-anchor="middle">RetailBurst</text>
 <rect x="596.0" y="261.1" width="32.4" height="188.9" fill="#38bdf8" rx="8"/>
 <line class="err" x1="612.1" y1="261.1" x2="612.1" y2="261.1"/>
 <line class="err" x1="605.1" y1="261.1" x2="619.1" y2="261.1"/>
 <line class="err" x1="605.1" y1="261.1" x2="619.1" y2="261.1"/>
-<text class="value" x="612.1" y="251.1" text-anchor="middle">1409.9</text>
+<text class="value" x="612.1" y="251.1" text-anchor="middle">1409.92</text>
 <rect x="636.4" y="429.7" width="32.4" height="20.3" fill="#f59e0b" rx="8"/>
 <line class="err" x1="652.6" y1="429.7" x2="652.6" y2="429.7"/>
 <line class="err" x1="645.6" y1="429.7" x2="659.6" y2="429.7"/>
 <line class="err" x1="645.6" y1="429.7" x2="659.6" y2="429.7"/>
-<text class="value" x="652.6" y="419.7" text-anchor="middle">151.2</text>
+<text class="value" x="652.6" y="419.7" text-anchor="middle">151.25</text>
 <text class="label" x="636.4" y="478" text-anchor="middle">ArbIntensityHigh</text>
 <rect x="717.4" y="258.9" width="32.4" height="191.1" fill="#38bdf8" rx="8"/>
 <line class="err" x1="733.6" y1="258.9" x2="733.6" y2="258.9"/>
 <line class="err" x1="726.6" y1="258.9" x2="740.6" y2="258.9"/>
 <line class="err" x1="726.6" y1="258.9" x2="740.6" y2="258.9"/>
-<text class="value" x="733.6" y="248.9" text-anchor="middle">1426.8</text>
+<text class="value" x="733.6" y="248.9" text-anchor="middle">1426.79</text>
 <rect x="757.9" y="425.9" width="32.4" height="24.1" fill="#f59e0b" rx="8"/>
 <line class="err" x1="774.0" y1="425.9" x2="774.0" y2="425.9"/>
 <line class="err" x1="767.0" y1="425.9" x2="781.0" y2="425.9"/>
 <line class="err" x1="767.0" y1="425.9" x2="781.0" y2="425.9"/>
-<text class="value" x="774.0" y="415.9" text-anchor="middle">180.0</text>
+<text class="value" x="774.0" y="415.9" text-anchor="middle">180.00</text>
 <text class="label" x="757.9" y="478" text-anchor="middle">InformedIntensityHigh</text>
 <rect x="838.8" y="270.1" width="32.4" height="179.9" fill="#38bdf8" rx="8"/>
 <line class="err" x1="855.0" y1="270.1" x2="855.0" y2="270.1"/>
 <line class="err" x1="848.0" y1="270.1" x2="862.0" y2="270.1"/>
 <line class="err" x1="848.0" y1="270.1" x2="862.0" y2="270.1"/>
-<text class="value" x="855.0" y="260.1" text-anchor="middle">1343.3</text>
+<text class="value" x="855.0" y="260.1" text-anchor="middle">1343.25</text>
 <rect x="879.3" y="417.5" width="32.4" height="32.5" fill="#f59e0b" rx="8"/>
 <line class="err" x1="895.5" y1="417.5" x2="895.5" y2="417.5"/>
 <line class="err" x1="888.5" y1="417.5" x2="902.5" y2="417.5"/>
 <line class="err" x1="888.5" y1="417.5" x2="902.5" y2="417.5"/>
-<text class="value" x="895.5" y="407.5" text-anchor="middle">242.5</text>
+<text class="value" x="895.5" y="407.5" text-anchor="middle">242.50</text>
 <text class="label" x="879.3" y="478" text-anchor="middle">MakersWide</text>
 <rect x="730" y="22" width="14" height="14" fill="#38bdf8" rx="3"/>
 <text class="legend" x="752" y="34">Orders/s</text>

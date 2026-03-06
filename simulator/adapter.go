@@ -39,6 +39,10 @@ type RewardWeights struct {
 	PriceImpactPenalty  float64 `json:"price_impact_penalty"`
 	QueuePenalty        float64 `json:"queue_penalty"`
 	ArbitragePenalty    float64 `json:"arbitrage_penalty"`
+	RetailSurplusWeight float64 `json:"retail_surplus_weight"`
+	AdversePenalty      float64 `json:"adverse_penalty"`
+	WelfarePenalty      float64 `json:"welfare_penalty"`
+	SurplusGapPenalty   float64 `json:"surplus_gap_penalty"`
 	RiskRejectPenalty   float64 `json:"risk_reject_penalty"`
 	ConservationPenalty float64 `json:"conservation_penalty"`
 }
@@ -49,20 +53,24 @@ type MetricsDelta struct {
 	PriceImpactDelta          float64 `json:"price_impact_delta"`
 	QueuePriorityDelta        float64 `json:"queue_priority_delta"`
 	ArbitrageProfitDelta      float64 `json:"arbitrage_profit_delta"`
+	RetailSurplusDelta        float64 `json:"retail_surplus_delta"`
+	RetailAdverseDelta        float64 `json:"retail_adverse_delta"`
+	WelfareDispersionDelta    float64 `json:"welfare_dispersion_delta"`
+	SurplusTransferGapDelta   float64 `json:"surplus_transfer_gap_delta"`
 	RiskRejectionsDelta       int     `json:"risk_rejections_delta"`
 	ConservationBreachesDelta int     `json:"conservation_breaches_delta"`
 }
 
 type AdapterInfo struct {
-	ScenarioName           string        `json:"scenario_name"`
-	AppliedAction          ControlAction `json:"applied_action"`
-	ActionSpec             ActionSpec    `json:"action_spec"`
-	MetricsDelta           MetricsDelta  `json:"metrics_delta"`
-	CurrentBatchWindowMs   int           `json:"current_batch_window_ms"`
-	CurrentRiskScale       float64       `json:"current_risk_scale"`
-	RandomTieBreak         bool          `json:"random_tie_break"`
-	CurrentReleaseCadenceMs int          `json:"current_release_cadence_ms"`
-	CurrentPriceAggression int64         `json:"current_price_aggression_bias"`
+	ScenarioName            string        `json:"scenario_name"`
+	AppliedAction           ControlAction `json:"applied_action"`
+	ActionSpec              ActionSpec    `json:"action_spec"`
+	MetricsDelta            MetricsDelta  `json:"metrics_delta"`
+	CurrentBatchWindowMs    int           `json:"current_batch_window_ms"`
+	CurrentRiskScale        float64       `json:"current_risk_scale"`
+	RandomTieBreak          bool          `json:"random_tie_break"`
+	CurrentReleaseCadenceMs int           `json:"current_release_cadence_ms"`
+	CurrentPriceAggression  int64         `json:"current_price_aggression_bias"`
 }
 
 type AdapterTimestep struct {
@@ -109,6 +117,11 @@ type tinyMLPModel struct {
 	TrainScore float64
 }
 
+type learnedOfflineContextualPolicy struct {
+	Actions []linearArmModel
+	Gamma   float64
+}
+
 type policyStepSample struct {
 	features []float64
 	hidden   []float64
@@ -117,13 +130,21 @@ type policyStepSample struct {
 	reward   float64
 }
 
+type offlinePolicySample struct {
+	features []float64
+	action   int
+	target   float64
+}
+
 var learnedPolicyCache = struct {
 	sync.Mutex
-	linucb map[string]learnedLinUCBPolicy
-	tiny   map[string]tinyMLPModel
+	linucb  map[string]learnedLinUCBPolicy
+	tiny    map[string]tinyMLPModel
+	offline map[string]learnedOfflineContextualPolicy
 }{
-	linucb: make(map[string]learnedLinUCBPolicy),
-	tiny:   make(map[string]tinyMLPModel),
+	linucb:  make(map[string]learnedLinUCBPolicy),
+	tiny:    make(map[string]tinyMLPModel),
+	offline: make(map[string]learnedOfflineContextualPolicy),
 }
 
 func NewAdapter(cfg ScenarioConfig) *Adapter {
@@ -142,6 +163,10 @@ func defaultRewardWeights() RewardWeights {
 		PriceImpactPenalty:  1.5,
 		QueuePenalty:        12.0,
 		ArbitragePenalty:    0.005,
+		RetailSurplusWeight: 18.0,
+		AdversePenalty:      10.0,
+		WelfarePenalty:      2.0,
+		SurplusGapPenalty:   3.0,
 		RiskRejectPenalty:   0.5,
 		ConservationPenalty: 10.0,
 	}
@@ -222,15 +247,19 @@ func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	timestep := a.Reset()
 	var linucb *learnedLinUCBPolicy
 	var tiny *tinyMLPModel
+	var offline *learnedOfflineContextualPolicy
 	if policy == PolicyLearnedLinUCB {
 		model := cachedLinUCBPolicy(a.env.cfg)
 		linucb = &model
 	} else if policy == PolicyLearnedTinyMLP {
 		model := cachedTinyMLPPolicy(a.env.cfg)
 		tiny = &model
+	} else if policy == PolicyLearnedOfflineContextual {
+		model := cachedOfflineContextualPolicy(a.env.cfg)
+		offline = &model
 	}
 	for !timestep.Done {
-		action := a.selectAction(policy, timestep.Observation, linucb, tiny)
+		action := a.selectAction(policy, timestep.Observation, linucb, tiny, offline)
 		timestep = a.Step(action)
 	}
 	result := a.env.benchmarkResult(time.Since(start))
@@ -295,7 +324,7 @@ func (a *Adapter) applyAction(action ControlAction) ControlAction {
 	return applied
 }
 
-func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel) ControlAction {
+func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel, offline *learnedOfflineContextualPolicy) ControlAction {
 	switch policy {
 	case PolicyBurstAware:
 		return burstAwareAction(a.ActionSpec(), observation)
@@ -309,6 +338,11 @@ func (a *Adapter) selectAction(policy PolicyController, observation Observation,
 			return ControlAction{}
 		}
 		return chooseTinyMLPAction(a.ActionSpec(), observation, *tiny)
+	case PolicyLearnedOfflineContextual:
+		if offline == nil {
+			return ControlAction{}
+		}
+		return chooseOfflineContextualAction(a.ActionSpec(), observation, *offline)
 	default:
 		return ControlAction{}
 	}
@@ -379,6 +413,8 @@ func policyScenarioName(base string, policy PolicyController) string {
 		return "Policy-LearnedLinUCB-100-250ms"
 	case PolicyLearnedTinyMLP:
 		return "Policy-LearnedTinyMLP-100-250ms"
+	case PolicyLearnedOfflineContextual:
+		return "Policy-LearnedOfflineContextual-100-250ms"
 	default:
 		return base
 	}
@@ -457,6 +493,23 @@ func cachedTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
 	return trained
 }
 
+func cachedOfflineContextualPolicy(cfg ScenarioConfig) learnedOfflineContextualPolicy {
+	key := policyCacheKey(cfg, PolicyLearnedOfflineContextual)
+	learnedPolicyCache.Lock()
+	if cached, ok := learnedPolicyCache.offline[key]; ok {
+		learnedPolicyCache.Unlock()
+		return cached
+	}
+	learnedPolicyCache.Unlock()
+
+	trained := trainOfflineContextualPolicy(cfg)
+
+	learnedPolicyCache.Lock()
+	learnedPolicyCache.offline[key] = trained
+	learnedPolicyCache.Unlock()
+	return trained
+}
+
 func trainTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
 	trainingSeeds := []int64{101, 103, 107, 109, 113, 127}
 	spec := NewAdapter(cfg).ActionSpec()
@@ -470,6 +523,46 @@ func trainTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
 	trainTinyMLPPolicyGradient(cfg, &model, trainingSeeds, rng, 36, 0.012, 0.97, 0.001)
 	model.TrainScore = evaluateTinyMLPModel(cfg, model, trainingSeeds)
 	return model
+}
+
+func trainOfflineContextualPolicy(cfg ScenarioConfig) learnedOfflineContextualPolicy {
+	trainingSeeds := []int64{131, 137, 139, 149, 151, 157}
+	spec := NewAdapter(cfg).ActionSpec()
+	actions := candidateBanditActions(spec)
+	featureDim := len(observationFeatures(Observation{}))
+	models := make([]linearArmModel, 0, len(actions))
+	for _, candidate := range actions {
+		identity := identityMatrix(featureDim)
+		for i := range identity {
+			identity[i][i] = 1.5
+		}
+		models = append(models, linearArmModel{
+			Name:   candidate.Name,
+			Action: candidate.Action,
+			A:      identity,
+			B:      make([]float64, featureDim),
+			Theta:  make([]float64, featureDim),
+		})
+	}
+	policy := learnedOfflineContextualPolicy{
+		Actions: models,
+		Gamma:   0.97,
+	}
+
+	linucb := cachedLinUCBPolicy(cfg)
+	tiny := cachedTinyMLPPolicy(cfg)
+	rng := rand.New(rand.NewSource(trainingRandomSeed(cfg) + 211))
+	for _, seed := range trainingSeeds {
+		for _, behavior := range []PolicyController{PolicyBurstAware, PolicyLearnedLinUCB, PolicyLearnedTinyMLP} {
+			samples := collectOfflineTrajectory(cfg, seed, behavior, actions, &linucb, &tiny, rng, policy.Gamma)
+			updateOfflineContextualPolicy(&policy, samples)
+		}
+		for rollout := 0; rollout < 2; rollout++ {
+			samples := collectOfflineRandomTrajectory(cfg, seed+int64(rollout), actions, rng, policy.Gamma)
+			updateOfflineContextualPolicy(&policy, samples)
+		}
+	}
+	return policy
 }
 
 func candidateBanditActions(spec ActionSpec) []learnedActionCandidate {
@@ -605,6 +698,82 @@ func collectBurstAwareDataset(cfg ScenarioConfig, actions []learnedActionCandida
 		}
 	}
 	return features, labels
+}
+
+func collectOfflineTrajectory(cfg ScenarioConfig, seed int64, behavior PolicyController, actions []learnedActionCandidate, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel, rng *rand.Rand, gamma float64) []offlinePolicySample {
+	trainingCfg := cfg
+	trainingCfg.Seed = seed
+	adapter := NewAdapter(trainingCfg)
+	spec := adapter.ActionSpec()
+	timestep := adapter.Reset()
+	trajectory := make([]policyStepSample, 0, trainingCfg.TotalSteps)
+	for !timestep.Done {
+		var action ControlAction
+		switch behavior {
+		case PolicyBurstAware:
+			action = burstAwareAction(spec, timestep.Observation)
+		case PolicyLearnedLinUCB:
+			action = chooseLinUCBAction(spec, timestep.Observation, *linucb)
+		case PolicyLearnedTinyMLP:
+			action = chooseTinyMLPAction(spec, timestep.Observation, *tiny)
+		default:
+			action = actions[rng.Intn(len(actions))].Action
+		}
+		actionIdx := nearestCandidateIndex(spec, action, actions)
+		features := observationFeatures(timestep.Observation)
+		timestep = adapter.Step(action)
+		trajectory = append(trajectory, policyStepSample{
+			features: features,
+			action:   actionIdx,
+			reward:   timestep.Reward,
+		})
+	}
+	return offlineSamplesFromTrajectory(trajectory, gamma)
+}
+
+func collectOfflineRandomTrajectory(cfg ScenarioConfig, seed int64, actions []learnedActionCandidate, rng *rand.Rand, gamma float64) []offlinePolicySample {
+	trainingCfg := cfg
+	trainingCfg.Seed = seed
+	adapter := NewAdapter(trainingCfg)
+	timestep := adapter.Reset()
+	trajectory := make([]policyStepSample, 0, trainingCfg.TotalSteps)
+	for !timestep.Done {
+		actionIdx := rng.Intn(len(actions))
+		features := observationFeatures(timestep.Observation)
+		timestep = adapter.Step(actions[actionIdx].Action)
+		trajectory = append(trajectory, policyStepSample{
+			features: features,
+			action:   actionIdx,
+			reward:   timestep.Reward,
+		})
+	}
+	return offlineSamplesFromTrajectory(trajectory, gamma)
+}
+
+func offlineSamplesFromTrajectory(trajectory []policyStepSample, gamma float64) []offlinePolicySample {
+	returns := discountedReturns(trajectory, gamma)
+	samples := make([]offlinePolicySample, 0, len(trajectory))
+	for idx, sample := range trajectory {
+		samples = append(samples, offlinePolicySample{
+			features: append([]float64(nil), sample.features...),
+			action:   sample.action,
+			target:   returns[idx],
+		})
+	}
+	return samples
+}
+
+func updateOfflineContextualPolicy(policy *learnedOfflineContextualPolicy, samples []offlinePolicySample) {
+	for _, sample := range samples {
+		if sample.action < 0 || sample.action >= len(policy.Actions) {
+			continue
+		}
+		arm := &policy.Actions[sample.action]
+		arm.A = outerAdd(arm.A, sample.features)
+		addScaledInPlace(arm.B, sample.features, sample.target)
+		arm.Theta = solveLinearSystem(arm.A, arm.B)
+		arm.Updates++
+	}
 }
 
 func trainTinyMLPSupervised(model *tinyMLPModel, features [][]float64, labels []int, epochs int, lr, l2 float64) {
@@ -834,6 +1003,29 @@ func chooseLinUCBAction(spec ActionSpec, observation Observation, policy learned
 	features := observationFeatures(observation)
 	bestIdx := selectLinUCBArm(policy, features)
 	if bestIdx < 0 || bestIdx >= len(policy.Actions) {
+		return fallbackBanditAction(spec)
+	}
+	return policy.Actions[bestIdx].Action
+}
+
+func chooseOfflineContextualAction(spec ActionSpec, observation Observation, policy learnedOfflineContextualPolicy) ControlAction {
+	if len(policy.Actions) == 0 {
+		return fallbackBanditAction(spec)
+	}
+	features := observationFeatures(observation)
+	bestIdx := 0
+	bestScore := math.Inf(-1)
+	for idx, arm := range policy.Actions {
+		score := dot(arm.Theta, features)
+		if arm.Updates == 0 {
+			score = math.Inf(-1)
+		}
+		if score > bestScore {
+			bestScore = score
+			bestIdx = idx
+		}
+	}
+	if bestScore == math.Inf(-1) {
 		return fallbackBanditAction(spec)
 	}
 	return policy.Actions[bestIdx].Action
@@ -1137,6 +1329,10 @@ func (a *Adapter) computeReward(delta MetricsDelta) float64 {
 		a.rewardWeights.PriceImpactPenalty*delta.PriceImpactDelta -
 		a.rewardWeights.QueuePenalty*absFloat(delta.QueuePriorityDelta) -
 		a.rewardWeights.ArbitragePenalty*delta.ArbitrageProfitDelta -
+		a.rewardWeights.AdversePenalty*delta.RetailAdverseDelta -
+		a.rewardWeights.WelfarePenalty*delta.WelfareDispersionDelta -
+		a.rewardWeights.SurplusGapPenalty*maxFloat(delta.SurplusTransferGapDelta, 0) +
+		a.rewardWeights.RetailSurplusWeight*delta.RetailSurplusDelta -
 		a.rewardWeights.RiskRejectPenalty*float64(delta.RiskRejectionsDelta) -
 		a.rewardWeights.ConservationPenalty*float64(delta.ConservationBreachesDelta)
 }
@@ -1148,6 +1344,10 @@ func metricsDelta(prev, next MetricsSnapshot) MetricsDelta {
 		PriceImpactDelta:          next.AveragePriceImpact - prev.AveragePriceImpact,
 		QueuePriorityDelta:        next.QueuePriorityAdvantage - prev.QueuePriorityAdvantage,
 		ArbitrageProfitDelta:      next.LatencyArbitrageProfit - prev.LatencyArbitrageProfit,
+		RetailSurplusDelta:        next.RetailSurplusPerUnit - prev.RetailSurplusPerUnit,
+		RetailAdverseDelta:        next.RetailAdverseSelectionRate - prev.RetailAdverseSelectionRate,
+		WelfareDispersionDelta:    next.WelfareDispersion - prev.WelfareDispersion,
+		SurplusTransferGapDelta:   next.SurplusTransferGap - prev.SurplusTransferGap,
 		RiskRejectionsDelta:       next.RiskRejections - prev.RiskRejections,
 		ConservationBreachesDelta: next.ConservationBreaches - prev.ConservationBreaches,
 	}

@@ -82,6 +82,11 @@ Action availability is scenario-dependent. Query it through `ActionSpec()`.
 | `queue_priority_advantage` | `float64` | Fairness-adjacent proxy for queue ordering advantage. |
 | `latency_arbitrage_profit` | `float64` | Aggregate profit proxy captured by arbitrageurs. |
 | `execution_dispersion` | `float64` | Dispersion of fills across agent classes. |
+| `retail_surplus_per_unit` | `float64` | Realized per-unit ex post surplus for retail flow against the synthetic fundamental. |
+| `arbitrageur_surplus_per_unit` | `float64` | Realized per-unit ex post surplus for arbitrageur flow. |
+| `retail_adverse_selection_rate` | `float64` | Fraction of retail traded units executed at negative ex post surplus. |
+| `welfare_dispersion` | `float64` | Dispersion of per-unit surplus across active agent classes. |
+| `surplus_transfer_gap` | `float64` | Arbitrageur per-unit surplus minus retail per-unit surplus. |
 | `negative_balance_violations` | `int` | Count of post-settlement negative states. |
 | `conservation_breaches` | `int` | Count of conservation failures. |
 | `risk_rejections` | `int` | Count of rejected orders from risk checks. |
@@ -107,7 +112,7 @@ Important fields:
 - scenario metadata: `name`, `mode`, `batch_window_ms`, `speed_bump_ms`
 - adaptive-window summary: `adaptive_window_min_ms`, `adaptive_window_max_ms`, `adaptive_window_mean_ms`
 - systems metrics: `orders_per_sec`, `fills_per_sec`, `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms`
-- quality and fairness proxies: `average_spread`, `average_price_impact`, `queue_priority_advantage`, `latency_arbitrage_profit`, `execution_dispersion`
+- quality, fairness, and welfare signals: `average_spread`, `average_price_impact`, `queue_priority_advantage`, `latency_arbitrage_profit`, `execution_dispersion`, `retail_surplus_per_unit`, `arbitrageur_surplus_per_unit`, `retail_adverse_selection_rate`, `welfare_dispersion`, `surplus_transfer_gap`
 - safety counters: `negative_balance_violations`, `conservation_breaches`, `risk_rejections`
 
 ## Current Learned Controller Interface
@@ -116,6 +121,7 @@ The current learned policy baselines are:
 
 - `Policy-LearnedLinUCB-100-250ms`
 - `Policy-LearnedTinyMLP-100-250ms`
+- `Policy-LearnedOfflineContextual-100-250ms`
 
 Both operate over the action bundle:
 
@@ -137,5 +143,7 @@ The current observation features used by the learned controllers are:
 `Policy-LearnedLinUCB-100-250ms` uses a contextual linear bandit over discrete action bundles.
 
 `Policy-LearnedTinyMLP-100-250ms` uses a small two-layer policy network with a burst-aware supervised warm-start and gradient-based policy updates over the same discrete action set.
+
+`Policy-LearnedOfflineContextual-100-250ms` uses an offline contextual value model fit to logged rollouts from burst-aware, LinUCB, TinyMLP, and random behavior policies, then acts greedily over the same discrete action set.
 
 These are still lightweight learned baselines. They are intended as benchmark-control references, not as claims of state-of-the-art policy learning.
