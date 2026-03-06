@@ -276,6 +276,41 @@ func TestAdaptiveBatchWindowSummary(t *testing.T) {
 	}
 }
 
+func TestAdapterResetAndStep(t *testing.T) {
+	adapter := NewAdapter(scenarioByName(t, "Adaptive-100-250ms"))
+	initial := adapter.Reset()
+	if initial.Done {
+		t.Fatalf("expected fresh adapter reset to be running")
+	}
+	if !initial.Info.ActionSpec.SupportsBatchWindowControl {
+		t.Fatalf("expected adaptive scenario to expose batch-window control")
+	}
+	target := 25
+	next := adapter.Step(ControlAction{TargetBatchWindowSteps: &target})
+	if next.Info.AppliedAction.TargetBatchWindowSteps == nil {
+		t.Fatalf("expected adapter to report applied action")
+	}
+	if *next.Info.AppliedAction.TargetBatchWindowSteps != 25 {
+		t.Fatalf("expected target window 25, got %+v", next.Info.AppliedAction)
+	}
+	if next.Info.CurrentBatchWindowMs != 250 {
+		t.Fatalf("expected current window 250ms, got %+v", next.Info)
+	}
+}
+
+func TestAdapterIgnoresActionOutsideAdaptiveMode(t *testing.T) {
+	adapter := NewAdapter(scenarioByName(t, "SpeedBump-50ms"))
+	initial := adapter.Reset()
+	if initial.Info.ActionSpec.SupportsBatchWindowControl {
+		t.Fatalf("expected speed-bump scenario not to expose adaptive control")
+	}
+	target := 99
+	next := adapter.Step(ControlAction{TargetBatchWindowSteps: &target})
+	if next.Info.AppliedAction.TargetBatchWindowSteps != nil {
+		t.Fatalf("expected no applied action for non-adaptive mode, got %+v", next.Info.AppliedAction)
+	}
+}
+
 func TestGenerateSimulatorBenchmarkArtifacts(t *testing.T) {
 	t.Helper()
 	if os.Getenv("RUN_SIM_BENCH") != "1" {

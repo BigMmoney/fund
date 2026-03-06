@@ -16,6 +16,7 @@ The original paper line is a market-infrastructure systems paper. This track upg
 ## New Components
 
 - `simulator/`: benchmark environment, agent models, metrics, step API, and tests
+- `simulator/adapter.go`: minimal gym-style adapter with action specs and reward-bearing timesteps
 - `docs/benchmarks/simulator_benchmark_profile.*`: generated experiment outputs
 - `docs/benchmarks/simulator_multiseed_profile.*`: multi-seed aggregate outputs
 - `docs/benchmarks/simulator_ablation_profile.*`: ablation outputs
@@ -76,6 +77,13 @@ The simulator now exposes a step-wise control surface:
 - `Metrics()`
 
 This keeps the benchmark runnable as a batch artifact while also letting future work wrap the environment as a control or RL-style loop.
+
+The repository now includes a minimal adapter layer:
+
+- `NewAdapter(cfg)` for scenario-backed environment construction
+- `Reset()` returning observation, metrics, reward, done, and info
+- `Step(action)` with adaptive-window control for adaptive scenarios
+- `ActionSpec()` advertising whether a scenario supports window-control actions
 
 ## Ablation Snapshot
 

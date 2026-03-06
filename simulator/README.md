@@ -12,6 +12,7 @@ Scope:
 - ledger-aware settlement checks
 - fairness and market-quality proxy metrics
 - step-wise `Reset/Step/Observe/Metrics` API for downstream control loops
+- minimal gym-style adapter via `NewAdapter`, with action specs and reward-bearing timesteps
 
 Key outputs:
 

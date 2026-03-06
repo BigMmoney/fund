@@ -15,7 +15,7 @@ The current benchmark line makes four concrete contributions:
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
 2. It provides a seedable multi-agent order-flow generator with four agent classes and nine benchmark scenarios.
 3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
-4. It exposes a step-wise `Reset/Step/Observe/Metrics` API and a first ablation suite for risk limits, tie-breaking, and settlement checks.
+4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a minimal gym-style adapter for adaptive-window control, and a first ablation suite for risk limits, tie-breaking, and settlement checks.
 
 ## 2. Research Question
 
@@ -62,6 +62,8 @@ The environment also exposes a step-wise control surface:
 - `Observe()`
 - `Step()`
 - `Metrics()`
+
+On top of that control surface, the repository now includes a minimal adapter layer that returns reward-bearing timesteps and advertises per-scenario action support. In the current version, the adapter exposes one explicit control channel: batch-window override for adaptive scenarios.
 
 The design keeps ledger correctness in the loop. Benchmark results are only accepted if generated scenarios preserve:
 
@@ -211,7 +213,7 @@ The current artifact is still short of a strong top-tier benchmark submission. T
 
 - only heuristic control, with no learned adaptive baseline
 - proxy fairness metrics rather than richer behavioral or welfare metrics
-- the step API is intentionally minimal and not yet wrapped as a gym-style environment
+- the adapter currently exposes only adaptive-window control, not a richer action space over pricing, order release, or agent behavior
 - the current ablation suite is narrow and focuses on market-structure toggles rather than agent-model perturbations
 
 ## 11. Related Work
@@ -230,5 +232,5 @@ To push this track toward a stronger benchmark paper:
 
 1. add a learned or policy-optimized adaptive controller
 2. add explicit agent-behavior experiments for queue advantage and arbitrage capture
-3. wrap the simulator behind a gym-style adapter on top of `Reset/Step/Observe/Metrics`
+3. broaden the adapter beyond batch-window control into a richer action space
 4. broaden the ablation suite to include agent-model and workload perturbations

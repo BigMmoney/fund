@@ -33,7 +33,7 @@ The current paper makes four concrete contributions:
   \item It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
   \item It provides a seedable multi-agent order-flow generator with four agent classes and nine benchmark scenarios.
   \item It reports single-seed and eight-seed aggregate benchmark results over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
-  \item It exposes a step-wise \texttt{Reset/Step/Observe/Metrics} API and a first ablation suite for risk limits, tie-breaking, and settlement checks.
+  \item It exposes a step-wise \texttt{Reset/Step/Observe/Metrics} API, a minimal gym-style adapter for adaptive-window control, and a first ablation suite for risk limits, tie-breaking, and settlement checks.
 \end{enumerate}
 
 \section{Problem Setting}
@@ -65,7 +65,7 @@ The benchmark environment lives in the repository's \texttt{simulator/} package.
 
 The environment is designed so that matching and settlement are not independent stages. Every fill is immediately translated into account updates, and every run is checked for safety conditions before benchmark artifacts are accepted. This design choice is the main difference between the present artifact and a lightweight matching-only simulator.
 
-The current environment also exposes a step-wise control surface with \texttt{Reset()}, \texttt{Observe()}, \texttt{Step()}, and \texttt{Metrics()}, which allows later work to treat the benchmark as a control loop rather than only a batch artifact.
+The current environment also exposes a step-wise control surface with \texttt{Reset()}, \texttt{Observe()}, \texttt{Step()}, and \texttt{Metrics()}, which allows later work to treat the benchmark as a control loop rather than only a batch artifact. On top of that surface, the repository now includes a minimal adapter layer that returns reward-bearing timesteps and advertises per-scenario action support. In the current implementation, the adapter exposes one explicit control channel: batch-window override for adaptive scenarios.
 
 \subsection{Determinism and Invariants}
 Each scenario is seeded. Given the same scenario configuration and seed, the environment is expected to produce the same accepted order counts, fill counts, and proxy metrics. The test suite includes a determinism regression for this requirement.
@@ -294,7 +294,7 @@ The current artifact is still short of a strong top-tier benchmark submission. T
 \begin{itemize}[leftmargin=*]
   \item only heuristic control, with no learned adaptive baseline
   \item proxy fairness metrics rather than richer behavioral or welfare metrics
-  \item the step API is intentionally minimal and not yet wrapped as a gym-style environment
+  \item the adapter currently exposes only adaptive-window control, not a richer action space over pricing, order release, or agent behavior
   \item the current ablation suite is narrow and focuses on market-structure toggles rather than agent-model perturbations
 \end{itemize}
 
@@ -302,7 +302,7 @@ The current artifact is still short of a strong top-tier benchmark submission. T
 The benchmark is motivated directly by frequent-batch-auction market design \cite{budish2015fba}. Its benchmark-oriented framing is also aligned with the broader machine-learning practice of exposing reusable environments rather than only single-task scripts \cite{brockman2016gym}. The present contribution sits between those two traditions: it is neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware environment that aims to make later learning or control work more credible.
 
 \section{Conclusion}
-This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, and batch matching regimes, while preserving executable settlement invariants. The next stage is clear: add a learned adaptive controller, expose a gym-style adapter, and introduce stronger behavioral and ablation studies so that the environment can support more serious benchmark or learning-oriented submissions.
+This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, and batch matching regimes, while preserving executable settlement invariants. The next stage is clear: add a learned adaptive controller, broaden the adapter beyond batch-window control, and introduce stronger behavioral and ablation studies so that the environment can support more serious benchmark or learning-oriented submissions.
 
 \bibliographystyle{plain}
 \bibliography{references}
