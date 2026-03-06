@@ -1,0 +1,43 @@
+name: Quality Gate (Invariants + Benchmark)
+
+on:
+  pull_request:
+    branches: ['main']
+  push:
+    branches: ['main']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  invariant-and-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Run invariant tests
+        run: npm run test:invariants
+
+      - name: Run benchmark with CI guard
+        run: npm run benchmark:check
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-artifacts
+          path: |
+            docs/benchmarks/benchmark-latest.json
+            docs/benchmarks/benchmark-latest.svg

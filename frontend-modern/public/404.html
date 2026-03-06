@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Redirecting...</title>
+  <script>
+    // GitHub Pages SPA 重定向
+    // 将 404 重定向到 index.html 并保留路径
+    const path = window.location.pathname;
+    const search = window.location.search;
+    const hash = window.location.hash;
+    // 跳转到主页并使用 hash 保存原路径
+    sessionStorage.setItem('redirect', path + search + hash);
+    window.location.replace('/prediction-market/');
+  </script>
+</head>
+<body>
+  <p>Redirecting to Prediction Market...</p>
+</body>
+</html>

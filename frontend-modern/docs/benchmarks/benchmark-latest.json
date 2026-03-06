@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-03-06T03:23:24.437Z",
+  "ciMode": false,
+  "nodeVersion": "v22.17.1",
+  "platform": "win32",
+  "arch": "x64",
+  "results": [
+    {
+      "name": "safeDivide hot path",
+      "iterations": 2000000,
+      "rounds": 8,
+      "meanMs": 4.458937500000005,
+      "p95Ms": 7.3125,
+      "opsPerSec": 448537347.7425952
+    },
+    {
+      "name": "safeWeightedAverage small vector",
+      "iterations": 200000,
+      "rounds": 8,
+      "meanMs": 40.1693,
+      "p95Ms": 43.08579999999995,
+      "opsPerSec": 4978926.692772839
+    },
+    {
+      "name": "classifyChange state + grade + value",
+      "iterations": 500000,
+      "rounds": 8,
+      "meanMs": 26.042037499999992,
+      "p95Ms": 25.975799999999936,
+      "opsPerSec": 19199726.59589328
+    },
+    {
+      "name": "StableList.update (batch=128)",
+      "iterations": 5000,
+      "rounds": 8,
+      "meanMs": 301.26102499999996,
+      "p95Ms": 321.08490000000006,
+      "opsPerSec": 16596.902968115442
+    },
+    {
+      "name": "SignalHysteresis.addSample",
+      "iterations": 500000,
+      "rounds": 8,
+      "meanMs": 175430.90448750003,
+      "p95Ms": 179831.95439999993,
+      "opsPerSec": 2850.1249620794524
+    },
+    {
+      "name": "formatPercentChange",
+      "iterations": 1500000,
+      "rounds": 8,
+      "meanMs": 186.91887500003213,
+      "p95Ms": 188.29649999993853,
+      "opsPerSec": 8024871.752516926
+    }
+  ]
+}

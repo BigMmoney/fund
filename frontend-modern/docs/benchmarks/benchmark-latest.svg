@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="486" viewBox="0 0 1100 486">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#071126"/>
+      <stop offset="100%" stop-color="#0D1D38"/>
+    </linearGradient>
+    <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#28C7FA"/>
+      <stop offset="100%" stop-color="#1A9BFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1100" height="486" fill="url(#bg)"/>
+  <text x="20" y="36" fill="#FFFFFF" font-size="28" font-family="Segoe UI, Arial" font-weight="700">Benchmark Results</text>
+  <text x="20" y="62" fill="#9CC4FF" font-size="14" font-family="Segoe UI, Arial">frontend-modern | market infrastructure / systems profile</text>
+
+  <text x="20" y="123" fill="#D8E8FF" font-size="16" font-family="Segoe UI, Arial">safeDivide hot path</text>
+  <rect x="290" y="104" width="750" height="22" rx="6" fill="url(#barGradient)"/>
+  <text x="1052" y="123" fill="#9CC4FF" font-size="14" font-family="Consolas, Menlo, monospace">448.54M ops/s</text>
+
+  <text x="20" y="179" fill="#D8E8FF" font-size="16" font-family="Segoe UI, Arial">safeWeightedAverage small vector</text>
+  <rect x="290" y="160" width="8.32527110255843" height="22" rx="6" fill="url(#barGradient)"/>
+  <text x="310.3252711025584" y="179" fill="#9CC4FF" font-size="14" font-family="Consolas, Menlo, monospace">4.98M ops/s</text>
+
+  <text x="20" y="235" fill="#D8E8FF" font-size="16" font-family="Segoe UI, Arial">classifyChange state + grade + value</text>
+  <rect x="290" y="216" width="32.10389284056599" height="22" rx="6" fill="url(#barGradient)"/>
+  <text x="334.103892840566" y="235" fill="#9CC4FF" font-size="14" font-family="Consolas, Menlo, monospace">19.20M ops/s</text>
+
+  <text x="20" y="291" fill="#D8E8FF" font-size="16" font-family="Segoe UI, Arial">StableList.update (batch=128)</text>
+  <rect x="290" y="272" width="1" height="22" rx="6" fill="url(#barGradient)"/>
+  <text x="303" y="291" fill="#9CC4FF" font-size="14" font-family="Consolas, Menlo, monospace">16.6K ops/s</text>
+
+  <text x="20" y="347" fill="#D8E8FF" font-size="16" font-family="Segoe UI, Arial">SignalHysteresis.addSample</text>
+  <rect x="290" y="328" width="1" height="22" rx="6" fill="url(#barGradient)"/>
+  <text x="303" y="347" fill="#9CC4FF" font-size="14" font-family="Consolas, Menlo, monospace">2.9K ops/s</text>
+
+  <text x="20" y="403" fill="#D8E8FF" font-size="16" font-family="Segoe UI, Arial">formatPercentChange</text>
+  <rect x="290" y="384" width="13.418400596245677" height="22" rx="6" fill="url(#barGradient)"/>
+  <text x="315.4184005962457" y="403" fill="#9CC4FF" font-size="14" font-family="Consolas, Menlo, monospace">8.02M ops/s</text>
+  <text x="20" y="466" fill="#7EA3D9" font-size="12" font-family="Consolas, Menlo, monospace">generated: 2026-03-06T03:23:24.438Z</text>
+</svg>

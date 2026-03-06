@@ -1,0 +1,338 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Thin scrollbar for panels */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Animation utilities */
+@keyframes pulse-success {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse-success {
+  animation: pulse-success 2s ease-in-out infinite;
+}
+
+.animate-pulse-danger {
+  animation: pulse-danger 2s ease-in-out infinite;
+}
+
+/* ============== 实时 UI 稳定性样式 ============== */
+
+/* 等级变化闪烁动画（短暂，用于提示） */
+@keyframes grade-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; background: rgba(59, 130, 246, 0.2); }
+}
+
+.animate-grade-flash {
+  animation: grade-flash 0.5s ease-in-out;
+}
+
+/* 新项高亮动画 */
+@keyframes new-item-highlight {
+  0% { background: rgba(34, 197, 94, 0.3); }
+  100% { background: transparent; }
+}
+
+.animate-new-item {
+  animation: new-item-highlight 3s ease-out forwards;
+}
+
+/* 数值平滑过渡 */
+.value-transition {
+  transition: all 0.3s ease-out;
+}
+
+/* 状态颜色渐变（无闪烁） */
+.state-transition {
+  transition: background-color 0.5s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* 方向图标稳定（禁止频繁切换动画） */
+.direction-icon {
+  transition: transform 0.5s ease, color 0.5s ease;
+}
+
+/* 统计数字渐变 */
+.stat-number {
+  transition: color 0.3s ease;
+  font-variant-numeric: tabular-nums;  /* 数字等宽，防止宽度跳动 */
+}
+
+/* 颜色条平滑过渡 */
+.level-indicator {
+  transition: background-color 0.5s ease, width 0.3s ease;
+}
+
+/* 时间轴圆点稳定 */
+.timeline-dot {
+  transition: background-color 0.5s ease, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* 卡片边框平滑 */
+.card-stable {
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* 禁止 CLS（累积布局偏移） */
+.no-layout-shift {
+  contain: layout style;
+}
+
+/* 固定高度容器（防止内容变化导致跳动） */
+.fixed-height-row {
+  min-height: 40px;
+  max-height: 40px;
+}
+
+/* 骨架屏占位 */
+.skeleton-placeholder {
+  background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+/* ============== 移动端响应式样式 ============== */
+
+/* 移动端基础适配 */
+@media screen and (max-width: 768px) {
+  /* 隐藏不必要的元素 */
+  .hide-mobile {
+    display: none !important;
+  }
+  
+  /* 全屏容器 */
+  .mobile-full {
+    width: 100vw !important;
+    min-width: 100vw !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+  
+  /* 字体大小调整 */
+  body {
+    font-size: 14px;
+  }
+  
+  /* 顶部栏简化 */
+  .top-bar-mobile {
+    flex-wrap: wrap;
+    height: auto !important;
+    min-height: 32px;
+    padding: 4px 8px !important;
+  }
+  
+  /* 侧边栏折叠 */
+  .sidebar-mobile {
+    position: fixed;
+    left: -100%;
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
+    transition: left 0.3s ease;
+  }
+  
+  .sidebar-mobile.open {
+    left: 0;
+  }
+  
+  /* 主内容区全宽 */
+  .main-content-mobile {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+  
+  /* 网格单列 */
+  .grid-mobile-1 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* 卡片全宽 */
+  .card-mobile {
+    width: 100% !important;
+    margin: 4px 0 !important;
+  }
+  
+  /* 图表高度调整 */
+  .chart-mobile {
+    height: 200px !important;
+    min-height: 200px !important;
+  }
+  
+  /* 表格横向滚动 */
+  .table-mobile-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* 按钮大小调整 */
+  .btn-mobile {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 12px 16px;
+  }
+  
+  /* 输入框大小 */
+  .input-mobile {
+    min-height: 44px;
+    font-size: 16px; /* 防止iOS缩放 */
+  }
+  
+  /* Flex 换行 */
+  .flex-mobile-wrap {
+    flex-wrap: wrap !important;
+  }
+  
+  /* 隐藏滚动条但保持滚动 */
+  .scroll-mobile::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .scroll-mobile {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* 平板适配 */
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  .hide-tablet {
+    display: none !important;
+  }
+  
+  .grid-tablet-2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* 小屏手机 */
+@media screen and (max-width: 375px) {
+  body {
+    font-size: 12px;
+  }
+  
+  .text-xs-mobile {
+    font-size: 10px !important;
+  }
+}
+
+/* 安全区域适配 (iPhone X+) */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* 触摸优化 */
+@media (hover: none) and (pointer: coarse) {
+  /* 增大点击区域 */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* 禁用 hover 效果防止粘滞 */
+  .no-hover-mobile:hover {
+    background-color: inherit !important;
+  }
+}
+
+/* 横屏手机 */
+@media screen and (max-width: 896px) and (orientation: landscape) {
+  .landscape-compact {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+  }
+  
+  .landscape-hide {
+    display: none !important;
+  }
+}
