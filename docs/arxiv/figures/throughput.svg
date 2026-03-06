@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+  <rect width="1200" height="520" fill="#07162c"/>
+  <text x="40" y="50" fill="#f4f7fb" font-size="28" font-family="Segoe UI, Arial">Figure 3. Throughput Across Baseline and FBA Windows</text>
+  <line x1="100" y1="430" x2="1120" y2="430" stroke="#8fb6dc" stroke-width="3"/>
+  <line x1="100" y1="90" x2="100" y2="430" stroke="#8fb6dc" stroke-width="3"/>
+  <text x="30" y="105" fill="#8fb6dc" font-size="18" font-family="Segoe UI, Arial">150k</text>
+  <text x="42" y="225" fill="#8fb6dc" font-size="18" font-family="Segoe UI, Arial">75k</text>
+  <text x="52" y="425" fill="#8fb6dc" font-size="18" font-family="Segoe UI, Arial">0</text>
+  <rect x="170" y="100" width="140" height="330" rx="12" fill="#67d5ff"/>
+  <rect x="430" y="418" width="140" height="12" rx="12" fill="#77e19d"/>
+  <rect x="690" y="426" width="140" height="4" rx="12" fill="#ffd166"/>
+  <rect x="950" y="428" width="140" height="2" rx="12" fill="#c6d3ff"/>
+  <g fill="#f4f7fb" font-size="20" font-family="Segoe UI, Arial" text-anchor="middle">
+    <text x="240" y="462">Immediate</text>
+    <text x="500" y="462">FBA-100ms</text>
+    <text x="760" y="462">FBA-250ms</text>
+    <text x="1020" y="462">FBA-500ms</text>
+  </g>
+  <g fill="#d9ecff" font-size="18" font-family="Consolas, monospace" text-anchor="middle">
+    <text x="240" y="88">144,744.0</text>
+    <text x="500" y="405">4,978.0</text>
+    <text x="760" y="412">1,736.2</text>
+    <text x="1020" y="414">833.4</text>
+  </g>
+  <text x="40" y="500" fill="#8fb6dc" font-size="18" font-family="Segoe UI, Arial">Immediate clearing is an upper-bound throughput surrogate; FBA windows trade throughput for explicit batching semantics.</text>
+</svg>

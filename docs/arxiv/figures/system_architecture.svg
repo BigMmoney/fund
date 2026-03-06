@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+  <rect width="1200" height="520" fill="#07162c"/>
+  <text x="40" y="50" fill="#f4f7fb" font-size="28" font-family="Segoe UI, Arial">Figure 1. System Architecture</text>
+  <rect x="460" y="80" width="280" height="64" rx="14" fill="#113461" stroke="#67d5ff"/>
+  <text x="540" y="120" fill="#f4f7fb" font-size="26" font-family="Segoe UI, Arial">API Gateway</text>
+  <rect x="130" y="200" width="260" height="70" rx="14" fill="#102a4a" stroke="#4fc3f7"/>
+  <text x="180" y="243" fill="#f4f7fb" font-size="24" font-family="Segoe UI, Arial">Matching Engine</text>
+  <rect x="810" y="200" width="220" height="70" rx="14" fill="#102a4a" stroke="#77e19d"/>
+  <text x="875" y="243" fill="#f4f7fb" font-size="24" font-family="Segoe UI, Arial">Risk Service</text>
+  <rect x="430" y="220" width="320" height="70" rx="14" fill="#13385b" stroke="#ffd166"/>
+  <text x="540" y="263" fill="#f4f7fb" font-size="24" font-family="Segoe UI, Arial">Event Bus</text>
+  <rect x="440" y="340" width="300" height="70" rx="14" fill="#102a4a" stroke="#67d5ff"/>
+  <text x="535" y="383" fill="#f4f7fb" font-size="24" font-family="Segoe UI, Arial">Ledger Service</text>
+  <rect x="450" y="440" width="280" height="48" rx="14" fill="#0f2845" stroke="#89aef8"/>
+  <text x="500" y="470" fill="#f4f7fb" font-size="22" font-family="Segoe UI, Arial">Indexer / Consumers</text>
+  <rect x="70" y="80" width="240" height="60" rx="14" fill="#0f2845" stroke="#c6d3ff"/>
+  <text x="110" y="118" fill="#f4f7fb" font-size="24" font-family="Segoe UI, Arial">Client / Strategy</text>
+  <line x1="310" y1="110" x2="460" y2="110" stroke="#c6d3ff" stroke-width="4"/>
+  <polygon points="460,110 442,102 442,118" fill="#c6d3ff"/>
+  <line x1="560" y1="144" x2="260" y2="200" stroke="#67d5ff" stroke-width="4"/>
+  <polygon points="260,200 272,183 277,201" fill="#67d5ff"/>
+  <line x1="640" y1="144" x2="900" y2="200" stroke="#77e19d" stroke-width="4"/>
+  <polygon points="900,200 883,190 887,208" fill="#77e19d"/>
+  <line x1="390" y1="235" x2="430" y2="245" stroke="#ffd166" stroke-width="4"/>
+  <polygon points="430,245 413,233 416,252" fill="#ffd166"/>
+  <line x1="810" y1="235" x2="750" y2="245" stroke="#ffd166" stroke-width="4"/>
+  <polygon points="750,245 764,230 767,249" fill="#ffd166"/>
+  <line x1="590" y1="290" x2="590" y2="340" stroke="#67d5ff" stroke-width="4"/>
+  <polygon points="590,340 580,322 600,322" fill="#67d5ff"/>
+  <line x1="590" y1="410" x2="590" y2="440" stroke="#89aef8" stroke-width="4"/>
+  <polygon points="590,440 580,422 600,422" fill="#89aef8"/>
+  <text x="40" y="505" fill="#8fb6dc" font-size="18" font-family="Segoe UI, Arial">Matching, controls, and settlement are decoupled so that correctness properties can be tested at explicit boundaries.</text>
+</svg>
