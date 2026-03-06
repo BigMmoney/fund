@@ -19,7 +19,7 @@ We present a benchmark-oriented extension of a ledger-first market infrastructur
 \end{abstract}
 
 \section{Introduction}
-This paper is a parallel benchmark track built on top of an existing market-infrastructure systems prototype. The objective is not to replace the original systems paper, but to provide a reusable evaluation environment for market-design and execution-policy studies under ledger-aware settlement constraints.
+This paper is a parallel benchmark track built on top of an existing market-infrastructure systems prototype. The objective is not to replace the original systems paper, but to provide a reusable evaluation environment for market-design and execution-policy studies under ledger-aware settlement constraints. The benchmark is motivated by frequent-batch-auction market-design work that frames batching as a response to latency-driven market distortions \cite{budish2015fba}.
 
 \section{Research Questions}
 We focus on three questions:
@@ -49,18 +49,20 @@ We report:
 \toprule
 Scenario & Orders/s & Fills/s & p50 (ms) & p99 (ms) \\
 \midrule
-Immediate-Surrogate & 1360.0 & 829.2 & 10 & 10 \\
-FBA-100ms & 1360.0 & 802.5 & 50 & 310 \\
-FBA-250ms & 1358.4 & 628.8 & 80 & 490 \\
-FBA-500ms & 1358.7 & 644.7 & 190 & 910 \\
-FBA-250ms-Stress & 1775.2 & 987.2 & 100 & 590 \\
+Immediate-Surrogate & 1348.2 & 813.1 & 10.0 & 10.0 \\
+FBA-100ms & 1348.2 & 805.3 & 46.3 & 146.3 \\
+FBA-250ms & 1348.3 & 691.9 & 97.5 & 452.5 \\
+FBA-500ms & 1347.8 & 631.1 & 213.8 & 835.0 \\
+FBA-250ms-Stress & 1783.4 & 907.7 & 97.5 & 373.8 \\
 \bottomrule
 \end{tabular}
-\caption{Current simulator benchmark snapshot. All scenarios report zero conservation breaches and zero negative-balance violations.}
+\caption{Eight-seed aggregate simulator benchmark snapshot. All scenarios report zero conservation breaches and zero negative-balance violations.}
 \end{table}
 
+The aggregate profile is generated from seeds $[7, 11, 19, 23, 29, 31, 37, 41]$. Under the current simulator, immediate execution retains the lowest latency profile, while longer batch windows produce materially worse tail latency. The $250\,ms$ batch regime reduces the queue-priority-advantage proxy relative to both immediate execution and the $100\,ms$ batch regime, while the stress scenario raises throughput and arbitrage-profit proxy simultaneously.
+
 \section{Limitations}
-The benchmark currently uses fixed policies and proxy fairness metrics. It does not yet provide multi-seed aggregate reporting, adaptive execution baselines, or richer market-impact simulation.
+The benchmark currently uses fixed policies and proxy fairness metrics. It now provides multi-seed aggregate reporting, but it does not yet provide adaptive execution baselines, confidence intervals, or richer market-impact simulation.
 
 \section{Conclusion}
 This benchmark track establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line.

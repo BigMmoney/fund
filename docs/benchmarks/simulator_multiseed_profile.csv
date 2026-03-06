@@ -1,0 +1,6 @@
+scenario,mode,batch_window_ms,runs,mean_orders_per_sec,std_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,mean_average_spread,mean_average_price_impact,mean_queue_priority_advantage,mean_latency_arbitrage_profit,mean_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total
+Immediate-Surrogate,immediate,10,8,1348.2292,5.7650,813.1250,26.6561,10.0000,0.0000,10.0000,0.0000,10.0000,0.0000,1.9844,3.3758,0.074232,669.6250,0.072296,0,0,0
+FBA-100ms,batch,100,8,1348.2292,5.7650,805.3125,31.5951,46.2500,4.8412,100.0000,0.0000,146.2500,51.7053,1.0000,5.9648,0.057137,1015.7500,0.072077,0,0,0
+FBA-250ms,batch,250,8,1348.3000,5.6418,691.9000,25.8873,97.5000,6.6144,300.0000,80.9321,452.5000,23.3184,1.0000,5.3639,0.027296,627.2500,0.063649,0,0,0
+FBA-500ms,batch,500,8,1347.7500,4.7015,631.0833,28.6452,213.7500,35.3332,505.0000,43.8748,835.0000,121.7580,1.0000,5.0844,0.034056,827.6250,0.067092,0,0,0
+FBA-250ms-Stress,batch,250,8,1783.4000,8.7795,907.7000,34.4347,97.5000,8.2916,248.7500,31.3996,373.7500,101.3580,1.0000,5.3502,0.026931,2057.0000,0.057689,0,0,0

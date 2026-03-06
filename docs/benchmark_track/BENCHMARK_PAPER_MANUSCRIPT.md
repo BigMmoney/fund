@@ -72,12 +72,31 @@ The current artifact reports four groups of signals.
 
 ## 5. Current Results
 
-The generated profile in `docs/benchmarks/simulator_benchmark_profile.md` shows:
+We report two layers of results:
 
-- immediate execution preserves the lowest median latency (`10 ms`)
-- wider batch windows increase latency tails (`p99 310 ms` at `100 ms`, `910 ms` at `500 ms`)
-- stress scenarios raise throughput (`1775.2 orders/s`) and fill throughput (`987.2 fills/s`)
-- all current scenarios remain settlement-safe (`0` negative-balance violations, `0` conservation breaches)
+1. a single-seed reproducibility snapshot in `docs/benchmarks/simulator_benchmark_profile.*`
+2. an eight-seed aggregate profile in `docs/benchmarks/simulator_multiseed_profile.*`
+
+The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a more defensible paper-facing summary than a single deterministic seed.
+
+### 5.1 Multi-Seed Summary
+
+| Scenario | Runs | Mean Orders/s | Mean Fills/s | Mean p50 (ms) | Mean p95 (ms) | Mean p99 (ms) | Mean Spread | Mean Impact | Mean Queue Adv. | Mean Arb Profit |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Immediate-Surrogate | 8 | 1348.23 | 813.12 | 10.00 | 10.00 | 10.00 | 1.98 | 3.38 | 0.0742 | 669.62 |
+| FBA-100ms | 8 | 1348.23 | 805.31 | 46.25 | 100.00 | 146.25 | 1.00 | 5.96 | 0.0571 | 1015.75 |
+| FBA-250ms | 8 | 1348.30 | 691.90 | 97.50 | 300.00 | 452.50 | 1.00 | 5.36 | 0.0273 | 627.25 |
+| FBA-500ms | 8 | 1347.75 | 631.08 | 213.75 | 505.00 | 835.00 | 1.00 | 5.08 | 0.0341 | 827.62 |
+| FBA-250ms-Stress | 8 | 1783.40 | 907.70 | 97.50 | 248.75 | 373.75 | 1.00 | 5.35 | 0.0269 | 2057.00 |
+
+### 5.2 Observations
+
+- Immediate execution retains the lowest latency profile, with `10 ms` mean p50, p95, and p99 under the current discrete-time simulator.
+- Moving to `100 ms` batches preserves mean order throughput while increasing mean p99 latency to `146.25 ms`.
+- The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273`, compared with `0.0742` for immediate execution and `0.0571` for `100 ms` batches.
+- The `500 ms` batch regime pushes mean p50 latency to `213.75 ms` and mean p99 latency to `835.00 ms`, making the latency cost explicit.
+- The stress scenario increases throughput to `1783.40 orders/s` and fill throughput to `907.70 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00`.
+- Across all `5 x 8 = 40` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
 These results are sufficient for a benchmark-track draft, but not yet sufficient for a top-tier ML benchmark submission. The missing pieces are:
 
