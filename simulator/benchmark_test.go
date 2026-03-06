@@ -160,6 +160,21 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
+			Name:                   "Policy-LearnedLinear-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			PolicyController:       PolicyLearnedLinear,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
 			Name:             "FBA-250ms-Stress",
 			Mode:             ModeBatch,
 			BatchWindowSteps: 25,
@@ -223,6 +238,51 @@ func ablationScenarios() []ScenarioConfig {
 			Seed:                    77,
 			Agents:                  StressPopulation(),
 			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+		},
+	}
+}
+
+func agentWorkloadAblationScenarios() []ScenarioConfig {
+	return []ScenarioConfig{
+		{
+			Name:             "AgentAblation-Control",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             151,
+			Agents:           DefaultPopulation(),
+			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:             "AgentAblation-NoArbitrageurs",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             151,
+			Agents:           WithoutAgentClass(DefaultPopulation(), AgentArbitrageur),
+			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:             "AgentAblation-NoInformed",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             151,
+			Agents:           WithoutAgentClass(DefaultPopulation(), AgentInformed),
+			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:             "AgentAblation-RetailBurst",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             151,
+			Agents:           RetailBurstPopulation(),
+			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 28},
 		},
 	}
 }
@@ -349,6 +409,16 @@ func TestPolicyControllerProducesNamedResult(t *testing.T) {
 	}
 }
 
+func TestLearnedPolicyControllerProducesNamedResult(t *testing.T) {
+	result := runScenario(scenarioByName(t, "Policy-LearnedLinear-100-250ms"))
+	if result.Name != "Policy-LearnedLinear-100-250ms" {
+		t.Fatalf("expected learned-policy result name, got %+v", result)
+	}
+	if result.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected learned policy baseline to record adaptive window stats, got %+v", result)
+	}
+}
+
 func TestGenerateSimulatorBenchmarkArtifacts(t *testing.T) {
 	t.Helper()
 	if os.Getenv("RUN_SIM_BENCH") != "1" {
@@ -448,6 +518,34 @@ func TestGenerateSimulatorAblationArtifacts(t *testing.T) {
 	}
 	if err := writeSimulatorAblationArtifacts(aggregates, seeds); err != nil {
 		t.Fatalf("write ablation artifacts: %v", err)
+	}
+}
+
+func TestGenerateSimulatorAgentAblationArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_AGENT_ABLATION") != "1" {
+		t.Skip("set RUN_SIM_AGENT_ABLATION=1 to generate simulator agent/workload ablation artifacts")
+	}
+
+	seeds := []int64{43, 47, 53, 59}
+	aggregates := make([]aggregateResult, 0, len(agentWorkloadAblationScenarios()))
+	for _, base := range agentWorkloadAblationScenarios() {
+		runs := make([]BenchmarkResult, 0, len(seeds))
+		for _, seed := range seeds {
+			cfg := base
+			cfg.Seed = seed
+			runs = append(runs, runScenario(cfg))
+		}
+		aggregates = append(aggregates, summarizeRuns(base, runs))
+	}
+
+	control := aggregates[0]
+	noArb := aggregates[1]
+	if noArb.MeanLatencyArbitrageProfit >= control.MeanLatencyArbitrageProfit {
+		t.Fatalf("expected no-arbitrageur ablation to reduce arb profit, control=%+v noArb=%+v", control, noArb)
+	}
+	if err := writeSimulatorAgentAblationArtifacts(aggregates, seeds); err != nil {
+		t.Fatalf("write agent/workload ablation artifacts: %v", err)
 	}
 }
 
@@ -676,6 +774,49 @@ func writeSimulatorAblationArtifacts(results []aggregateResult, seeds []int64) e
 		csv.WriteString(fmt.Sprintf("%s,%s,%.4f,%.4f,%.4f,%.6f,%.4f,%d,%d,%d\n",
 			r.Name, r.Mode, r.MeanOrdersPerSec, r.MeanFillsPerSec, r.MeanP99LatencyMs, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit,
 			r.RiskRejectionsTotal, r.NegativeBalanceViolationsTotal, r.ConservationBreachesTotal))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorAgentAblationArtifacts(results []aggregateResult, seeds []int64) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_agent_ablation_profile.json")
+	mdPath := filepath.Join(base, "simulator_agent_ablation_profile.md")
+	csvPath := filepath.Join(base, "simulator_agent_ablation_profile.csv")
+
+	payload := map[string]any{
+		"seeds":   seeds,
+		"results": results,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Agent/Workload Ablation Profile\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
+	md.WriteString("| Scenario | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|\n")
+
+	var csv strings.Builder
+	csv.WriteString("scenario,mode,mean_orders_per_sec,mean_fills_per_sec,mean_p99_latency_ms,mean_average_price_impact,mean_queue_priority_advantage,mean_latency_arbitrage_profit\n")
+	for _, r := range results {
+		md.WriteString(fmt.Sprintf("| %s | %.2f | %.2f | %.2f | %.2f | %.4f | %.2f |\n",
+			r.Name, r.MeanOrdersPerSec, r.MeanFillsPerSec, r.MeanP99LatencyMs, r.MeanAveragePriceImpact, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit))
+		csv.WriteString(fmt.Sprintf("%s,%s,%.4f,%.4f,%.4f,%.4f,%.6f,%.4f\n",
+			r.Name, r.Mode, r.MeanOrdersPerSec, r.MeanFillsPerSec, r.MeanP99LatencyMs, r.MeanAveragePriceImpact, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {

@@ -26,6 +26,35 @@ func StressPopulation() []AgentConfig {
 	return pop
 }
 
+func WithoutAgentClass(pop []AgentConfig, class AgentClass) []AgentConfig {
+	filtered := make([]AgentConfig, 0, len(pop))
+	for _, agent := range pop {
+		if agent.Class == class {
+			continue
+		}
+		filtered = append(filtered, agent)
+	}
+	return filtered
+}
+
+func RetailBurstPopulation() []AgentConfig {
+	pop := DefaultPopulation()
+	burst := make([]AgentConfig, 0, len(pop)+2)
+	for _, agent := range pop {
+		if agent.Class == AgentRetail {
+			agent.Intensity += 2
+			agent.BaseSize += 1
+			agent.QuoteWidth += 1
+		}
+		burst = append(burst, agent)
+	}
+	burst = append(burst,
+		AgentConfig{ID: "ret-burst-1", Class: AgentRetail, LatencyTier: 3, BaseSize: 4, QuoteWidth: 6, Intensity: 4, InitialCash: 500000, InitialUnits: 5000},
+		AgentConfig{ID: "ret-burst-2", Class: AgentRetail, LatencyTier: 3, BaseSize: 3, QuoteWidth: 7, Intensity: 4, InitialCash: 500000, InitialUnits: 5000},
+	)
+	return burst
+}
+
 func generateOrdersForAgent(cfg AgentConfig, step int, fundamentals []int64, rng *rand.Rand, seq *int64, acct AccountState) []Order {
 	orders := make([]Order, 0, cfg.Intensity*2)
 	current := fundamentals[step]

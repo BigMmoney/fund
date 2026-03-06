@@ -24,6 +24,7 @@ type PolicyController string
 const (
 	PolicyNone       PolicyController = ""
 	PolicyBurstAware PolicyController = "burst_aware"
+	PolicyLearnedLinear PolicyController = "learned_linear"
 )
 
 type AgentClass string

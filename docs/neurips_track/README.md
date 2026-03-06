@@ -9,9 +9,10 @@ The original paper line is a market-infrastructure systems paper. This track upg
 - a seedable agent-based market simulator
 - multiple market-design regimes
 - a step-wise `Reset/Step/Observe/Metrics` API
+- adapter-driven control baselines
 - ledger-aware settlement semantics
 - reproducible benchmark artifacts
-- targeted ablation outputs
+- mechanism and agent/workload ablations
 
 ## New Components
 
@@ -19,7 +20,8 @@ The original paper line is a market-infrastructure systems paper. This track upg
 - `simulator/adapter.go`: minimal gym-style adapter with batch-window, risk-scale, and tie-break controls plus reward-bearing timesteps
 - `docs/benchmarks/simulator_benchmark_profile.*`: generated experiment outputs
 - `docs/benchmarks/simulator_multiseed_profile.*`: multi-seed aggregate outputs
-- `docs/benchmarks/simulator_ablation_profile.*`: ablation outputs
+- `docs/benchmarks/simulator_ablation_profile.*`: mechanism ablation outputs
+- `docs/benchmarks/simulator_agent_ablation_profile.*`: agent and workload ablation outputs
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `arxiv/`: isolated LaTeX source for the NeurIPS-track paper
 
@@ -36,6 +38,7 @@ From `docs/benchmarks/simulator_benchmark_profile.json`:
 - `Adaptive-OrderFlow-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 430 ms`
 - `Adaptive-QueueLoad-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 400 ms`
 - `Policy-BurstAware-100-250ms`: `1340.5 orders/s`, `p50 80 ms`, `p99 450 ms`
+- `Policy-LearnedLinear-100-250ms`: `1340.5 orders/s`, `p50 80 ms`, `p99 450 ms`
 - `FBA-250ms-Stress`: `1761.1 orders/s`, `p50 100 ms`, `p99 590 ms`
 
 All generated scenarios currently report:
@@ -56,6 +59,7 @@ From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `
 - `Adaptive-OrderFlow-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 216.67 ms`, `p99 406.25 +/- 46.22 ms`
 - `Adaptive-QueueLoad-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 209.29 ms`, `p99 386.25 +/- 65.09 ms`
 - `Policy-BurstAware-100-250ms`: `1337.70 +/- 2.82 orders/s`, `policy mean window 250.00 ms`, `p99 406.25 +/- 57.03 ms`
+- `Policy-LearnedLinear-100-250ms`: `1338.29 +/- 2.55 orders/s`, `policy mean window 225.18 ms`, `p99 333.75 +/- 53.45 ms`
 - `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `p50 97.50 +/- 5.75 ms`, `p99 373.75 +/- 70.24 ms`
 
 Measured observations:
@@ -67,6 +71,7 @@ Measured observations:
 - the adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`
 - the order-flow adaptive variant pushes to a larger `216.67 ms` mean window, lowers queue advantage to `0.0244 +/- 0.0209`, but gives back arbitrage-profit performance versus the balanced adaptive baseline
 - the queue-load adaptive variant settles at `209.29 ms`, improves price impact to `4.88 +/- 0.59`, and keeps a lower p99 than the order-flow adaptive variant
+- the learned linear controller settles below the burst-aware controller on mean window (`225.18 ms` vs `250.00 ms`) and p99 (`333.75 +/- 53.45 ms` vs `406.25 +/- 57.03 ms`), but it gives back queue-priority and arbitrage-profit proxies (`0.0470`, `672.62`)
 - the stress configuration raises throughput to `1769.25 orders/s` and arbitrage profit to `2057.00`
 
 ## Step API
@@ -87,12 +92,15 @@ The repository now includes a minimal adapter layer:
 - `Step(action)` with batch-window, risk-scale, and tie-break control hooks
 - `ActionSpec()` advertising which controls a scenario supports
 
-The current policy baseline is adapter-driven rather than hard-wired inside `Environment.Run()`:
+The current policy baselines are adapter-driven rather than hard-wired inside `Environment.Run()`:
 
 - `Policy-BurstAware-100-250ms`
   - uses `Adapter.Step(action)`
   - controls batch window, risk scale, and tie-break mode
-  - produces a distinct benchmark line in the generated artifacts
+- `Policy-LearnedLinear-100-250ms`
+  - trains by seed-split model selection over a small linear threshold family
+  - uses the same adapter action channels as the burst-aware baseline
+  - improves latency tails, but not fairness-adjacent proxy scores, relative to burst-aware
 
 ## Ablation Snapshot
 
@@ -102,6 +110,12 @@ From `docs/benchmarks/simulator_ablation_profile.json` over seeds `[13, 17, 19, 
 - `Ablation-RelaxedRisk`: `1770.24 orders/s`, `0` risk rejections
 - `Ablation-RandomTieBreak`: `p99 402.50 ms`, worse tail than control `320.00 ms`
 - `Ablation-NoSettlementChecks`: no throughput gain over control, so safety checks are not the dominant bottleneck in this setup
+
+From `docs/benchmarks/simulator_agent_ablation_profile.json` over seeds `[43, 47, 53, 59]`:
+
+- `AgentAblation-NoArbitrageurs`: drives arbitrage-profit proxy to `0.00`, lowers orders/s to `1276.59`, and flips queue advantage negative
+- `AgentAblation-NoInformed`: lowers p99 to `335.00 ms` with little effect on arbitrage-profit proxy
+- `AgentAblation-RetailBurst`: pushes throughput to `2532.94 orders/s` and raises p99 to `467.50 ms`
 
 ## Visualizations
 
@@ -124,4 +138,7 @@ go test ./simulator -run TestGenerateSimulatorMultiSeedArtifacts -v
 
 $env:RUN_SIM_ABLATION='1'
 go test ./simulator -run TestGenerateSimulatorAblationArtifacts -v
+
+$env:RUN_SIM_AGENT_ABLATION='1'
+go test ./simulator -run TestGenerateSimulatorAgentAblationArtifacts -v
 ```

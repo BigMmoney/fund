@@ -58,6 +58,20 @@ type Adapter struct {
 	prevMetrics   MetricsSnapshot
 }
 
+type learnedLinearPolicy struct {
+	WindowBias            int
+	PendingOrdersWeight   int
+	QueueDepthWeight      int
+	ImbalanceWeight       int
+	SpreadTightCutoff     int64
+	ScoreMidCut           int
+	ScoreHighCut          int
+	RiskScaleHigh         float64
+	RiskScaleLow          float64
+	TieBreakPendingCut    int
+	TieBreakImbalanceCut  int
+}
+
 func NewAdapter(cfg ScenarioConfig) *Adapter {
 	env := NewEnvironment(cfg)
 	return &Adapter{
@@ -135,8 +149,13 @@ func (a *Adapter) ActionSpec() ActionSpec {
 func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	start := time.Now()
 	timestep := a.Reset()
+	var learned *learnedLinearPolicy
+	if policy == PolicyLearnedLinear {
+		model := trainLearnedLinearPolicy(a.env.cfg)
+		learned = &model
+	}
 	for !timestep.Done {
-		action := a.selectAction(policy, timestep.Observation)
+		action := a.selectAction(policy, timestep.Observation, learned)
 		timestep = a.Step(action)
 	}
 	result := a.env.benchmarkResult(time.Since(start))
@@ -193,10 +212,15 @@ func (a *Adapter) applyAction(action ControlAction) ControlAction {
 	return applied
 }
 
-func (a *Adapter) selectAction(policy PolicyController, observation Observation) ControlAction {
+func (a *Adapter) selectAction(policy PolicyController, observation Observation, learned *learnedLinearPolicy) ControlAction {
 	switch policy {
 	case PolicyBurstAware:
 		return burstAwareAction(a.ActionSpec(), observation)
+	case PolicyLearnedLinear:
+		if learned == nil {
+			return ControlAction{}
+		}
+		return learnedLinearAction(a.ActionSpec(), observation, *learned)
 	default:
 		return ControlAction{}
 	}
@@ -244,9 +268,114 @@ func policyScenarioName(base string, policy PolicyController) string {
 	switch policy {
 	case PolicyBurstAware:
 		return "Policy-BurstAware-100-250ms"
+	case PolicyLearnedLinear:
+		return "Policy-LearnedLinear-100-250ms"
 	default:
 		return base
 	}
+}
+
+func trainLearnedLinearPolicy(cfg ScenarioConfig) learnedLinearPolicy {
+	trainingSeeds := []int64{101, 103, 107, 109}
+	candidates := []learnedLinearPolicy{
+		{WindowBias: -2, PendingOrdersWeight: 1, QueueDepthWeight: 1, ImbalanceWeight: 1, SpreadTightCutoff: 1, ScoreMidCut: 10, ScoreHighCut: 18, RiskScaleHigh: 1.00, RiskScaleLow: 0.85, TieBreakPendingCut: 2, TieBreakImbalanceCut: 5},
+		{WindowBias: 0, PendingOrdersWeight: 1, QueueDepthWeight: 1, ImbalanceWeight: 2, SpreadTightCutoff: 1, ScoreMidCut: 11, ScoreHighCut: 19, RiskScaleHigh: 1.05, RiskScaleLow: 0.85, TieBreakPendingCut: 2, TieBreakImbalanceCut: 4},
+		{WindowBias: 2, PendingOrdersWeight: 2, QueueDepthWeight: 1, ImbalanceWeight: 2, SpreadTightCutoff: 2, ScoreMidCut: 12, ScoreHighCut: 20, RiskScaleHigh: 1.10, RiskScaleLow: 0.80, TieBreakPendingCut: 1, TieBreakImbalanceCut: 4},
+		{WindowBias: 4, PendingOrdersWeight: 2, QueueDepthWeight: 2, ImbalanceWeight: 2, SpreadTightCutoff: 2, ScoreMidCut: 13, ScoreHighCut: 21, RiskScaleHigh: 1.15, RiskScaleLow: 0.80, TieBreakPendingCut: 1, TieBreakImbalanceCut: 3},
+		{WindowBias: 6, PendingOrdersWeight: 3, QueueDepthWeight: 2, ImbalanceWeight: 1, SpreadTightCutoff: 2, ScoreMidCut: 14, ScoreHighCut: 22, RiskScaleHigh: 1.20, RiskScaleLow: 0.75, TieBreakPendingCut: 1, TieBreakImbalanceCut: 3},
+	}
+
+	best := candidates[0]
+	bestReward := -1e18
+	for _, candidate := range candidates {
+		totalReward := 0.0
+		for _, seed := range trainingSeeds {
+			trainingCfg := cfg
+			trainingCfg.Seed = seed
+			adapter := NewAdapter(trainingCfg)
+			timestep := adapter.Reset()
+			for !timestep.Done {
+				timestep = adapter.Step(learnedLinearAction(adapter.ActionSpec(), timestep.Observation, candidate))
+			}
+			result := adapter.env.benchmarkResult(0)
+			totalReward += learnedPolicyScore(result)
+		}
+		if totalReward > bestReward {
+			bestReward = totalReward
+			best = candidate
+		}
+	}
+	return best
+}
+
+func learnedLinearAction(spec ActionSpec, observation Observation, model learnedLinearPolicy) ControlAction {
+	action := ControlAction{}
+	queueDepth := observation.BuyDepth + observation.SellDepth + observation.PendingOrders
+	imbalance := absInt(observation.BuyDepth - observation.SellDepth)
+	score := model.WindowBias +
+		model.PendingOrdersWeight*observation.PendingOrders +
+		model.ImbalanceWeight*imbalance
+	if observation.Spread > model.SpreadTightCutoff {
+		score += model.QueueDepthWeight
+	}
+	if queueDepth <= 4 {
+		score -= 2
+	}
+
+	if spec.SupportsBatchWindowControl {
+		target := spec.MinBatchWindowSteps
+		switch {
+		case observation.Spread <= model.SpreadTightCutoff && queueDepth <= 4:
+			target = spec.MinBatchWindowSteps
+		case score >= model.ScoreHighCut:
+			target = spec.MaxBatchWindowSteps
+		case score >= model.ScoreMidCut:
+			target = minInt(spec.MaxBatchWindowSteps, spec.MinBatchWindowSteps+10)
+		default:
+			target = minInt(spec.MaxBatchWindowSteps, spec.MinBatchWindowSteps+3)
+		}
+		action.TargetBatchWindowSteps = &target
+	}
+	if spec.SupportsRiskLimitScale {
+		scale := model.RiskScaleLow
+		if score >= model.ScoreMidCut {
+			scale = model.RiskScaleHigh
+		}
+		if observation.RiskRejections > 0 {
+			scale = maxFloat(spec.MinRiskLimitScale, model.RiskScaleLow-0.1)
+		}
+		action.RiskLimitScale = &scale
+	}
+	if spec.SupportsTieBreakToggle {
+		randomize := observation.PendingOrders >= model.TieBreakPendingCut || imbalance >= model.TieBreakImbalanceCut
+		action.RandomizeTieBreak = &randomize
+	}
+	return action
+}
+
+func learnedPolicyScore(result BenchmarkResult) float64 {
+	return 0.25*result.OrdersPerSec +
+		1.0*result.FillsPerSec -
+		0.30*result.P99LatencyMs -
+		18.0*result.AveragePriceImpact -
+		220.0*absFloat(result.QueuePriorityAdvantage) -
+		0.10*result.LatencyArbitrageProfit -
+		3.0*float64(result.RiskRejections) -
+		25.0*float64(result.ConservationBreaches)
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (a *Adapter) computeReward(delta MetricsDelta) float64 {

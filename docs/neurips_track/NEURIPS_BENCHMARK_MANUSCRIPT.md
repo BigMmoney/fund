@@ -13,9 +13,9 @@ This manuscript defines a benchmark-oriented layer on top of an existing ledger-
 The current benchmark line makes four concrete contributions:
 
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-2. It provides a seedable multi-agent order-flow generator with four agent classes and ten benchmark scenarios.
+2. It provides a seedable multi-agent order-flow generator with four agent classes, eleven benchmark scenarios, and explicit agent/workload ablation cases.
 3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
-4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a minimal gym-style adapter with batch-window, risk-scale, and tie-break controls, an adapter-driven policy baseline, and a first ablation suite for risk limits, tie-breaking, and settlement checks.
+4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a minimal gym-style adapter with batch-window, risk-scale, and tie-break controls, two adapter-driven policy baselines, and ablation suites for both market-structure toggles and agent/workload perturbations.
 
 ## 2. Research Question
 
@@ -84,7 +84,7 @@ These agents are deliberately simple. They are not intended to be a full behavio
 
 ## 6. Tasks and Baselines
 
-The current benchmark suite exposes ten scenarios:
+The current benchmark suite exposes eleven scenarios:
 
 1. `Immediate-Surrogate`
 2. `SpeedBump-50ms`
@@ -95,11 +95,12 @@ The current benchmark suite exposes ten scenarios:
 7. `Adaptive-OrderFlow-100-250ms`
 8. `Adaptive-QueueLoad-100-250ms`
 9. `Policy-BurstAware-100-250ms`
-10. `FBA-250ms-Stress`
+10. `Policy-LearnedLinear-100-250ms`
+11. `FBA-250ms-Stress`
 
 These are not yet a complete NeurIPS-scale benchmark suite, but they are sufficient to establish a reproducible baseline for future agent-control or adaptive-window work.
 
-The benchmark now includes three heuristic adaptive-window baselines and one adapter-driven policy controller. The current policy baseline is still hand-written rather than learned, so the next highest-value baseline remains a learned or policy-optimized controller.
+The benchmark now includes three heuristic adaptive-window baselines and two adapter-driven policy controllers. The burst-aware controller is hand-written. The learned linear controller is trained by seed-split model selection over a small linear threshold family and then executed through the same adapter action space. It is intentionally small, but it is enough to make the benchmark support controller comparisons instead of only built-in mechanism comparisons.
 
 ## 7. Metrics
 
@@ -169,6 +170,7 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 | Adaptive-OrderFlow-100-250ms | 8 | 1337.60 +/- 3.88 | 671.43 +/- 15.81 | 90.00 +/- 4.90 | 247.50 +/- 6.71 | 406.25 +/- 46.22 | 1.00 +/- 0.00 | 5.93 +/- 0.42 | 0.0244 +/- 0.0209 | 746.75 +/- 115.27 |
 | Adaptive-QueueLoad-100-250ms | 8 | 1337.60 +/- 3.88 | 691.57 +/- 27.02 | 90.00 +/- 7.75 | 261.25 +/- 44.83 | 386.25 +/- 65.09 | 1.00 +/- 0.00 | 4.88 +/- 0.59 | 0.0375 +/- 0.0239 | 624.25 +/- 56.37 |
 | Policy-BurstAware-100-250ms | 8 | 1337.70 +/- 2.82 | 692.26 +/- 31.77 | 98.75 +/- 4.15 | 266.25 +/- 46.48 | 406.25 +/- 57.03 | 1.00 +/- 0.00 | 5.38 +/- 0.59 | 0.0355 +/- 0.0186 | 637.62 +/- 99.20 |
+| Policy-LearnedLinear-100-250ms | 8 | 1338.29 +/- 2.55 | 692.56 +/- 31.72 | 92.50 +/- 7.55 | 236.25 +/- 11.97 | 333.75 +/- 53.45 | 1.00 +/- 0.00 | 5.51 +/- 0.87 | 0.0470 +/- 0.0206 | 672.62 +/- 75.19 |
 | FBA-250ms-Stress | 8 | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
 
 ### 9.2 Observations
@@ -178,12 +180,13 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 - Moving to `100 ms` batches preserves mean order throughput within a narrow confidence band while increasing mean p99 latency to `146.25 +/- 35.83 ms`.
 - The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and the speed-bump baseline, and `0.0571 +/- 0.0219` for `100 ms` batches.
 - The `500 ms` batch regime pushes mean p50 latency to `213.75 +/- 24.48 ms` and mean p99 latency to `835.00 +/- 84.37 ms`, making the latency cost explicit.
-- The adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`, while keeping p99 below fixed `250 ms` batching.
+- The adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`.
 - The order-flow adaptive variant pushes to a larger `216.67 ms` mean window and lowers queue-priority advantage further to `0.0244 +/- 0.0209`, but it gives back fills and arbitrage-profit performance relative to the balanced adaptive controller.
 - The queue-load adaptive variant settles at `209.29 ms`, improves price impact to `4.88 +/- 0.59`, and keeps a lower p99 than the order-flow adaptive variant while remaining above the balanced adaptive controller's fill throughput.
-- The adapter-driven policy baseline saturates the mean window at `250.00 ms` under the current burst-aware controller, yielding `1337.70 +/- 2.82 orders/s`, `692.26 +/- 31.77 fills/s`, and a queue-priority advantage of `0.0355 +/- 0.0186`. This is useful because it proves the environment can support a controller that acts through the adapter rather than only through built-in matching logic.
+- The burst-aware policy controller saturates the mean window at `250.00 ms`, yielding `1337.70 +/- 2.82 orders/s`, `692.26 +/- 31.77 fills/s`, and a queue-priority advantage of `0.0355 +/- 0.0186`.
+- The learned linear controller settles at a lower mean window of `225.18 ms`, improves p95 and p99 latency to `236.25 +/- 11.97 ms` and `333.75 +/- 53.45 ms`, but it gives back queue-priority and arbitrage-profit proxies (`0.0470 +/- 0.0206`, `672.62 +/- 75.19`) relative to the burst-aware controller.
 - The stress scenario increases throughput to `1769.25 +/- 6.04 orders/s` and fill throughput to `900.50 +/- 23.67 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
-- Across all `10 x 8 = 80` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
+- Across all `11 x 8 = 88` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
 ### 9.3 Visual Summary
 
@@ -193,7 +196,7 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 
 ![Fairness proxy comparison](figures/fairness.svg)
 
-### 9.4 Ablation Snapshot
+### 9.4 Mechanism Ablation Snapshot
 
 From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]`:
 
@@ -210,14 +213,31 @@ These ablations show three concrete effects:
 - randomizing tie-breaks worsens the latency tail and slightly reduces fill throughput under the stressed constrained setup
 - disabling settlement checks does not improve throughput in this setup, so invariant enforcement is not the dominant bottleneck
 
+### 9.5 Agent and Workload Ablation Snapshot
+
+From `docs/benchmarks/simulator_agent_ablation_profile.*` over seeds `[43, 47, 53, 59]`:
+
+| Scenario | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit |
+|---|---:|---:|---:|---:|---:|---:|
+| AgentAblation-Control | 1343.25 | 659.52 | 367.50 | 5.49 | 0.0408 | 754.00 |
+| AgentAblation-NoArbitrageurs | 1276.59 | 622.62 | 367.50 | 5.38 | -0.5958 | 0.00 |
+| AgentAblation-NoInformed | 1257.14 | 622.62 | 335.00 | 5.54 | 0.0260 | 750.25 |
+| AgentAblation-RetailBurst | 2532.94 | 1427.18 | 467.50 | 5.70 | 0.0404 | 821.75 |
+
+These agent/workload ablations make the benchmark more than a mechanism toggle suite:
+
+- removing arbitrageurs collapses arbitrage-profit proxy to `0.00` and flips queue advantage negative, showing that the fairness proxy is population-sensitive rather than purely mechanism-driven
+- removing informed traders reduces p99 tail latency to `335.00 ms` with little change in arbitrage-profit proxy, suggesting that informed flow affects tail behavior differently from pure latency arbitrage
+- increasing retail burst intensity pushes throughput above `2500 orders/s` and raises p99 to `467.50 ms`, showing that workload intensity alone can move the latency/fairness surface
+
 ## 10. Limitations
 
 The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
 
-- only heuristic control, with no learned adaptive baseline
 - proxy fairness metrics rather than richer behavioral or welfare metrics
 - the adapter action space is still narrow and does not expose richer controls over pricing, order release timing, or agent behavior
-- the current ablation suite is narrow and focuses on market-structure toggles rather than agent-model perturbations
+- the learned controller is still a tiny threshold family, not a serious policy-learning result
+- the current agent/workload ablation suite is still small and does not yet cover richer market-maker or informed-flow parameter sweeps
 
 ## 11. Related Work
 
@@ -227,13 +247,13 @@ The benchmark is motivated by frequent-batch-auction market design and by the br
 
 ## 12. Conclusion
 
-This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, and batch matching regimes, while preserving executable settlement invariants.
+This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, adapter-driven policy, and batch matching regimes, while preserving executable settlement invariants.
 
 ## 13. Next Upgrade Path
 
 To push this track toward a stronger benchmark paper:
 
-1. add a learned or policy-optimized adaptive controller
+1. add a stronger learned controller on top of the existing adapter action space
 2. add explicit agent-behavior experiments for queue advantage and arbitrage capture
-3. add a learned controller on top of the existing adapter action space
-4. broaden the ablation suite to include agent-model and workload perturbations
+3. broaden the policy interface beyond batch window, risk scale, and tie-break toggles
+4. expand the ablation suite to include deeper agent-model and workload parameter sweeps
