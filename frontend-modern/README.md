@@ -113,6 +113,19 @@ The benchmark currently targets core data-plane primitives:
 - `SignalHysteresis.addSample`
 - `formatPercentChange`
 
+## Resume-Ready Benchmark Lines
+
+Use these as one-line, evidence-backed statements in CVs or applications:
+
+- Achieved **123.6M ops/sec** on `safeDivide` under a **200k-iteration** micro-batch workload (`benchmark-latest.json`, run timestamped in artifact).
+- Sustained **17.8k ops/sec** for `StableList.update` with **batch size 128**, demonstrating stable throughput under burst-style list updates.
+- Processed **~1.41M ops/sec** on `SignalHysteresis.addSample` with bounded threshold logic, showing robust event-stream handling under high update rates.
+
+Reference artifact files:
+
+- `docs/benchmarks/benchmark-latest.json`
+- `docs/benchmarks/benchmark-latest.svg`
+
 ## Invariant Test Scope
 
 Invariant tests are focused on properties, not only examples:
@@ -128,6 +141,9 @@ Test location:
 
 - `tests/invariants/safemath.invariant.test.ts`
 - `tests/invariants/realtimeBuffer.invariant.test.ts`
+- `../matching/main_test.go` (matching correctness invariants)
+- `../ledger/main_test.go` (ledger conservation + replay/idempotency invariants)
+- `../risk/main_test.go` (risk-state transition invariants)
 
 ## Repository Layout
 

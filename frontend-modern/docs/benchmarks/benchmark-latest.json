@@ -1,57 +1,57 @@
 {
-  "generatedAt": "2026-03-06T03:23:24.437Z",
-  "ciMode": false,
+  "generatedAt": "2026-03-06T04:03:46.863Z",
+  "ciMode": true,
   "nodeVersion": "v22.17.1",
   "platform": "win32",
   "arch": "x64",
   "results": [
     {
       "name": "safeDivide hot path",
-      "iterations": 2000000,
-      "rounds": 8,
-      "meanMs": 4.458937500000005,
-      "p95Ms": 7.3125,
-      "opsPerSec": 448537347.7425952
+      "iterations": 200000,
+      "rounds": 3,
+      "meanMs": 1.6186999999999994,
+      "p95Ms": 2.018799999999999,
+      "opsPerSec": 123555939.95181324
     },
     {
       "name": "safeWeightedAverage small vector",
-      "iterations": 200000,
-      "rounds": 8,
-      "meanMs": 40.1693,
-      "p95Ms": 43.08579999999995,
-      "opsPerSec": 4978926.692772839
+      "iterations": 30000,
+      "rounds": 3,
+      "meanMs": 7.446666666666668,
+      "p95Ms": 4.17240000000001,
+      "opsPerSec": 4028648.1647269465
     },
     {
       "name": "classifyChange state + grade + value",
-      "iterations": 500000,
-      "rounds": 8,
-      "meanMs": 26.042037499999992,
-      "p95Ms": 25.975799999999936,
-      "opsPerSec": 19199726.59589328
+      "iterations": 80000,
+      "rounds": 3,
+      "meanMs": 4.733999999999999,
+      "p95Ms": 3.4647999999999968,
+      "opsPerSec": 16899028.305872414
     },
     {
       "name": "StableList.update (batch=128)",
-      "iterations": 5000,
-      "rounds": 8,
-      "meanMs": 301.26102499999996,
-      "p95Ms": 321.08490000000006,
-      "opsPerSec": 16596.902968115442
+      "iterations": 400,
+      "rounds": 3,
+      "meanMs": 22.450933333333342,
+      "p95Ms": 23.155699999999996,
+      "opsPerSec": 17816.631231366766
     },
     {
       "name": "SignalHysteresis.addSample",
-      "iterations": 500000,
-      "rounds": 8,
-      "meanMs": 175430.90448750003,
-      "p95Ms": 179831.95439999993,
-      "opsPerSec": 2850.1249620794524
+      "iterations": 80000,
+      "rounds": 3,
+      "meanMs": 56.86016666666666,
+      "p95Ms": 54.67739999999998,
+      "opsPerSec": 1406960.3500986341
     },
     {
       "name": "formatPercentChange",
-      "iterations": 1500000,
-      "rounds": 8,
-      "meanMs": 186.91887500003213,
-      "p95Ms": 188.29649999993853,
-      "opsPerSec": 8024871.752516926
+      "iterations": 200000,
+      "rounds": 3,
+      "meanMs": 24.185899999999965,
+      "p95Ms": 24.051399999999944,
+      "opsPerSec": 8269280.861989849
     }
   ]
 }

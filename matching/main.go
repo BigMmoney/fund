@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -207,22 +208,27 @@ func (me *MatchingEngine) computeClearingPrice(buyOrders, sellOrders []types.Ord
 	demandCurve := me.buildDemandCurve(buyOrders)
 	supplyCurve := me.buildSupplyCurve(sellOrders)
 
-	var bestPrice int64
+	var bestPrice int64 = -1
 	var maxVolume int64
 
 	// Find price that maximizes min(demand, supply)
 	pricePoints := me.getAllPricePoints(buyOrders, sellOrders)
+	sort.Slice(pricePoints, func(i, j int) bool { return pricePoints[i] < pricePoints[j] })
 	for _, price := range pricePoints {
 		demand := me.getDemandAtPrice(demandCurve, price)
 		supply := me.getSupplyAtPrice(supplyCurve, price)
 		volume := utils.MinInt64(demand, supply)
 
-		if volume > maxVolume {
+		// Deterministic tie-break: choose the lower price for equal matched volume.
+		if volume > maxVolume || (volume == maxVolume && (bestPrice == -1 || price < bestPrice)) {
 			maxVolume = volume
 			bestPrice = price
 		}
 	}
 
+	if bestPrice < 0 {
+		return 0
+	}
 	return bestPrice
 }
 
@@ -291,9 +297,11 @@ func (me *MatchingEngine) allocateFills(buyOrders, sellOrders []types.Order, cle
 		return fills
 	}
 
-	// Allocate proportionally
-	fills = append(fills, me.allocateBuyFills(eligibleBuys, clearingPrice, matchedVolume, totalBuyAmount)...)
-	fills = append(fills, me.allocateSellFills(eligibleSells, clearingPrice, matchedVolume, totalSellAmount)...)
+	buyAlloc := me.allocateProRataAmounts(eligibleBuys, matchedVolume, totalBuyAmount)
+	sellAlloc := me.allocateProRataAmounts(eligibleSells, matchedVolume, totalSellAmount)
+
+	fills = append(fills, me.createFills(eligibleBuys, buyAlloc, clearingPrice, "buy")...)
+	fills = append(fills, me.createFills(eligibleSells, sellAlloc, clearingPrice, "sell")...)
 
 	return fills
 }
@@ -329,55 +337,85 @@ func (me *MatchingEngine) sumOrderAmounts(orders []types.Order) int64 {
 	return total
 }
 
-// allocateBuyFills allocates fills for buy orders
-func (me *MatchingEngine) allocateBuyFills(orders []types.Order, price int64, matchedVolume, totalAmount int64) []types.Fill {
-	fills := make([]types.Fill, 0)
-
-	for _, order := range orders {
-		fillAmount := (order.Amount * matchedVolume) / totalAmount
-		if fillAmount > 0 {
-			fill := types.Fill{
-				ID:        utils.GenerateID(),
-				IntentID:  order.ID,
-				UserID:    order.UserID,
-				MarketID:  order.MarketID,
-				Side:      "buy",
-				Price:     price,
-				Amount:    fillAmount,
-				Outcome:   order.Outcome,
-				Timestamp: time.Now(),
-				OpID:      utils.GenerateOpID("fill"),
-			}
-			fills = append(fills, fill)
-		}
-	}
-
-	return fills
+type allocationRemainder struct {
+	OrderID    string
+	Amount     int64
+	Remainder  int64
 }
 
-// allocateSellFills allocates fills for sell orders
-func (me *MatchingEngine) allocateSellFills(orders []types.Order, price int64, matchedVolume, totalAmount int64) []types.Fill {
-	fills := make([]types.Fill, 0)
+// allocateProRataAmounts allocates an exact matchedVolume using largest remainder.
+func (me *MatchingEngine) allocateProRataAmounts(orders []types.Order, matchedVolume, totalAmount int64) map[string]int64 {
+	allocation := make(map[string]int64, len(orders))
+	if len(orders) == 0 || matchedVolume <= 0 || totalAmount <= 0 {
+		return allocation
+	}
 
+	var allocated int64
+	remainders := make([]allocationRemainder, 0, len(orders))
 	for _, order := range orders {
-		fillAmount := (order.Amount * matchedVolume) / totalAmount
-		if fillAmount > 0 {
-			fill := types.Fill{
-				ID:        utils.GenerateID(),
-				IntentID:  order.ID,
-				UserID:    order.UserID,
-				MarketID:  order.MarketID,
-				Side:      "sell",
-				Price:     price,
-				Amount:    fillAmount,
-				Outcome:   order.Outcome,
-				Timestamp: time.Now(),
-				OpID:      utils.GenerateOpID("fill"),
+		numerator := order.Amount * matchedVolume
+		base := numerator / totalAmount
+		rem := numerator % totalAmount
+		if base > order.Amount {
+			base = order.Amount
+		}
+		allocation[order.ID] = base
+		allocated += base
+		remainders = append(remainders, allocationRemainder{
+			OrderID:   order.ID,
+			Amount:    order.Amount,
+			Remainder: rem,
+		})
+	}
+
+	remaining := matchedVolume - allocated
+	if remaining <= 0 {
+		return allocation
+	}
+
+	sort.Slice(remainders, func(i, j int) bool {
+		if remainders[i].Remainder == remainders[j].Remainder {
+			if remainders[i].Amount == remainders[j].Amount {
+				return remainders[i].OrderID < remainders[j].OrderID
 			}
-			fills = append(fills, fill)
+			return remainders[i].Amount > remainders[j].Amount
+		}
+		return remainders[i].Remainder > remainders[j].Remainder
+	})
+
+	for _, item := range remainders {
+		if remaining == 0 {
+			break
+		}
+		if allocation[item.OrderID] < item.Amount {
+			allocation[item.OrderID]++
+			remaining--
 		}
 	}
 
+	return allocation
+}
+
+func (me *MatchingEngine) createFills(orders []types.Order, allocation map[string]int64, price int64, side string) []types.Fill {
+	fills := make([]types.Fill, 0, len(orders))
+	for _, order := range orders {
+		fillAmount := allocation[order.ID]
+		if fillAmount <= 0 {
+			continue
+		}
+		fills = append(fills, types.Fill{
+			ID:        utils.GenerateID(),
+			IntentID:  order.ID,
+			UserID:    order.UserID,
+			MarketID:  order.MarketID,
+			Side:      side,
+			Price:     price,
+			Amount:    fillAmount,
+			Outcome:   order.Outcome,
+			Timestamp: time.Now(),
+			OpID:      utils.GenerateOpID("fill"),
+		})
+	}
 	return fills
 }
 

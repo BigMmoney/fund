@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,11 @@ func NewLedgerService(eventBus *eventbus.EventBus) *LedgerService {
 func (ls *LedgerService) CommitDelta(delta types.LedgerDelta) error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
+
+	if strings.TrimSpace(delta.OpID) == "" {
+		ls.publishRejection(delta.OpID, types.RejectInvalidEntry)
+		return fmt.Errorf("invalid op_id: empty")
+	}
 
 	// 1. Check op_id not seen
 	if ls.seenOpIDs[delta.OpID] {
@@ -79,8 +85,21 @@ func (ls *LedgerService) CommitDelta(delta types.LedgerDelta) error {
 
 // validateBalance checks that debits equal credits
 func (ls *LedgerService) validateBalance(entries []types.LedgerEntry) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("ledger delta has no entries")
+	}
+
 	var sumDebits, sumCredits int64
 	for _, e := range entries {
+		if e.Amount <= 0 {
+			return fmt.Errorf("invalid amount for op %s: %d", e.OpID, e.Amount)
+		}
+		if strings.TrimSpace(e.DebitAccount) == "" || strings.TrimSpace(e.CreditAccount) == "" {
+			return fmt.Errorf("invalid entry: empty account")
+		}
+		if e.DebitAccount == e.CreditAccount {
+			return fmt.Errorf("invalid entry: debit and credit account are the same: %s", e.DebitAccount)
+		}
 		sumDebits += e.Amount
 		sumCredits += e.Amount
 	}
@@ -123,6 +142,10 @@ func (ls *LedgerService) verifySufficientBalance(entries []types.LedgerEntry, ac
 	}
 
 	for accountID, change := range balanceChanges {
+		// System accounts can be externally funded; user/market accounts cannot go negative.
+		if strings.HasPrefix(accountID, "SYS:") {
+			continue
+		}
 		newBalance := accounts[accountID].Balance + change
 		if newBalance < 0 {
 			return fmt.Errorf("insufficient balance: account=%s, balance=%d, change=%d",
