@@ -13,9 +13,9 @@ This manuscript defines a benchmark-oriented layer on top of an existing ledger-
 The current benchmark line makes four concrete contributions:
 
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-2. It provides a seedable multi-agent order-flow generator with four agent classes and six benchmark scenarios.
+2. It provides a seedable multi-agent order-flow generator with four agent classes and seven benchmark scenarios.
 3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
-4. It documents a direct upgrade path toward a stronger benchmark-style paper.
+4. It exposes a step-wise `Reset/Step/Observe/Metrics` API and a first ablation suite for risk limits, tie-breaking, and settlement checks.
 
 ## 2. Research Question
 
@@ -51,10 +51,17 @@ The benchmark environment lives in `simulator/` and consists of:
 
 - `types.go`: scenario, order, fill, and result schemas
 - `agents.go`: market-maker, retail, informed, and latency-arbitrageur order generation
-- `matching.go`: immediate and batch-clearing execution paths
+- `matching.go`: immediate, speed-bump, adaptive, and batch-clearing execution paths
 - `env.go`: state progression, settlement application, and invariant checks
 - `metrics.go`: market-quality and fairness-proxy measurements
 - `benchmark_test.go`: deterministic regression and artifact generation
+
+The environment also exposes a step-wise control surface:
+
+- `Reset()`
+- `Observe()`
+- `Step()`
+- `Metrics()`
 
 The design keeps ledger correctness in the loop. Benchmark results are only accepted if generated scenarios preserve:
 
@@ -75,22 +82,19 @@ These agents are deliberately simple. They are not intended to be a full behavio
 
 ## 6. Tasks and Baselines
 
-The current benchmark suite exposes six scenarios:
+The current benchmark suite exposes seven scenarios:
 
 1. `Immediate-Surrogate`
 2. `SpeedBump-50ms`
 3. `FBA-100ms`
 4. `FBA-250ms`
 5. `FBA-500ms`
-6. `FBA-250ms-Stress`
+6. `Adaptive-100-250ms`
+7. `FBA-250ms-Stress`
 
 These are not yet a complete NeurIPS-scale benchmark suite, but they are sufficient to establish a reproducible baseline for future agent-control or adaptive-window work.
 
-The current benchmark still lacks one important baseline:
-
-- an adaptive-window heuristic baseline
-
-The adaptive-window heuristic is the next highest-value addition if this track is going to become a stronger benchmark paper.
+The benchmark now includes a heuristic adaptive-window baseline. The next highest-value baseline is a learned or policy-optimized controller rather than another fixed schedule.
 
 ## 7. Metrics
 
@@ -156,6 +160,7 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 | FBA-100ms | 8 | 1337.09 +/- 3.96 | 798.66 +/- 21.71 | 46.25 +/- 3.35 | 100.00 +/- 0.00 | 146.25 +/- 35.83 | 1.00 +/- 0.00 | 5.96 +/- 0.41 | 0.0571 +/- 0.0219 | 1015.75 +/- 44.06 |
 | FBA-250ms | 8 | 1337.60 +/- 3.88 | 686.41 +/- 17.80 | 97.50 +/- 4.58 | 300.00 +/- 56.08 | 452.50 +/- 16.16 | 1.00 +/- 0.00 | 5.36 +/- 0.60 | 0.0273 +/- 0.0182 | 627.25 +/- 107.67 |
 | FBA-500ms | 8 | 1338.82 +/- 3.24 | 626.90 +/- 19.72 | 213.75 +/- 24.48 | 505.00 +/- 30.40 | 835.00 +/- 84.37 | 1.00 +/- 0.00 | 5.08 +/- 1.17 | 0.0341 +/- 0.0191 | 827.62 +/- 294.22 |
+| Adaptive-100-250ms | 8 | 1337.60 +/- 3.88 | 714.29 +/- 22.20 | 81.25 +/- 6.42 | 236.25 +/- 10.92 | 360.00 +/- 69.38 | 1.00 +/- 0.00 | 4.71 +/- 0.49 | 0.0375 +/- 0.0165 | 522.00 +/- 86.23 |
 | FBA-250ms-Stress | 8 | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
 
 ### 9.2 Observations
@@ -165,8 +170,9 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 - Moving to `100 ms` batches preserves mean order throughput within a narrow confidence band while increasing mean p99 latency to `146.25 +/- 35.83 ms`.
 - The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and the speed-bump baseline, and `0.0571 +/- 0.0219` for `100 ms` batches.
 - The `500 ms` batch regime pushes mean p50 latency to `213.75 +/- 24.48 ms` and mean p99 latency to `835.00 +/- 84.37 ms`, making the latency cost explicit.
+- The adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`, while keeping p99 below fixed `250 ms` batching.
 - The stress scenario increases throughput to `1769.25 +/- 6.04 orders/s` and fill throughput to `900.50 +/- 23.67 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
-- Across all `6 x 8 = 48` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
+- Across all `7 x 8 = 56` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
 ### 9.3 Visual Summary
 
@@ -176,14 +182,31 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 
 ![Fairness proxy comparison](figures/fairness.svg)
 
+### 9.4 Ablation Snapshot
+
+From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]`:
+
+| Scenario | Orders/s | Fills/s | p99 (ms) | Queue Adv. | Arb Profit | Risk Rejects | Safety Violations |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Ablation-Control | 1190.48 | 605.36 | 320.00 | -0.0509 | 685.25 | 2922 | 0 |
+| Ablation-RelaxedRisk | 1770.24 | 925.79 | 302.50 | 0.0372 | 2198.50 | 0 | 0 |
+| Ablation-RandomTieBreak | 1190.48 | 595.63 | 402.50 | -0.0540 | 738.50 | 2908 | 0 |
+| Ablation-NoSettlementChecks | 1190.48 | 605.36 | 320.00 | -0.0509 | 685.25 | 2922 | 0 |
+
+These ablations show three concrete effects:
+
+- relaxing risk limits sharply increases throughput and removes rejections, but it also lifts the arbitrage-profit proxy
+- randomizing tie-breaks worsens the latency tail and slightly reduces fill throughput under the stressed constrained setup
+- disabling settlement checks does not improve throughput in this setup, so invariant enforcement is not the dominant bottleneck
+
 ## 10. Limitations
 
 The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
 
-- fixed policies only, with no learned or adaptive baselines
+- only heuristic control, with no learned adaptive baseline
 - proxy fairness metrics rather than richer behavioral or welfare metrics
-- no standardized `reset/step/observe/metrics` API for downstream learning agents
-- no ablation study on tie-breaking, risk thresholds, or settlement checks
+- the step API is intentionally minimal and not yet wrapped as a gym-style environment
+- the current ablation suite is narrow and focuses on market-structure toggles rather than agent-model perturbations
 
 ## 11. Related Work
 
@@ -193,13 +216,13 @@ The benchmark is motivated by frequent-batch-auction market design and by the br
 
 ## 12. Conclusion
 
-This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate and batch matching regimes, while preserving executable settlement invariants.
+This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, and batch matching regimes, while preserving executable settlement invariants.
 
 ## 13. Next Upgrade Path
 
 To push this track toward a stronger benchmark paper:
 
-1. add an adaptive-window heuristic baseline
+1. add a learned or policy-optimized adaptive controller
 2. add explicit agent-behavior experiments for queue advantage and arbitrage capture
-3. package the simulator behind a cleaner `reset/step/observe/metrics` API
-4. add ablations for tie-breaking, risk thresholds, and settlement checks
+3. wrap the simulator behind a gym-style adapter on top of `Reset/Step/Observe/Metrics`
+4. broaden the ablation suite to include agent-model and workload perturbations

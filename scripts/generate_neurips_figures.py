@@ -152,6 +152,7 @@ def generate() -> None:
     for r in results:
         label = r["name"].replace("Immediate-Surrogate", "Immediate")
         label = label.replace("SpeedBump-", "SpeedBump ")
+        label = label.replace("Adaptive-", "Adaptive ")
         label = label.replace("FBA-", "")
         label = label.replace("-Stress", " Stress")
         categories.append(label)

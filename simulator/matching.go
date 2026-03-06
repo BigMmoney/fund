@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"math/rand"
 	"sort"
 )
 
@@ -74,11 +75,15 @@ func processImmediateBook(buys *[]Order, sells *[]Order, incoming Order, step in
 }
 
 func processBatchBook(buys *[]Order, sells *[]Order, step int, fundamental int64) []Fill {
+	return processBatchBookWithOptions(buys, sells, step, fundamental, false, nil)
+}
+
+func processBatchBookWithOptions(buys *[]Order, sells *[]Order, step int, fundamental int64, randomTieBreak bool, rng *rand.Rand) []Fill {
 	if len(*buys) == 0 || len(*sells) == 0 {
 		return nil
 	}
 
-	clearingPrice, matchedVolume := computeBatchClearing(*buys, *sells)
+	clearingPrice, matchedVolume := computeBatchClearingWithOptions(*buys, *sells, randomTieBreak, rng)
 	if matchedVolume == 0 {
 		return nil
 	}
@@ -134,6 +139,10 @@ func processBatchBook(buys *[]Order, sells *[]Order, step int, fundamental int64
 }
 
 func computeBatchClearing(buys, sells []Order) (int64, int64) {
+	return computeBatchClearingWithOptions(buys, sells, false, nil)
+}
+
+func computeBatchClearingWithOptions(buys, sells []Order, randomTieBreak bool, rng *rand.Rand) (int64, int64) {
 	prices := make(map[int64]struct{})
 	for _, buy := range buys {
 		prices[buy.Price] = struct{}{}
@@ -166,6 +175,10 @@ func computeBatchClearing(buys, sells []Order) (int64, int64) {
 		if volume > bestVolume || (volume == bestVolume && (bestPrice == -1 || price < bestPrice)) {
 			bestPrice = price
 			bestVolume = volume
+			continue
+		}
+		if randomTieBreak && volume == bestVolume && bestPrice != -1 && rng != nil && rng.Intn(2) == 0 {
+			bestPrice = price
 		}
 	}
 	if bestPrice < 0 {

@@ -16,6 +16,9 @@ type aggregateResult struct {
 	Mode                           MatchingMode `json:"mode"`
 	BatchWindowMs                  int          `json:"batch_window_ms"`
 	SpeedBumpMs                    int          `json:"speed_bump_ms"`
+	AdaptiveWindowMinMs            int          `json:"adaptive_window_min_ms"`
+	AdaptiveWindowMaxMs            int          `json:"adaptive_window_max_ms"`
+	AdaptiveWindowMeanMs           float64      `json:"adaptive_window_mean_ms"`
 	Runs                           int          `json:"runs"`
 	MeanOrdersPerSec               float64      `json:"mean_orders_per_sec"`
 	StdOrdersPerSec                float64      `json:"std_orders_per_sec"`
@@ -100,6 +103,19 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
+			Name:                   "Adaptive-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
 			Name:             "FBA-250ms-Stress",
 			Mode:             ModeBatch,
 			BatchWindowSteps: 25,
@@ -112,8 +128,67 @@ func simulatorScenarios() []ScenarioConfig {
 	}
 }
 
+func ablationScenarios() []ScenarioConfig {
+	return []ScenarioConfig{
+		{
+			Name:                    "Ablation-Control",
+			Mode:                    ModeBatch,
+			BatchWindowSteps:        25,
+			StepDuration:            10 * time.Millisecond,
+			TotalSteps:              125,
+			Seed:                    77,
+			Agents:                  StressPopulation(),
+			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+		},
+		{
+			Name:                    "Ablation-RelaxedRisk",
+			Mode:                    ModeBatch,
+			BatchWindowSteps:        25,
+			DisableRiskLimits:       true,
+			StepDuration:            10 * time.Millisecond,
+			TotalSteps:              125,
+			Seed:                    77,
+			Agents:                  StressPopulation(),
+			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+		},
+		{
+			Name:                    "Ablation-RandomTieBreak",
+			Mode:                    ModeBatch,
+			BatchWindowSteps:        25,
+			RandomizeBatchTieBreak:  true,
+			StepDuration:            10 * time.Millisecond,
+			TotalSteps:              125,
+			Seed:                    77,
+			Agents:                  StressPopulation(),
+			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+		},
+		{
+			Name:                    "Ablation-NoSettlementChecks",
+			Mode:                    ModeBatch,
+			BatchWindowSteps:        25,
+			DisableSettlementChecks: true,
+			StepDuration:            10 * time.Millisecond,
+			TotalSteps:              125,
+			Seed:                    77,
+			Agents:                  StressPopulation(),
+			Risk:                    RiskConfig{MaxOrderAmount: 5, MaxOrdersPerStep: 12},
+		},
+	}
+}
+
+func scenarioByName(t *testing.T, name string) ScenarioConfig {
+	t.Helper()
+	for _, cfg := range simulatorScenarios() {
+		if cfg.Name == name {
+			return cfg
+		}
+	}
+	t.Fatalf("scenario %q not found", name)
+	return ScenarioConfig{}
+}
+
 func TestSimulatorDeterminism(t *testing.T) {
-	cfg := simulatorScenarios()[1]
+	cfg := scenarioByName(t, "SpeedBump-50ms")
 	left := NewEnvironment(cfg).Run()
 	right := NewEnvironment(cfg).Run()
 
@@ -126,13 +201,49 @@ func TestSimulatorDeterminism(t *testing.T) {
 }
 
 func TestSimulatorSettlementSafety(t *testing.T) {
-	cfg := simulatorScenarios()[5]
+	cfg := scenarioByName(t, "FBA-250ms-Stress")
 	result := NewEnvironment(cfg).Run()
 	if result.NegativeBalanceViolations != 0 {
 		t.Fatalf("expected no negative balances, got %d", result.NegativeBalanceViolations)
 	}
 	if result.ConservationBreaches != 0 {
 		t.Fatalf("expected no conservation breaches, got %d", result.ConservationBreaches)
+	}
+}
+
+func TestEnvironmentStepAPI(t *testing.T) {
+	env := NewEnvironment(scenarioByName(t, "Adaptive-100-250ms"))
+	initial := env.Reset()
+	if initial.Done {
+		t.Fatalf("expected fresh environment to be running")
+	}
+	if initial.CurrentBatchWindowStep != 10 {
+		t.Fatalf("expected initial adaptive window to be 10, got %d", initial.CurrentBatchWindowStep)
+	}
+
+	var last Observation
+	for i := 0; i < 4; i++ {
+		step := env.Step()
+		last = step.Observation
+		if step.Observation.Step <= initial.Step {
+			t.Fatalf("expected step counter to advance, got %+v", step.Observation)
+		}
+	}
+	if last.Done {
+		t.Fatalf("expected environment not to be done after 4 steps")
+	}
+	if last.Mode != ModeAdaptiveBatch {
+		t.Fatalf("expected adaptive mode observation, got %s", last.Mode)
+	}
+}
+
+func TestAdaptiveBatchWindowSummary(t *testing.T) {
+	result := NewEnvironment(scenarioByName(t, "Adaptive-100-250ms")).Run()
+	if result.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected adaptive window mean to be populated, got %+v", result)
+	}
+	if result.AdaptiveWindowMaxMs < result.AdaptiveWindowMinMs {
+		t.Fatalf("expected adaptive max >= min, got %+v", result)
 	}
 }
 
@@ -148,7 +259,7 @@ func TestGenerateSimulatorBenchmarkArtifacts(t *testing.T) {
 	}
 
 	immediate := results[0]
-	batch100 := results[1]
+	batch100 := results[2]
 	if !(immediate.P50LatencyMs < batch100.P50LatencyMs) {
 		t.Fatalf("expected immediate latency to be lower than FBA-100ms")
 	}
@@ -183,9 +294,13 @@ func TestGenerateSimulatorMultiSeedArtifacts(t *testing.T) {
 
 	immediate := aggregates[0]
 	speedBump := aggregates[1]
+	adaptive := aggregates[5]
 	batch500 := aggregates[4]
 	if !(immediate.MeanP50LatencyMs <= speedBump.MeanP50LatencyMs) {
 		t.Fatalf("expected immediate p50 latency mean to be lower than speed-bump baseline")
+	}
+	if adaptive.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected adaptive aggregate to report non-zero adaptive mean window")
 	}
 	if !(immediate.MeanP50LatencyMs < batch500.MeanP50LatencyMs) {
 		t.Fatalf("expected immediate p50 latency mean to be lower than FBA-500ms")
@@ -198,6 +313,34 @@ func TestGenerateSimulatorMultiSeedArtifacts(t *testing.T) {
 
 	if err := writeSimulatorMultiSeedArtifacts(aggregates, seeds); err != nil {
 		t.Fatalf("write multi-seed artifacts: %v", err)
+	}
+}
+
+func TestGenerateSimulatorAblationArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_ABLATION") != "1" {
+		t.Skip("set RUN_SIM_ABLATION=1 to generate simulator ablation artifacts")
+	}
+
+	seeds := []int64{13, 17, 19, 23}
+	aggregates := make([]aggregateResult, 0, len(ablationScenarios()))
+	for _, base := range ablationScenarios() {
+		runs := make([]BenchmarkResult, 0, len(seeds))
+		for _, seed := range seeds {
+			cfg := base
+			cfg.Seed = seed
+			runs = append(runs, NewEnvironment(cfg).Run())
+		}
+		aggregates = append(aggregates, summarizeRuns(base, runs))
+	}
+
+	control := aggregates[0]
+	relaxedRisk := aggregates[1]
+	if relaxedRisk.RiskRejectionsTotal > control.RiskRejectionsTotal {
+		t.Fatalf("expected relaxed risk to reduce rejections, control=%+v relaxed=%+v", control, relaxedRisk)
+	}
+	if err := writeSimulatorAblationArtifacts(aggregates, seeds); err != nil {
+		t.Fatalf("write ablation artifacts: %v", err)
 	}
 }
 
@@ -250,6 +393,8 @@ func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult 
 		Mode:          base.Mode,
 		BatchWindowMs: int(base.StepDuration.Milliseconds()) * base.BatchWindowSteps,
 		SpeedBumpMs:   int(base.StepDuration.Milliseconds()) * base.SpeedBumpSteps,
+		AdaptiveWindowMinMs: int(base.StepDuration.Milliseconds()) * base.AdaptiveMinWindowSteps,
+		AdaptiveWindowMaxMs: int(base.StepDuration.Milliseconds()) * base.AdaptiveMaxWindowSteps,
 		Runs:          len(runs),
 	}
 	orders := make([]float64, 0, len(runs))
@@ -273,9 +418,17 @@ func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult 
 		queue = append(queue, run.QueuePriorityAdvantage)
 		arb = append(arb, run.LatencyArbitrageProfit)
 		dispersion = append(dispersion, run.ExecutionDispersion)
+		if run.AdaptiveWindowMinMs > 0 {
+			agg.AdaptiveWindowMinMs = run.AdaptiveWindowMinMs
+			agg.AdaptiveWindowMaxMs = run.AdaptiveWindowMaxMs
+		}
+		agg.AdaptiveWindowMeanMs += run.AdaptiveWindowMeanMs
 		agg.NegativeBalanceViolationsTotal += run.NegativeBalanceViolations
 		agg.ConservationBreachesTotal += run.ConservationBreaches
 		agg.RiskRejectionsTotal += run.RiskRejections
+	}
+	if len(runs) > 0 {
+		agg.AdaptiveWindowMeanMs /= float64(len(runs))
 	}
 	agg.MeanOrdersPerSec, agg.StdOrdersPerSec = meanStd(orders)
 	agg.CI95OrdersPerSec = ci95HalfWidth(agg.StdOrdersPerSec, len(orders))
@@ -320,29 +473,102 @@ func writeSimulatorMultiSeedArtifacts(results []aggregateResult, seeds []int64) 
 	var md strings.Builder
 	md.WriteString("# Simulator Multi-Seed Benchmark Profile\n\n")
 	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
-	md.WriteString("| Scenario | Runs | Window (ms) | Speed Bump (ms) | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |\n")
-	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Scenario | Runs | Window (ms) | Speed Bump (ms) | Adaptive Mean (ms) | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,runs,mean_orders_per_sec,std_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,ci95_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,ci95_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,ci95_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,ci95_p99_latency_ms,mean_average_spread,ci95_average_spread,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_execution_dispersion,ci95_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
+	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,adaptive_window_min_ms,adaptive_window_max_ms,adaptive_window_mean_ms,runs,mean_orders_per_sec,std_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,ci95_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,ci95_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,ci95_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,ci95_p99_latency_ms,mean_average_spread,ci95_average_spread,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_execution_dispersion,ci95_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
 
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %s | %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
-			r.Name, r.Runs, r.BatchWindowMs, r.SpeedBumpMs, r.MeanOrdersPerSec, r.CI95OrdersPerSec, r.MeanFillsPerSec, r.CI95FillsPerSec,
+		md.WriteString(fmt.Sprintf("| %s | %d | %d | %d | %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+			r.Name, r.Runs, r.BatchWindowMs, r.SpeedBumpMs, r.AdaptiveWindowMeanMs, r.MeanOrdersPerSec, r.CI95OrdersPerSec, r.MeanFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP50LatencyMs, r.CI95P50LatencyMs, r.MeanP95LatencyMs, r.CI95P95LatencyMs, r.MeanP99LatencyMs, r.CI95P99LatencyMs,
 			r.MeanAverageSpread, r.CI95AverageSpread, r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
 			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage, r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
-		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f,%.6f,%.6f,%d,%d,%d\n",
-			r.Name, r.Mode, r.BatchWindowMs, r.SpeedBumpMs, r.Runs, r.MeanOrdersPerSec, r.StdOrdersPerSec, r.CI95OrdersPerSec,
-			r.MeanFillsPerSec, r.StdFillsPerSec, r.CI95FillsPerSec,
-			r.MeanP50LatencyMs, r.StdP50LatencyMs, r.CI95P50LatencyMs,
-			r.MeanP95LatencyMs, r.StdP95LatencyMs, r.CI95P95LatencyMs,
-			r.MeanP99LatencyMs, r.StdP99LatencyMs, r.CI95P99LatencyMs,
-			r.MeanAverageSpread, r.CI95AverageSpread, r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
-			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
-			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit,
-			r.MeanExecutionDispersion, r.CI95ExecutionDispersion,
-			r.NegativeBalanceViolationsTotal, r.ConservationBreachesTotal, r.RiskRejectionsTotal))
+		fields := []string{
+			r.Name,
+			string(r.Mode),
+			fmt.Sprintf("%d", r.BatchWindowMs),
+			fmt.Sprintf("%d", r.SpeedBumpMs),
+			fmt.Sprintf("%d", r.AdaptiveWindowMinMs),
+			fmt.Sprintf("%d", r.AdaptiveWindowMaxMs),
+			fmt.Sprintf("%.4f", r.AdaptiveWindowMeanMs),
+			fmt.Sprintf("%d", r.Runs),
+			fmt.Sprintf("%.4f", r.MeanOrdersPerSec),
+			fmt.Sprintf("%.4f", r.StdOrdersPerSec),
+			fmt.Sprintf("%.4f", r.CI95OrdersPerSec),
+			fmt.Sprintf("%.4f", r.MeanFillsPerSec),
+			fmt.Sprintf("%.4f", r.StdFillsPerSec),
+			fmt.Sprintf("%.4f", r.CI95FillsPerSec),
+			fmt.Sprintf("%.4f", r.MeanP50LatencyMs),
+			fmt.Sprintf("%.4f", r.StdP50LatencyMs),
+			fmt.Sprintf("%.4f", r.CI95P50LatencyMs),
+			fmt.Sprintf("%.4f", r.MeanP95LatencyMs),
+			fmt.Sprintf("%.4f", r.StdP95LatencyMs),
+			fmt.Sprintf("%.4f", r.CI95P95LatencyMs),
+			fmt.Sprintf("%.4f", r.MeanP99LatencyMs),
+			fmt.Sprintf("%.4f", r.StdP99LatencyMs),
+			fmt.Sprintf("%.4f", r.CI95P99LatencyMs),
+			fmt.Sprintf("%.4f", r.MeanAverageSpread),
+			fmt.Sprintf("%.4f", r.CI95AverageSpread),
+			fmt.Sprintf("%.4f", r.MeanAveragePriceImpact),
+			fmt.Sprintf("%.4f", r.CI95AveragePriceImpact),
+			fmt.Sprintf("%.6f", r.MeanQueuePriorityAdvantage),
+			fmt.Sprintf("%.6f", r.CI95QueuePriorityAdvantage),
+			fmt.Sprintf("%.4f", r.MeanLatencyArbitrageProfit),
+			fmt.Sprintf("%.4f", r.CI95LatencyArbitrageProfit),
+			fmt.Sprintf("%.6f", r.MeanExecutionDispersion),
+			fmt.Sprintf("%.6f", r.CI95ExecutionDispersion),
+			fmt.Sprintf("%d", r.NegativeBalanceViolationsTotal),
+			fmt.Sprintf("%d", r.ConservationBreachesTotal),
+			fmt.Sprintf("%d", r.RiskRejectionsTotal),
+		}
+		csv.WriteString(strings.Join(fields, ",") + "\n")
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorAblationArtifacts(results []aggregateResult, seeds []int64) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_ablation_profile.json")
+	mdPath := filepath.Join(base, "simulator_ablation_profile.md")
+	csvPath := filepath.Join(base, "simulator_ablation_profile.csv")
+
+	payload := map[string]any{
+		"seeds":   seeds,
+		"results": results,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Ablation Profile\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
+	md.WriteString("| Scenario | Orders/s | Fills/s | p99 (ms) | Queue Adv. | Arb Profit | Risk Rejects | Safety Violations |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|\n")
+
+	var csv strings.Builder
+	csv.WriteString("scenario,mode,mean_orders_per_sec,mean_fills_per_sec,mean_p99_latency_ms,mean_queue_priority_advantage,mean_latency_arbitrage_profit,risk_rejections_total,negative_balance_violations_total,conservation_breaches_total\n")
+	for _, r := range results {
+		safety := r.NegativeBalanceViolationsTotal + r.ConservationBreachesTotal
+		md.WriteString(fmt.Sprintf("| %s | %.2f | %.2f | %.2f | %.4f | %.2f | %d | %d |\n",
+			r.Name, r.MeanOrdersPerSec, r.MeanFillsPerSec, r.MeanP99LatencyMs, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit, r.RiskRejectionsTotal, safety))
+		csv.WriteString(fmt.Sprintf("%s,%s,%.4f,%.4f,%.4f,%.6f,%.4f,%d,%d,%d\n",
+			r.Name, r.Mode, r.MeanOrdersPerSec, r.MeanFillsPerSec, r.MeanP99LatencyMs, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit,
+			r.RiskRejectionsTotal, r.NegativeBalanceViolationsTotal, r.ConservationBreachesTotal))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
