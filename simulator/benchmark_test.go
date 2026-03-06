@@ -12,38 +12,39 @@ import (
 )
 
 type aggregateResult struct {
-	Name                           string  `json:"name"`
+	Name                           string       `json:"name"`
 	Mode                           MatchingMode `json:"mode"`
-	BatchWindowMs                  int     `json:"batch_window_ms"`
-	Runs                           int     `json:"runs"`
-	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
-	StdOrdersPerSec                float64 `json:"std_orders_per_sec"`
-	CI95OrdersPerSec               float64 `json:"ci95_orders_per_sec"`
-	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
-	StdFillsPerSec                 float64 `json:"std_fills_per_sec"`
-	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
-	MeanP50LatencyMs               float64 `json:"mean_p50_latency_ms"`
-	StdP50LatencyMs                float64 `json:"std_p50_latency_ms"`
-	CI95P50LatencyMs               float64 `json:"ci95_p50_latency_ms"`
-	MeanP95LatencyMs               float64 `json:"mean_p95_latency_ms"`
-	StdP95LatencyMs                float64 `json:"std_p95_latency_ms"`
-	CI95P95LatencyMs               float64 `json:"ci95_p95_latency_ms"`
-	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
-	StdP99LatencyMs                float64 `json:"std_p99_latency_ms"`
-	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
-	MeanAverageSpread              float64 `json:"mean_average_spread"`
-	CI95AverageSpread              float64 `json:"ci95_average_spread"`
-	MeanAveragePriceImpact         float64 `json:"mean_average_price_impact"`
-	CI95AveragePriceImpact         float64 `json:"ci95_average_price_impact"`
-	MeanQueuePriorityAdvantage     float64 `json:"mean_queue_priority_advantage"`
-	CI95QueuePriorityAdvantage     float64 `json:"ci95_queue_priority_advantage"`
-	MeanLatencyArbitrageProfit     float64 `json:"mean_latency_arbitrage_profit"`
-	CI95LatencyArbitrageProfit     float64 `json:"ci95_latency_arbitrage_profit"`
-	MeanExecutionDispersion        float64 `json:"mean_execution_dispersion"`
-	CI95ExecutionDispersion        float64 `json:"ci95_execution_dispersion"`
-	NegativeBalanceViolationsTotal int     `json:"negative_balance_violations_total"`
-	ConservationBreachesTotal      int     `json:"conservation_breaches_total"`
-	RiskRejectionsTotal            int     `json:"risk_rejections_total"`
+	BatchWindowMs                  int          `json:"batch_window_ms"`
+	SpeedBumpMs                    int          `json:"speed_bump_ms"`
+	Runs                           int          `json:"runs"`
+	MeanOrdersPerSec               float64      `json:"mean_orders_per_sec"`
+	StdOrdersPerSec                float64      `json:"std_orders_per_sec"`
+	CI95OrdersPerSec               float64      `json:"ci95_orders_per_sec"`
+	MeanFillsPerSec                float64      `json:"mean_fills_per_sec"`
+	StdFillsPerSec                 float64      `json:"std_fills_per_sec"`
+	CI95FillsPerSec                float64      `json:"ci95_fills_per_sec"`
+	MeanP50LatencyMs               float64      `json:"mean_p50_latency_ms"`
+	StdP50LatencyMs                float64      `json:"std_p50_latency_ms"`
+	CI95P50LatencyMs               float64      `json:"ci95_p50_latency_ms"`
+	MeanP95LatencyMs               float64      `json:"mean_p95_latency_ms"`
+	StdP95LatencyMs                float64      `json:"std_p95_latency_ms"`
+	CI95P95LatencyMs               float64      `json:"ci95_p95_latency_ms"`
+	MeanP99LatencyMs               float64      `json:"mean_p99_latency_ms"`
+	StdP99LatencyMs                float64      `json:"std_p99_latency_ms"`
+	CI95P99LatencyMs               float64      `json:"ci95_p99_latency_ms"`
+	MeanAverageSpread              float64      `json:"mean_average_spread"`
+	CI95AverageSpread              float64      `json:"ci95_average_spread"`
+	MeanAveragePriceImpact         float64      `json:"mean_average_price_impact"`
+	CI95AveragePriceImpact         float64      `json:"ci95_average_price_impact"`
+	MeanQueuePriorityAdvantage     float64      `json:"mean_queue_priority_advantage"`
+	CI95QueuePriorityAdvantage     float64      `json:"ci95_queue_priority_advantage"`
+	MeanLatencyArbitrageProfit     float64      `json:"mean_latency_arbitrage_profit"`
+	CI95LatencyArbitrageProfit     float64      `json:"ci95_latency_arbitrage_profit"`
+	MeanExecutionDispersion        float64      `json:"mean_execution_dispersion"`
+	CI95ExecutionDispersion        float64      `json:"ci95_execution_dispersion"`
+	NegativeBalanceViolationsTotal int          `json:"negative_balance_violations_total"`
+	ConservationBreachesTotal      int          `json:"conservation_breaches_total"`
+	RiskRejectionsTotal            int          `json:"risk_rejections_total"`
 }
 
 func simulatorScenarios() []ScenarioConfig {
@@ -57,6 +58,16 @@ func simulatorScenarios() []ScenarioConfig {
 			Seed:             42,
 			Agents:           DefaultPopulation(),
 			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:            "SpeedBump-50ms",
+			Mode:            ModeSpeedBump,
+			SpeedBumpSteps:  5,
+			StepDuration:    10 * time.Millisecond,
+			TotalSteps:      120,
+			Seed:            42,
+			Agents:          DefaultPopulation(),
+			Risk:            RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
 			Name:             "FBA-100ms",
@@ -115,7 +126,7 @@ func TestSimulatorDeterminism(t *testing.T) {
 }
 
 func TestSimulatorSettlementSafety(t *testing.T) {
-	cfg := simulatorScenarios()[4]
+	cfg := simulatorScenarios()[5]
 	result := NewEnvironment(cfg).Run()
 	if result.NegativeBalanceViolations != 0 {
 		t.Fatalf("expected no negative balances, got %d", result.NegativeBalanceViolations)
@@ -171,7 +182,11 @@ func TestGenerateSimulatorMultiSeedArtifacts(t *testing.T) {
 	}
 
 	immediate := aggregates[0]
-	batch500 := aggregates[3]
+	speedBump := aggregates[1]
+	batch500 := aggregates[4]
+	if !(immediate.MeanP50LatencyMs <= speedBump.MeanP50LatencyMs) {
+		t.Fatalf("expected immediate p50 latency mean to be lower than speed-bump baseline")
+	}
 	if !(immediate.MeanP50LatencyMs < batch500.MeanP50LatencyMs) {
 		t.Fatalf("expected immediate p50 latency mean to be lower than FBA-500ms")
 	}
@@ -207,18 +222,18 @@ func writeSimulatorArtifacts(results []BenchmarkResult) error {
 
 	var md strings.Builder
 	md.WriteString("# Simulator Benchmark Profile\n\n")
-	md.WriteString("| Scenario | Mode | Window (ms) | Orders/s | Fills/s | p50 (ms) | p95 (ms) | Spread | Price Impact | Queue Advantage | Arb Profit | Dispersion | Risk Rejects |\n")
-	md.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Scenario | Mode | Window (ms) | Speed Bump (ms) | Orders/s | Fills/s | p50 (ms) | p95 (ms) | Spread | Price Impact | Queue Advantage | Arb Profit | Dispersion | Risk Rejects |\n")
+	md.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("scenario,mode,batch_window_ms,orders_per_sec,fills_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,average_spread,average_price_impact,queue_priority_advantage,latency_arbitrage_profit,execution_dispersion,risk_rejections,negative_balance_violations,conservation_breaches\n")
+	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,orders_per_sec,fills_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,average_spread,average_price_impact,queue_priority_advantage,latency_arbitrage_profit,execution_dispersion,risk_rejections,negative_balance_violations,conservation_breaches\n")
 
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %s | %s | %d | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.4f | %.2f | %.4f | %d |\n",
-			r.Name, r.Mode, r.BatchWindowMs, r.OrdersPerSec, r.FillsPerSec, r.P50LatencyMs, r.P95LatencyMs,
+		md.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.4f | %.2f | %.4f | %d |\n",
+			r.Name, r.Mode, r.BatchWindowMs, r.SpeedBumpMs, r.OrdersPerSec, r.FillsPerSec, r.P50LatencyMs, r.P95LatencyMs,
 			r.AverageSpread, r.AveragePriceImpact, r.QueuePriorityAdvantage, r.LatencyArbitrageProfit, r.ExecutionDispersion, r.RiskRejections))
-		csv.WriteString(fmt.Sprintf("%s,%s,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.4f,%.6f,%d,%d,%d\n",
-			r.Name, r.Mode, r.BatchWindowMs, r.OrdersPerSec, r.FillsPerSec, r.P50LatencyMs, r.P95LatencyMs,
+		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.4f,%.6f,%d,%d,%d\n",
+			r.Name, r.Mode, r.BatchWindowMs, r.SpeedBumpMs, r.OrdersPerSec, r.FillsPerSec, r.P50LatencyMs, r.P95LatencyMs,
 			r.P99LatencyMs, r.AverageSpread, r.AveragePriceImpact, r.QueuePriorityAdvantage, r.LatencyArbitrageProfit,
 			r.ExecutionDispersion, r.RiskRejections, r.NegativeBalanceViolations, r.ConservationBreaches))
 	}
@@ -234,6 +249,7 @@ func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult 
 		Name:          base.Name,
 		Mode:          base.Mode,
 		BatchWindowMs: int(base.StepDuration.Milliseconds()) * base.BatchWindowSteps,
+		SpeedBumpMs:   int(base.StepDuration.Milliseconds()) * base.SpeedBumpSteps,
 		Runs:          len(runs),
 	}
 	orders := make([]float64, 0, len(runs))
@@ -304,20 +320,20 @@ func writeSimulatorMultiSeedArtifacts(results []aggregateResult, seeds []int64) 
 	var md strings.Builder
 	md.WriteString("# Simulator Multi-Seed Benchmark Profile\n\n")
 	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
-	md.WriteString("| Scenario | Runs | Window (ms) | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |\n")
-	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Scenario | Runs | Window (ms) | Speed Bump (ms) | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("scenario,mode,batch_window_ms,runs,mean_orders_per_sec,std_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,ci95_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,ci95_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,ci95_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,ci95_p99_latency_ms,mean_average_spread,ci95_average_spread,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_execution_dispersion,ci95_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
+	csv.WriteString("scenario,mode,batch_window_ms,speed_bump_ms,runs,mean_orders_per_sec,std_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,ci95_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,ci95_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,ci95_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,ci95_p99_latency_ms,mean_average_spread,ci95_average_spread,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_execution_dispersion,ci95_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
 
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %s | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
-			r.Name, r.Runs, r.BatchWindowMs, r.MeanOrdersPerSec, r.CI95OrdersPerSec, r.MeanFillsPerSec, r.CI95FillsPerSec,
+		md.WriteString(fmt.Sprintf("| %s | %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+			r.Name, r.Runs, r.BatchWindowMs, r.SpeedBumpMs, r.MeanOrdersPerSec, r.CI95OrdersPerSec, r.MeanFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP50LatencyMs, r.CI95P50LatencyMs, r.MeanP95LatencyMs, r.CI95P95LatencyMs, r.MeanP99LatencyMs, r.CI95P99LatencyMs,
 			r.MeanAverageSpread, r.CI95AverageSpread, r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
 			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage, r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
-		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f,%.6f,%.6f,%d,%d,%d\n",
-			r.Name, r.Mode, r.BatchWindowMs, r.Runs, r.MeanOrdersPerSec, r.StdOrdersPerSec, r.CI95OrdersPerSec,
+		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f,%.6f,%.6f,%d,%d,%d\n",
+			r.Name, r.Mode, r.BatchWindowMs, r.SpeedBumpMs, r.Runs, r.MeanOrdersPerSec, r.StdOrdersPerSec, r.CI95OrdersPerSec,
 			r.MeanFillsPerSec, r.StdFillsPerSec, r.CI95FillsPerSec,
 			r.MeanP50LatencyMs, r.StdP50LatencyMs, r.CI95P50LatencyMs,
 			r.MeanP95LatencyMs, r.StdP95LatencyMs, r.CI95P95LatencyMs,

@@ -18,31 +18,37 @@
 <line class="axis" x1="90" y1="70" x2="90" y2="450"/>
 <line class="axis" x1="90" y1="450" x2="940" y2="450"/>
 <text class="label" x="90.0" y="478" text-anchor="middle">Immediate</text>
-<text class="label" x="302.5" y="478" text-anchor="middle">100ms</text>
-<text class="label" x="515.0" y="478" text-anchor="middle">250ms</text>
-<text class="label" x="727.5" y="478" text-anchor="middle">500ms</text>
+<text class="label" x="260.0" y="478" text-anchor="middle">SpeedBump 50ms</text>
+<text class="label" x="430.0" y="478" text-anchor="middle">100ms</text>
+<text class="label" x="600.0" y="478" text-anchor="middle">250ms</text>
+<text class="label" x="770.0" y="478" text-anchor="middle">500ms</text>
 <text class="label" x="940.0" y="478" text-anchor="middle">250ms Stress</text>
-<polyline fill="none" stroke="#34d399" stroke-width="4" points="90.0,446.3 302.5,432.9 515.0,414.0 727.5,371.1 940.0,414.0"/>
+<polyline fill="none" stroke="#34d399" stroke-width="4" points="90.0,446.3 260.0,427.9 430.0,432.9 600.0,414.0 770.0,371.1 940.0,414.0"/>
 <line class="err" x1="90.0" y1="446.3" x2="90.0" y2="446.3"/>
 <line class="err" x1="83.0" y1="446.3" x2="97.0" y2="446.3"/>
 <line class="err" x1="83.0" y1="446.3" x2="97.0" y2="446.3"/>
 <circle cx="90.0" cy="446.3" r="5" fill="#34d399"/>
 <text class="value" x="90.0" y="436.3" text-anchor="middle">10.0</text>
-<line class="err" x1="302.5" y1="431.7" x2="302.5" y2="434.2"/>
-<line class="err" x1="295.5" y1="431.7" x2="309.5" y2="431.7"/>
-<line class="err" x1="295.5" y1="434.2" x2="309.5" y2="434.2"/>
-<circle cx="302.5" cy="432.9" r="5" fill="#34d399"/>
-<text class="value" x="302.5" y="421.7" text-anchor="middle">46.2</text>
-<line class="err" x1="515.0" y1="412.3" x2="515.0" y2="415.7"/>
-<line class="err" x1="508.0" y1="412.3" x2="522.0" y2="412.3"/>
-<line class="err" x1="508.0" y1="415.7" x2="522.0" y2="415.7"/>
-<circle cx="515.0" cy="414.0" r="5" fill="#34d399"/>
-<text class="value" x="515.0" y="402.3" text-anchor="middle">97.5</text>
-<line class="err" x1="727.5" y1="362.1" x2="727.5" y2="380.2"/>
-<line class="err" x1="720.5" y1="362.1" x2="734.5" y2="362.1"/>
-<line class="err" x1="720.5" y1="380.2" x2="734.5" y2="380.2"/>
-<circle cx="727.5" cy="371.1" r="5" fill="#34d399"/>
-<text class="value" x="727.5" y="352.1" text-anchor="middle">213.8</text>
+<line class="err" x1="260.0" y1="427.9" x2="260.0" y2="427.9"/>
+<line class="err" x1="253.0" y1="427.9" x2="267.0" y2="427.9"/>
+<line class="err" x1="253.0" y1="427.9" x2="267.0" y2="427.9"/>
+<circle cx="260.0" cy="427.9" r="5" fill="#34d399"/>
+<text class="value" x="260.0" y="417.9" text-anchor="middle">60.0</text>
+<line class="err" x1="430.0" y1="431.7" x2="430.0" y2="434.2"/>
+<line class="err" x1="423.0" y1="431.7" x2="437.0" y2="431.7"/>
+<line class="err" x1="423.0" y1="434.2" x2="437.0" y2="434.2"/>
+<circle cx="430.0" cy="432.9" r="5" fill="#34d399"/>
+<text class="value" x="430.0" y="421.7" text-anchor="middle">46.2</text>
+<line class="err" x1="600.0" y1="412.3" x2="600.0" y2="415.7"/>
+<line class="err" x1="593.0" y1="412.3" x2="607.0" y2="412.3"/>
+<line class="err" x1="593.0" y1="415.7" x2="607.0" y2="415.7"/>
+<circle cx="600.0" cy="414.0" r="5" fill="#34d399"/>
+<text class="value" x="600.0" y="402.3" text-anchor="middle">97.5</text>
+<line class="err" x1="770.0" y1="362.1" x2="770.0" y2="380.2"/>
+<line class="err" x1="763.0" y1="362.1" x2="777.0" y2="362.1"/>
+<line class="err" x1="763.0" y1="380.2" x2="777.0" y2="380.2"/>
+<circle cx="770.0" cy="371.1" r="5" fill="#34d399"/>
+<text class="value" x="770.0" y="352.1" text-anchor="middle">213.8</text>
 <line class="err" x1="940.0" y1="411.9" x2="940.0" y2="416.1"/>
 <line class="err" x1="933.0" y1="411.9" x2="947.0" y2="411.9"/>
 <line class="err" x1="933.0" y1="416.1" x2="947.0" y2="416.1"/>
@@ -50,27 +56,32 @@
 <text class="value" x="940.0" y="401.9" text-anchor="middle">97.5</text>
 <line x1="730" y1="28" x2="746" y2="28" stroke="#34d399" stroke-width="4"/>
 <text class="legend" x="754" y="34">p50</text>
-<polyline fill="none" stroke="#f59e0b" stroke-width="4" points="90.0,446.3 302.5,413.1 515.0,339.3 727.5,263.6 940.0,358.2"/>
+<polyline fill="none" stroke="#f59e0b" stroke-width="4" points="90.0,446.3 260.0,427.9 430.0,413.1 600.0,339.3 770.0,263.6 940.0,358.2"/>
 <line class="err" x1="90.0" y1="446.3" x2="90.0" y2="446.3"/>
 <line class="err" x1="83.0" y1="446.3" x2="97.0" y2="446.3"/>
 <line class="err" x1="83.0" y1="446.3" x2="97.0" y2="446.3"/>
 <circle cx="90.0" cy="446.3" r="5" fill="#f59e0b"/>
 <text class="value" x="90.0" y="436.3" text-anchor="middle">10.0</text>
-<line class="err" x1="302.5" y1="413.1" x2="302.5" y2="413.1"/>
-<line class="err" x1="295.5" y1="413.1" x2="309.5" y2="413.1"/>
-<line class="err" x1="295.5" y1="413.1" x2="309.5" y2="413.1"/>
-<circle cx="302.5" cy="413.1" r="5" fill="#f59e0b"/>
-<text class="value" x="302.5" y="403.1" text-anchor="middle">100.0</text>
-<line class="err" x1="515.0" y1="318.6" x2="515.0" y2="360.0"/>
-<line class="err" x1="508.0" y1="318.6" x2="522.0" y2="318.6"/>
-<line class="err" x1="508.0" y1="360.0" x2="522.0" y2="360.0"/>
-<circle cx="515.0" cy="339.3" r="5" fill="#f59e0b"/>
-<text class="value" x="515.0" y="308.6" text-anchor="middle">300.0</text>
-<line class="err" x1="727.5" y1="252.4" x2="727.5" y2="274.9"/>
-<line class="err" x1="720.5" y1="252.4" x2="734.5" y2="252.4"/>
-<line class="err" x1="720.5" y1="274.9" x2="734.5" y2="274.9"/>
-<circle cx="727.5" cy="263.6" r="5" fill="#f59e0b"/>
-<text class="value" x="727.5" y="242.4" text-anchor="middle">505.0</text>
+<line class="err" x1="260.0" y1="427.9" x2="260.0" y2="427.9"/>
+<line class="err" x1="253.0" y1="427.9" x2="267.0" y2="427.9"/>
+<line class="err" x1="253.0" y1="427.9" x2="267.0" y2="427.9"/>
+<circle cx="260.0" cy="427.9" r="5" fill="#f59e0b"/>
+<text class="value" x="260.0" y="417.9" text-anchor="middle">60.0</text>
+<line class="err" x1="430.0" y1="413.1" x2="430.0" y2="413.1"/>
+<line class="err" x1="423.0" y1="413.1" x2="437.0" y2="413.1"/>
+<line class="err" x1="423.0" y1="413.1" x2="437.0" y2="413.1"/>
+<circle cx="430.0" cy="413.1" r="5" fill="#f59e0b"/>
+<text class="value" x="430.0" y="403.1" text-anchor="middle">100.0</text>
+<line class="err" x1="600.0" y1="318.6" x2="600.0" y2="360.0"/>
+<line class="err" x1="593.0" y1="318.6" x2="607.0" y2="318.6"/>
+<line class="err" x1="593.0" y1="360.0" x2="607.0" y2="360.0"/>
+<circle cx="600.0" cy="339.3" r="5" fill="#f59e0b"/>
+<text class="value" x="600.0" y="308.6" text-anchor="middle">300.0</text>
+<line class="err" x1="770.0" y1="252.4" x2="770.0" y2="274.9"/>
+<line class="err" x1="763.0" y1="252.4" x2="777.0" y2="252.4"/>
+<line class="err" x1="763.0" y1="274.9" x2="777.0" y2="274.9"/>
+<circle cx="770.0" cy="263.6" r="5" fill="#f59e0b"/>
+<text class="value" x="770.0" y="242.4" text-anchor="middle">505.0</text>
 <line class="err" x1="940.0" y1="350.2" x2="940.0" y2="366.2"/>
 <line class="err" x1="933.0" y1="350.2" x2="947.0" y2="350.2"/>
 <line class="err" x1="933.0" y1="366.2" x2="947.0" y2="366.2"/>
@@ -78,27 +89,32 @@
 <text class="value" x="940.0" y="340.2" text-anchor="middle">248.8</text>
 <line x1="730" y1="50" x2="746" y2="50" stroke="#f59e0b" stroke-width="4"/>
 <text class="legend" x="754" y="56">p95</text>
-<polyline fill="none" stroke="#fb7185" stroke-width="4" points="90.0,446.3 302.5,396.0 515.0,283.0 727.5,141.9 940.0,312.1"/>
+<polyline fill="none" stroke="#fb7185" stroke-width="4" points="90.0,446.3 260.0,427.9 430.0,396.0 600.0,283.0 770.0,141.9 940.0,312.1"/>
 <line class="err" x1="90.0" y1="446.3" x2="90.0" y2="446.3"/>
 <line class="err" x1="83.0" y1="446.3" x2="97.0" y2="446.3"/>
 <line class="err" x1="83.0" y1="446.3" x2="97.0" y2="446.3"/>
 <circle cx="90.0" cy="446.3" r="5" fill="#fb7185"/>
 <text class="value" x="90.0" y="436.3" text-anchor="middle">10.0</text>
-<line class="err" x1="302.5" y1="382.8" x2="302.5" y2="409.3"/>
-<line class="err" x1="295.5" y1="382.8" x2="309.5" y2="382.8"/>
-<line class="err" x1="295.5" y1="409.3" x2="309.5" y2="409.3"/>
-<circle cx="302.5" cy="396.0" r="5" fill="#fb7185"/>
-<text class="value" x="302.5" y="372.8" text-anchor="middle">146.2</text>
-<line class="err" x1="515.0" y1="277.0" x2="515.0" y2="289.0"/>
-<line class="err" x1="508.0" y1="277.0" x2="522.0" y2="277.0"/>
-<line class="err" x1="508.0" y1="289.0" x2="522.0" y2="289.0"/>
-<circle cx="515.0" cy="283.0" r="5" fill="#fb7185"/>
-<text class="value" x="515.0" y="267.0" text-anchor="middle">452.5</text>
-<line class="err" x1="727.5" y1="110.7" x2="727.5" y2="173.0"/>
-<line class="err" x1="720.5" y1="110.7" x2="734.5" y2="110.7"/>
-<line class="err" x1="720.5" y1="173.0" x2="734.5" y2="173.0"/>
-<circle cx="727.5" cy="141.9" r="5" fill="#fb7185"/>
-<text class="value" x="727.5" y="100.7" text-anchor="middle">835.0</text>
+<line class="err" x1="260.0" y1="427.9" x2="260.0" y2="427.9"/>
+<line class="err" x1="253.0" y1="427.9" x2="267.0" y2="427.9"/>
+<line class="err" x1="253.0" y1="427.9" x2="267.0" y2="427.9"/>
+<circle cx="260.0" cy="427.9" r="5" fill="#fb7185"/>
+<text class="value" x="260.0" y="417.9" text-anchor="middle">60.0</text>
+<line class="err" x1="430.0" y1="382.8" x2="430.0" y2="409.3"/>
+<line class="err" x1="423.0" y1="382.8" x2="437.0" y2="382.8"/>
+<line class="err" x1="423.0" y1="409.3" x2="437.0" y2="409.3"/>
+<circle cx="430.0" cy="396.0" r="5" fill="#fb7185"/>
+<text class="value" x="430.0" y="372.8" text-anchor="middle">146.2</text>
+<line class="err" x1="600.0" y1="277.0" x2="600.0" y2="289.0"/>
+<line class="err" x1="593.0" y1="277.0" x2="607.0" y2="277.0"/>
+<line class="err" x1="593.0" y1="289.0" x2="607.0" y2="289.0"/>
+<circle cx="600.0" cy="283.0" r="5" fill="#fb7185"/>
+<text class="value" x="600.0" y="267.0" text-anchor="middle">452.5</text>
+<line class="err" x1="770.0" y1="110.7" x2="770.0" y2="173.0"/>
+<line class="err" x1="763.0" y1="110.7" x2="777.0" y2="110.7"/>
+<line class="err" x1="763.0" y1="173.0" x2="777.0" y2="173.0"/>
+<circle cx="770.0" cy="141.9" r="5" fill="#fb7185"/>
+<text class="value" x="770.0" y="100.7" text-anchor="middle">835.0</text>
 <line class="err" x1="940.0" y1="286.2" x2="940.0" y2="338.0"/>
 <line class="err" x1="933.0" y1="286.2" x2="947.0" y2="286.2"/>
 <line class="err" x1="933.0" y1="338.0" x2="947.0" y2="338.0"/>

@@ -1,6 +1,7 @@
-scenario,mode,batch_window_ms,orders_per_sec,fills_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,average_spread,average_price_impact,queue_priority_advantage,latency_arbitrage_profit,execution_dispersion,risk_rejections,negative_balance_violations,conservation_breaches
-Immediate-Surrogate,immediate,10,1360.0000,829.1667,10.0000,10.0000,10.0000,1.8167,3.2734,0.037843,700.0000,0.064940,0,0,0
-FBA-100ms,batch,100,1360.0000,802.5000,50.0000,110.0000,310.0000,1.0000,6.8152,0.040004,1295.0000,0.063951,0,0,0
-FBA-250ms,batch,250,1358.4000,628.8000,80.0000,430.0000,490.0000,1.0000,6.6832,-0.006517,766.0000,0.051104,0,0,0
-FBA-500ms,batch,500,1358.6667,644.6667,190.0000,780.0000,910.0000,1.0000,5.3247,0.023561,1197.0000,0.047635,0,0,0
-FBA-250ms-Stress,batch,250,1775.2000,987.2000,100.0000,360.0000,590.0000,1.0000,3.7350,0.008951,1176.0000,0.075354,0,0,0
+scenario,mode,batch_window_ms,speed_bump_ms,orders_per_sec,fills_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,average_spread,average_price_impact,queue_priority_advantage,latency_arbitrage_profit,execution_dispersion,risk_rejections,negative_balance_violations,conservation_breaches
+Immediate-Surrogate,immediate,10,0,1360.0000,829.1667,10.0000,10.0000,10.0000,1.8167,3.2734,0.037843,700.0000,0.064940,0,0,0
+SpeedBump-50ms,speed_bump,0,50,1305.6000,796.0000,60.0000,60.0000,60.0000,1.7617,5.7749,0.037843,1367.0000,0.064940,0,0,0
+FBA-100ms,batch,100,0,1348.7603,795.8678,50.0000,110.0000,310.0000,1.0000,6.8152,0.040004,1295.0000,0.063951,0,0,0
+FBA-250ms,batch,250,0,1347.6190,623.8095,80.0000,430.0000,490.0000,1.0000,6.6832,-0.006517,766.0000,0.051104,0,0,0
+FBA-500ms,batch,500,0,1349.6689,640.3974,190.0000,780.0000,910.0000,1.0000,5.3247,0.023561,1197.0000,0.047635,0,0,0
+FBA-250ms-Stress,batch,250,0,1761.1111,979.3651,100.0000,360.0000,590.0000,1.0000,3.7350,0.008951,1176.0000,0.075354,0,0,0

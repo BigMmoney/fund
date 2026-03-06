@@ -18,7 +18,7 @@
 \maketitle
 
 \begin{abstract}
-We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while batch-window changes induce clear latency and market-quality tradeoffs. The result is a benchmark draft for market-infrastructure research that is separate from the original systems-paper line and is intended as a foundation for stronger benchmark-style evaluation.
+We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while mechanism changes induce clear latency and market-quality tradeoffs. The result is a benchmark draft for market-infrastructure research that is separate from the original systems-paper line and is intended as a foundation for stronger benchmark-style evaluation.
 \end{abstract}
 
 \section{Introduction}
@@ -31,7 +31,7 @@ The benchmark is motivated by a research gap between market-design arguments and
 The current paper makes four concrete contributions:
 \begin{enumerate}[leftmargin=*]
   \item It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-  \item It provides a seedable multi-agent order-flow generator with four agent classes and five benchmark scenarios.
+  \item It provides a seedable multi-agent order-flow generator with four agent classes and six benchmark scenarios.
   \item It reports single-seed and eight-seed aggregate benchmark results over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
   \item It documents current limitations and a direct upgrade path toward a stronger benchmark-paper submission.
 \end{enumerate}
@@ -45,7 +45,7 @@ where $B_t$ and $S_t$ denote the current buy and sell books, $X_t$ is the vector
 
 The benchmark focuses on the following research questions:
 \begin{enumerate}[leftmargin=*]
-  \item How do immediate execution and frequent-batch-auction execution differ in latency and fill behavior?
+  \item How do immediate, speed-bump, and frequent-batch-auction execution differ in latency and fill behavior?
   \item Can fairness-adjacent signals such as queue-priority advantage and latency-arbitrage profit be measured reproducibly under deterministic settlement semantics?
   \item Do settlement invariants hold under heterogeneous agents and stress scenarios?
 \end{enumerate}
@@ -58,7 +58,7 @@ The benchmark environment lives in the repository's \texttt{simulator/} package.
 \begin{itemize}[leftmargin=*]
   \item scenario, order, fill, and result schemas
   \item heterogeneous agent order generation
-  \item immediate and batch-clearing matching paths
+  \item immediate, speed-bump, and batch-clearing matching paths
   \item deterministic settlement application
   \item metric accumulation and artifact generation
 \end{itemize}
@@ -89,23 +89,23 @@ The present environment includes four agent classes:
 These agents are intentionally simple. They are not meant to be realistic economic models of all order flow. Their purpose is to generate heterogeneous but controlled activity so that matching rules can be compared under a repeatable workload. The stress scenario extends the default population with additional retail and arbitrage activity to increase order intensity.
 
 \section{Tasks and Baselines}
-The current benchmark suite contains five scenarios:
+The current benchmark suite contains six scenarios:
 \begin{enumerate}[leftmargin=*]
   \item \texttt{Immediate-Surrogate}
+  \item \texttt{SpeedBump-50ms}
   \item \texttt{FBA-100ms}
   \item \texttt{FBA-250ms}
   \item \texttt{FBA-500ms}
   \item \texttt{FBA-250ms-Stress}
 \end{enumerate}
 
-The first scenario acts as a continuous-style surrogate. The next three fix batch windows at $100$, $250$, and $500$ milliseconds. The final scenario keeps the $250$ millisecond window while increasing the order-flow intensity. These scenarios are modest compared with a mature benchmark suite, but they are enough to expose first-order tradeoffs between latency, fill throughput, and fairness-adjacent proxy metrics.
+The first scenario acts as a continuous-style surrogate. The second applies a fixed $50$ millisecond speed bump before immediate matching. The next three fix batch windows at $100$, $250$, and $500$ milliseconds. The final scenario keeps the $250$ millisecond window while increasing the order-flow intensity. These scenarios are modest compared with a mature benchmark suite, but they are enough to expose first-order tradeoffs between latency, fill throughput, and fairness-adjacent proxy metrics.
 
-The benchmark still lacks two baselines that would materially strengthen the NeurIPS-track story:
+The benchmark still lacks one baseline that would materially strengthen the NeurIPS-track story:
 \begin{itemize}[leftmargin=*]
-  \item a speed-bump style baseline
   \item an adaptive-window heuristic baseline
 \end{itemize}
-Those are the most important next additions for future work.
+That is the most important next addition for future work.
 
 \section{Metrics}
 The environment reports four groups of signals.
@@ -158,7 +158,7 @@ All reported scenarios use the same simulator implementation and differ only in 
     ybar,
     bar width=11pt,
     ymin=0,
-    symbolic x coords={Immediate,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
+    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
     xtick=data,
     xticklabel style={rotate=20,anchor=east},
     ylabel={Throughput},
@@ -166,8 +166,8 @@ All reported scenarios use the same simulator implementation and differ only in 
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,1348.2) +- (0,4.0) (FBA-100,1348.2) +- (0,4.0) (FBA-250,1348.3) +- (0,3.9) (FBA-500,1347.8) +- (0,3.3) (FBA-250-Stress,1783.4) +- (0,6.1)};
-\addplot coordinates {(Immediate,813.1) +- (0,18.5) (FBA-100,805.3) +- (0,21.9) (FBA-250,691.9) +- (0,17.9) (FBA-500,631.1) +- (0,19.9) (FBA-250-Stress,907.7) +- (0,23.9)};
+\addplot coordinates {(Immediate,1348.2) +- (0,4.0) (SpeedBump 50,1294.3) +- (0,3.8) (FBA-100,1337.1) +- (0,4.0) (FBA-250,1337.6) +- (0,3.9) (FBA-500,1338.8) +- (0,3.2) (FBA-250-Stress,1769.3) +- (0,6.0)};
+\addplot coordinates {(Immediate,813.1) +- (0,18.5) (SpeedBump 50,780.6) +- (0,17.7) (FBA-100,798.7) +- (0,21.7) (FBA-250,686.4) +- (0,17.8) (FBA-500,626.9) +- (0,19.7) (FBA-250-Stress,900.5) +- (0,23.7)};
 \legend{Orders/s,Fills/s}
 \end{axis}
 \end{tikzpicture}
@@ -183,10 +183,11 @@ All reported scenarios use the same simulator implementation and differ only in 
 Scenario & Orders/s & Fills/s & p50 (ms) & p99 (ms) \\
 \midrule
 Immediate-Surrogate & 1348.2 & 813.1 & 10.0 & 10.0 \\
-FBA-100ms & 1348.2 & 805.3 & 46.3 & 146.3 \\
-FBA-250ms & 1348.3 & 691.9 & 97.5 & 452.5 \\
-FBA-500ms & 1347.8 & 631.1 & 213.8 & 835.0 \\
-FBA-250ms-Stress & 1783.4 & 907.7 & 97.5 & 373.8 \\
+SpeedBump-50ms & 1294.3 & 780.6 & 60.0 & 60.0 \\
+FBA-100ms & 1337.1 & 798.7 & 46.3 & 146.3 \\
+FBA-250ms & 1337.6 & 686.4 & 97.5 & 452.5 \\
+FBA-500ms & 1338.8 & 626.9 & 213.8 & 835.0 \\
+FBA-250ms-Stress & 1769.3 & 900.5 & 97.5 & 373.8 \\
 \bottomrule
 \end{tabular}
 \caption{Eight-seed aggregate summary. All runs report zero conservation breaches and zero negative-balance violations.}
@@ -199,6 +200,7 @@ FBA-250ms-Stress & 1783.4 & 907.7 & 97.5 & 373.8 \\
 Scenario & Spread & Impact & Queue Adv. & Arb Profit \\
 \midrule
 Immediate-Surrogate & 1.98 & 3.38 & 0.0742 & 669.62 \\
+SpeedBump-50ms & 1.96 & 5.96 & 0.0742 & 1346.25 \\
 FBA-100ms & 1.00 & 5.96 & 0.0571 & 1015.75 \\
 FBA-250ms & 1.00 & 5.36 & 0.0273 & 627.25 \\
 FBA-500ms & 1.00 & 5.08 & 0.0341 & 827.62 \\
@@ -215,7 +217,7 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     width=0.9\linewidth,
     height=5.5cm,
     ymin=0,
-    symbolic x coords={Immediate,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
+    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
     xtick=data,
     xticklabel style={rotate=20,anchor=east},
     ylabel={Latency (ms)},
@@ -224,9 +226,9 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (FBA-100,46.25) +- (0,3.35) (FBA-250,97.5) +- (0,4.58) (FBA-500,213.75) +- (0,24.48) (FBA-250-Stress,97.5) +- (0,5.75)};
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (FBA-100,100.0) +- (0,0.0) (FBA-250,300.0) +- (0,56.08) (FBA-500,505.0) +- (0,30.40) (FBA-250-Stress,248.75) +- (0,21.76)};
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (FBA-100,146.25) +- (0,35.83) (FBA-250,452.5) +- (0,16.16) (FBA-500,835.0) +- (0,84.37) (FBA-250-Stress,373.75) +- (0,70.24)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,46.25) +- (0,3.35) (FBA-250,97.5) +- (0,4.58) (FBA-500,213.75) +- (0,24.48) (FBA-250-Stress,97.5) +- (0,5.75)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,100.0) +- (0,0.0) (FBA-250,300.0) +- (0,56.08) (FBA-500,505.0) +- (0,30.40) (FBA-250-Stress,248.75) +- (0,21.76)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,146.25) +- (0,35.83) (FBA-250,452.5) +- (0,16.16) (FBA-500,835.0) +- (0,84.37) (FBA-250-Stress,373.75) +- (0,70.24)};
 \legend{p50,p95,p99}
 \end{axis}
 \end{tikzpicture}
@@ -242,7 +244,7 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     ybar,
     bar width=10pt,
     ymin=0,
-    symbolic x coords={Immediate,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
+    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
     xtick=data,
     xticklabel style={rotate=20,anchor=east},
     ylabel={Scaled proxy value},
@@ -250,8 +252,8 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,74.2) +- (0,7.8) (FBA-100,57.1) +- (0,21.9) (FBA-250,27.3) +- (0,18.2) (FBA-500,34.1) +- (0,19.1) (FBA-250-Stress,26.9) +- (0,27.2)};
-\addplot coordinates {(Immediate,67.0) +- (0,3.4) (FBA-100,101.6) +- (0,4.4) (FBA-250,62.7) +- (0,10.8) (FBA-500,82.8) +- (0,29.4) (FBA-250-Stress,205.7) +- (0,23.6)};
+\addplot coordinates {(Immediate,74.2) +- (0,7.8) (SpeedBump 50,74.2) +- (0,7.8) (FBA-100,57.1) +- (0,21.9) (FBA-250,27.3) +- (0,18.2) (FBA-500,34.1) +- (0,19.1) (FBA-250-Stress,26.9) +- (0,27.2)};
+\addplot coordinates {(Immediate,67.0) +- (0,3.4) (SpeedBump 50,134.6) +- (0,5.9) (FBA-100,101.6) +- (0,4.4) (FBA-250,62.7) +- (0,10.8) (FBA-500,82.8) +- (0,29.4) (FBA-250-Stress,205.7) +- (0,23.6)};
 \legend{Queue advantage x1000,Arbitrage profit / 10}
 \end{axis}
 \end{tikzpicture}
@@ -263,19 +265,20 @@ Three measured observations are currently the most informative.
 
 First, immediate execution retains the lowest latency profile, with mean p50, p95, and p99 all equal to $10$ milliseconds under the present discrete-time environment. This is expected because the immediate surrogate does not accumulate orders across a multi-step batch horizon.
 
-Second, moving from immediate execution to fixed batch windows creates a clear latency tradeoff without materially changing mean order throughput in the non-stress scenarios. The $100$ millisecond batch already raises mean p99 latency to $146.25$ milliseconds, while the $500$ millisecond batch pushes mean p99 latency to $835.00$ milliseconds.
+Second, the $50$ millisecond speed-bump baseline introduces a fixed $60$ millisecond latency profile and lowers throughput to $1294.30$ orders per second while preserving the same queue-priority-advantage proxy observed under immediate execution. This makes it a useful intermediate baseline: latency rises, but batching-style fairness proxies do not automatically improve.
 
-Third, the $250$ millisecond batch regime lowers the queue-priority-advantage proxy to $0.0273$, below both immediate execution ($0.0742$) and the $100$ millisecond batch regime ($0.0571$). This does not prove fairness in a strong economic sense, but it does suggest that the benchmark is sensitive to mechanism-dependent priority effects.
+Third, moving from immediate execution to fixed batch windows creates a clear latency tradeoff without materially changing mean order throughput in the non-stress scenarios. The $100$ millisecond batch already raises mean p99 latency to $146.25$ milliseconds, while the $500$ millisecond batch pushes mean p99 latency to $835.00$ milliseconds.
 
-The stress scenario increases throughput to $1783.40$ orders per second and $907.70$ fills per second. It also increases the arbitrage-profit proxy to $2057.00$, which shows that higher activity does not automatically imply improved fairness-adjacent outcomes.
+Fourth, the $250$ millisecond batch regime lowers the queue-priority-advantage proxy to $0.0273$, below immediate execution ($0.0742$), the speed-bump baseline ($0.0742$), and the $100$ millisecond batch regime ($0.0571$). This does not prove fairness in a strong economic sense, but it does suggest that the benchmark is sensitive to mechanism-dependent priority effects.
 
-Across all $5 \times 8 = 40$ aggregate runs, the environment reports zero negative-balance violations and zero conservation breaches. This is the most important infrastructure-facing result at the current stage: benchmark comparisons are being made without giving up basic settlement safety.
+The stress scenario increases throughput to $1769.25$ orders per second and $900.50$ fills per second. It also increases the arbitrage-profit proxy to $2057.00$, which shows that higher activity does not automatically imply improved fairness-adjacent outcomes.
+
+Across all $6 \times 8 = 48$ aggregate runs, the environment reports zero negative-balance violations and zero conservation breaches. This is the most important infrastructure-facing result at the current stage: benchmark comparisons are being made without giving up basic settlement safety.
 
 \section{Limitations}
 The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
 \begin{itemize}[leftmargin=*]
   \item fixed policies only, with no learned or adaptive baselines
-  \item no confidence intervals or error-bar figures yet
   \item proxy fairness metrics rather than richer behavioral or welfare metrics
   \item no standardized \texttt{reset/step/observe/metrics} API for downstream learning agents
   \item no ablation study on tie-breaking, risk thresholds, or settlement checks
@@ -285,7 +288,7 @@ The current artifact is still short of a strong top-tier benchmark submission. T
 The benchmark is motivated directly by frequent-batch-auction market design \cite{budish2015fba}. Its benchmark-oriented framing is also aligned with the broader machine-learning practice of exposing reusable environments rather than only single-task scripts \cite{brockman2016gym}. The present contribution sits between those two traditions: it is neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware environment that aims to make later learning or control work more credible.
 
 \section{Conclusion}
-This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate and batch matching regimes, while preserving executable settlement invariants. The next stage is clear: add stronger baselines, add confidence-interval and figure support, and expose a cleaner benchmark API so that the environment can support more serious benchmark or learning-oriented submissions.
+This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, and batch matching regimes, while preserving executable settlement invariants. The next stage is clear: add an adaptive baseline, expose a cleaner benchmark API, and introduce stronger behavioral and ablation studies so that the environment can support more serious benchmark or learning-oriented submissions.
 
 \bibliographystyle{plain}
 \bibliography{references}

@@ -17,6 +17,7 @@ type Environment struct {
 	initialUnits     int64
 	buys             []Order
 	sells            []Order
+	pending          []pendingOrder
 	seq              int64
 	metricAcc        *metricAccumulator
 	ordersSubmitted  int
@@ -26,6 +27,12 @@ type Environment struct {
 	riskRejections   int
 	negViolations    int
 	conservationHits int
+	maxActiveStep    int
+}
+
+type pendingOrder struct {
+	ReleaseStep int
+	Order       Order
 }
 
 func NewEnvironment(cfg ScenarioConfig) *Environment {
@@ -48,6 +55,7 @@ func NewEnvironment(cfg ScenarioConfig) *Environment {
 		initialUnits: totalUnits,
 		metricAcc:    newMetricAccumulator(),
 		latencies:    make([]time.Duration, 0, cfg.TotalSteps*4),
+		maxActiveStep: -1,
 	}
 }
 
@@ -78,19 +86,31 @@ func (e *Environment) Run() BenchmarkResult {
 	if e.cfg.Mode == ModeBatch {
 		e.flushBatch(e.cfg.TotalSteps)
 	}
+	if e.cfg.Mode == ModeSpeedBump {
+		flushStep := e.cfg.TotalSteps
+		for len(e.pending) > 0 {
+			e.releasePending(flushStep)
+			flushStep++
+		}
+	}
 
 	elapsed := time.Since(start)
 	stats := benchmark.ComputeLatencyStats(e.latencies)
+	activeSteps := e.maxActiveStep + 1
+	if activeSteps <= 0 {
+		activeSteps = e.cfg.TotalSteps
+	}
 	return BenchmarkResult{
 		Name:                      e.cfg.Name,
 		Mode:                      e.cfg.Mode,
 		BatchWindowMs:             int(e.cfg.StepDuration.Milliseconds()) * e.cfg.BatchWindowSteps,
+		SpeedBumpMs:               int(e.cfg.StepDuration.Milliseconds()) * e.cfg.SpeedBumpSteps,
 		Seed:                      e.cfg.Seed,
 		OrdersSubmitted:           e.ordersSubmitted,
 		OrdersAccepted:            e.ordersAccepted,
 		Fills:                     len(e.fills),
-		OrdersPerSec:              benchmark.ComputeThroughput(e.ordersAccepted, time.Duration(e.cfg.TotalSteps)*e.cfg.StepDuration),
-		FillsPerSec:               benchmark.ComputeThroughput(len(e.fills), time.Duration(e.cfg.TotalSteps)*e.cfg.StepDuration),
+		OrdersPerSec:              benchmark.ComputeThroughput(e.ordersAccepted, time.Duration(activeSteps)*e.cfg.StepDuration),
+		FillsPerSec:               benchmark.ComputeThroughput(len(e.fills), time.Duration(activeSteps)*e.cfg.StepDuration),
 		P50LatencyMs:              stats.P50Ms,
 		P95LatencyMs:              stats.P95Ms,
 		P99LatencyMs:              stats.P99Ms,
@@ -107,6 +127,12 @@ func (e *Environment) Run() BenchmarkResult {
 }
 
 func (e *Environment) step(step int) {
+	if step > e.maxActiveStep {
+		e.maxActiveStep = step
+	}
+	if e.cfg.Mode == ModeSpeedBump {
+		e.releasePending(step)
+	}
 	fundamental := e.fundamentals[step]
 	perStepCount := 0
 	generated := make([]Order, 0, len(e.cfg.Agents)*2)
@@ -139,6 +165,11 @@ func (e *Environment) step(step int) {
 				e.sells = append(e.sells, order)
 				sortSellBook(&e.sells)
 			}
+		case ModeSpeedBump:
+			e.pending = append(e.pending, pendingOrder{
+				ReleaseStep: step + maxInt(1, e.cfg.SpeedBumpSteps),
+				Order:       order,
+			})
 		}
 	}
 
@@ -148,8 +179,44 @@ func (e *Environment) step(step int) {
 }
 
 func (e *Environment) flushBatch(step int) {
+	if step > e.maxActiveStep {
+		e.maxActiveStep = step
+	}
 	fills := processBatchBook(&e.buys, &e.sells, step, e.fundamentals[minInt(step, len(e.fundamentals)-1)])
 	e.applyFills(fills)
+}
+
+func (e *Environment) releasePending(step int) {
+	if step > e.maxActiveStep {
+		e.maxActiveStep = step
+	}
+	if len(e.pending) == 0 {
+		return
+	}
+
+	ready := make([]Order, 0, len(e.pending))
+	remaining := e.pending[:0]
+	for _, candidate := range e.pending {
+		if candidate.ReleaseStep <= step {
+			ready = append(ready, candidate.Order)
+			continue
+		}
+		remaining = append(remaining, candidate)
+	}
+	e.pending = remaining
+	if len(ready) == 0 {
+		return
+	}
+
+	sortOrdersForArrival(ready, e.agents)
+	fundamental := e.fundamentals[minInt(step, len(e.fundamentals)-1)]
+	for _, order := range ready {
+		fills := processImmediateBook(&e.buys, &e.sells, order, step, fundamental)
+		e.applyFills(fills)
+	}
+	if spread := currentSpread(e.buys, e.sells); spread > 0 {
+		e.metricAcc.addSpread(spread)
+	}
 }
 
 func (e *Environment) applyFills(fills []Fill) {
@@ -222,6 +289,13 @@ func currentSpread(buys, sells []Order) int64 {
 
 func minInt(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b

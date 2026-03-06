@@ -148,10 +148,13 @@ def line_chart_with_ci(
 
 def generate() -> None:
     results = load_results()
-    categories = [
-        r["name"].replace("Immediate-Surrogate", "Immediate").replace("FBA-", "").replace("-Stress", " Stress")
-        for r in results
-    ]
+    categories = []
+    for r in results:
+        label = r["name"].replace("Immediate-Surrogate", "Immediate")
+        label = label.replace("SpeedBump-", "SpeedBump ")
+        label = label.replace("FBA-", "")
+        label = label.replace("-Stress", " Stress")
+        categories.append(label)
 
     bar_chart_with_ci(
         "Throughput Comparison (95% CI)",

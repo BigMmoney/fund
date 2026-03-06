@@ -5,6 +5,7 @@ This package adds a benchmark-oriented market simulator track on top of the exis
 Scope:
 
 - immediate-clearing surrogate baseline
+- fixed-delay speed-bump baseline
 - frequent batch auction scenarios
 - agent-based order flow
 - ledger-aware settlement checks

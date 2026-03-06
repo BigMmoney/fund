@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while batch-window changes induce clear latency and market-quality tradeoffs. The result is a benchmark draft for market-infrastructure research that is separate from the original systems-paper line and is intended as a foundation for stronger benchmark-style evaluation.
+We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while mechanism changes induce clear latency and market-quality tradeoffs. The result is a benchmark draft for market-infrastructure research that is separate from the original systems-paper line and is intended as a foundation for stronger benchmark-style evaluation.
 
 ## 1. Introduction
 
@@ -13,7 +13,7 @@ This manuscript defines a benchmark-oriented layer on top of an existing ledger-
 The current benchmark line makes four concrete contributions:
 
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-2. It provides a seedable multi-agent order-flow generator with four agent classes and five benchmark scenarios.
+2. It provides a seedable multi-agent order-flow generator with four agent classes and six benchmark scenarios.
 3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
 4. It documents a direct upgrade path toward a stronger benchmark-style paper.
 
@@ -23,7 +23,7 @@ Can a ledger-aware benchmark environment make market-design tradeoffs measurable
 
 The current artifact focuses on three concrete questions:
 
-1. How do immediate and batch execution regimes differ in latency and fill behavior?
+1. How do immediate, speed-bump, and batch execution regimes differ in latency and fill behavior?
 2. Can fairness-adjacent proxies such as queue-priority advantage and arbitrage profit be measured in a reproducible environment?
 3. Do settlement invariants remain intact while the environment is stressed with heterogeneous agents and burstier order flow?
 
@@ -75,22 +75,22 @@ These agents are deliberately simple. They are not intended to be a full behavio
 
 ## 6. Tasks and Baselines
 
-The current benchmark suite exposes five scenarios:
+The current benchmark suite exposes six scenarios:
 
 1. `Immediate-Surrogate`
-2. `FBA-100ms`
-3. `FBA-250ms`
-4. `FBA-500ms`
-5. `FBA-250ms-Stress`
+2. `SpeedBump-50ms`
+3. `FBA-100ms`
+4. `FBA-250ms`
+5. `FBA-500ms`
+6. `FBA-250ms-Stress`
 
 These are not yet a complete NeurIPS-scale benchmark suite, but they are sufficient to establish a reproducible baseline for future agent-control or adaptive-window work.
 
-The current benchmark still lacks two important baselines:
+The current benchmark still lacks one important baseline:
 
-- a speed-bump baseline
 - an adaptive-window heuristic baseline
 
-Those two are the most important next additions if this track is going to become a stronger benchmark paper.
+The adaptive-window heuristic is the next highest-value addition if this track is going to become a stronger benchmark paper.
 
 ## 7. Metrics
 
@@ -152,19 +152,21 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 | Scenario | Runs | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Immediate-Surrogate | 8 | 1348.23 +/- 3.99 | 813.12 +/- 18.47 | 10.00 +/- 0.00 | 10.00 +/- 0.00 | 10.00 +/- 0.00 | 1.98 +/- 0.17 | 3.38 +/- 0.23 | 0.0742 +/- 0.0078 | 669.62 +/- 34.30 |
-| FBA-100ms | 8 | 1348.23 +/- 3.99 | 805.31 +/- 21.89 | 46.25 +/- 3.35 | 100.00 +/- 0.00 | 146.25 +/- 35.83 | 1.00 +/- 0.00 | 5.96 +/- 0.41 | 0.0571 +/- 0.0219 | 1015.75 +/- 44.06 |
-| FBA-250ms | 8 | 1348.30 +/- 3.91 | 691.90 +/- 17.94 | 97.50 +/- 4.58 | 300.00 +/- 56.08 | 452.50 +/- 16.16 | 1.00 +/- 0.00 | 5.36 +/- 0.60 | 0.0273 +/- 0.0182 | 627.25 +/- 107.67 |
-| FBA-500ms | 8 | 1347.75 +/- 3.26 | 631.08 +/- 19.85 | 213.75 +/- 24.48 | 505.00 +/- 30.40 | 835.00 +/- 84.37 | 1.00 +/- 0.00 | 5.08 +/- 1.17 | 0.0341 +/- 0.0191 | 827.62 +/- 294.22 |
-| FBA-250ms-Stress | 8 | 1783.40 +/- 6.08 | 907.70 +/- 23.86 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
+| SpeedBump-50ms | 8 | 1294.30 +/- 3.84 | 780.60 +/- 17.73 | 60.00 +/- 0.00 | 60.00 +/- 0.00 | 60.00 +/- 0.00 | 1.96 +/- 0.17 | 5.96 +/- 0.22 | 0.0742 +/- 0.0078 | 1346.25 +/- 59.17 |
+| FBA-100ms | 8 | 1337.09 +/- 3.96 | 798.66 +/- 21.71 | 46.25 +/- 3.35 | 100.00 +/- 0.00 | 146.25 +/- 35.83 | 1.00 +/- 0.00 | 5.96 +/- 0.41 | 0.0571 +/- 0.0219 | 1015.75 +/- 44.06 |
+| FBA-250ms | 8 | 1337.60 +/- 3.88 | 686.41 +/- 17.80 | 97.50 +/- 4.58 | 300.00 +/- 56.08 | 452.50 +/- 16.16 | 1.00 +/- 0.00 | 5.36 +/- 0.60 | 0.0273 +/- 0.0182 | 627.25 +/- 107.67 |
+| FBA-500ms | 8 | 1338.82 +/- 3.24 | 626.90 +/- 19.72 | 213.75 +/- 24.48 | 505.00 +/- 30.40 | 835.00 +/- 84.37 | 1.00 +/- 0.00 | 5.08 +/- 1.17 | 0.0341 +/- 0.0191 | 827.62 +/- 294.22 |
+| FBA-250ms-Stress | 8 | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
 
 ### 9.2 Observations
 
 - Immediate execution retains the lowest latency profile, with `10 ms` mean p50, p95, and p99 under the current discrete-time simulator.
+- The `50 ms` speed-bump baseline introduces a fixed `60 ms` latency profile and lower throughput (`1294.30 +/- 3.84 orders/s`) while keeping the immediate-style queue-priority-advantage proxy (`0.0742 +/- 0.0078`).
 - Moving to `100 ms` batches preserves mean order throughput within a narrow confidence band while increasing mean p99 latency to `146.25 +/- 35.83 ms`.
-- The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and `0.0571 +/- 0.0219` for `100 ms` batches.
+- The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and the speed-bump baseline, and `0.0571 +/- 0.0219` for `100 ms` batches.
 - The `500 ms` batch regime pushes mean p50 latency to `213.75 +/- 24.48 ms` and mean p99 latency to `835.00 +/- 84.37 ms`, making the latency cost explicit.
-- The stress scenario increases throughput to `1783.40 +/- 6.08 orders/s` and fill throughput to `907.70 +/- 23.86 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
-- Across all `5 x 8 = 40` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
+- The stress scenario increases throughput to `1769.25 +/- 6.04 orders/s` and fill throughput to `900.50 +/- 23.67 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
+- Across all `6 x 8 = 48` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
 ### 9.3 Visual Summary
 
@@ -179,7 +181,6 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
 
 - fixed policies only, with no learned or adaptive baselines
-- no confidence intervals or error-bar figures yet
 - proxy fairness metrics rather than richer behavioral or welfare metrics
 - no standardized `reset/step/observe/metrics` API for downstream learning agents
 - no ablation study on tie-breaking, risk thresholds, or settlement checks
@@ -198,7 +199,7 @@ This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evalu
 
 To push this track toward a stronger benchmark paper:
 
-1. add adaptive-window and speed-bump baselines
-2. add confidence intervals and error-bar figures
-3. add explicit agent-behavior experiments for queue advantage and arbitrage capture
-4. package the simulator behind a cleaner `reset/step/observe/metrics` API
+1. add an adaptive-window heuristic baseline
+2. add explicit agent-behavior experiments for queue advantage and arbitrage capture
+3. package the simulator behind a cleaner `reset/step/observe/metrics` API
+4. add ablations for tie-breaking, risk thresholds, and settlement checks

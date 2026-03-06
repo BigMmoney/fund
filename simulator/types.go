@@ -7,6 +7,7 @@ type MatchingMode string
 const (
 	ModeImmediate MatchingMode = "immediate"
 	ModeBatch     MatchingMode = "batch"
+	ModeSpeedBump MatchingMode = "speed_bump"
 )
 
 type AgentClass string
@@ -45,6 +46,7 @@ type ScenarioConfig struct {
 	Name             string
 	Mode             MatchingMode
 	BatchWindowSteps int
+	SpeedBumpSteps   int
 	StepDuration     time.Duration
 	TotalSteps       int
 	Seed             int64
@@ -85,6 +87,7 @@ type BenchmarkResult struct {
 	Name                    string        `json:"name"`
 	Mode                    MatchingMode  `json:"mode"`
 	BatchWindowMs           int           `json:"batch_window_ms"`
+	SpeedBumpMs             int           `json:"speed_bump_ms"`
 	Seed                    int64         `json:"seed"`
 	OrdersSubmitted         int           `json:"orders_submitted"`
 	OrdersAccepted          int           `json:"orders_accepted"`
