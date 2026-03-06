@@ -21,7 +21,7 @@ func main() {
 	fmt.Println("Server is ready!")
 	fmt.Println("Visit: http://localhost:8080")
 	fmt.Println("Health: http://localhost:8080/health")
-	
+
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 	}

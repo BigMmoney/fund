@@ -12,12 +12,12 @@ import (
 
 // RiskService manages market states and risk controls
 type RiskService struct {
-	mu             sync.RWMutex
-	eventBus       *eventbus.EventBus
-	marketStates   map[string]types.MarketState
-	killSwitch     types.KillSwitchLevel
-	riskParams     map[string]*RiskParams
-	running        bool
+	mu           sync.RWMutex
+	eventBus     *eventbus.EventBus
+	marketStates map[string]types.MarketState
+	killSwitch   types.KillSwitchLevel
+	riskParams   map[string]*RiskParams
+	running      bool
 }
 
 // RiskParams holds dynamic risk parameters for a market
@@ -71,10 +71,10 @@ func (rs *RiskService) SetMarketState(marketID string, state types.MarketState) 
 
 	// Publish state change event
 	rs.eventBus.Publish(types.EventTypeMarketStateChange, map[string]interface{}{
-		"market_id":  marketID,
-		"old_state":  oldState.String(),
-		"new_state":  state.String(),
-		"timestamp":  time.Now(),
+		"market_id": marketID,
+		"old_state": oldState.String(),
+		"new_state": state.String(),
+		"timestamp": time.Now(),
 	})
 
 	// Apply state-specific rules

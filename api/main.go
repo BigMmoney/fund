@@ -70,12 +70,12 @@ type Trade struct {
 }
 
 type PlatformStats struct {
-	TotalVolume24h   int64
-	TotalTrades24h   int
-	ActiveMarkets    int
-	TotalUsers       int
-	TotalLiquidity   int64
-	LastUpdated      time.Time
+	TotalVolume24h int64
+	TotalTrades24h int
+	ActiveMarkets  int
+	TotalUsers     int
+	TotalLiquidity int64
+	LastUpdated    time.Time
 }
 
 func NewAPIGateway(eventBus *eventbus.EventBus) *APIGateway {
@@ -152,7 +152,7 @@ func (gw *APIGateway) setupRoutes() {
 		"../frontend-modern/dist",
 		"./dist",
 	}
-	
+
 	var frontendPath string
 	for _, path := range frontendPaths {
 		if _, err := http.Dir(path).Open("/"); err == nil {
@@ -160,12 +160,12 @@ func (gw *APIGateway) setupRoutes() {
 			break
 		}
 	}
-	
+
 	if frontendPath == "" {
 		log.Println("⚠️  Warning: No frontend build found")
 		return
 	}
-	
+
 	log.Printf("✅ Serving frontend from: %s\n", frontendPath)
 	fs := http.FileServer(http.Dir(frontendPath))
 	gw.router.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -204,11 +204,11 @@ func (gw *APIGateway) proxyPriceService(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(resp.StatusCode)
-	
+
 	body, _ := io.ReadAll(resp.Body)
 	w.Write(body)
 }
@@ -1099,32 +1099,32 @@ func (gw *APIGateway) handleHFTStrategies(w http.ResponseWriter, r *http.Request
 			"max_position": 100000,
 		},
 		{
-			"id":           "mom-1",
-			"name":         "Momentum Scalper",
-			"status":       "running",
-			"pnl":          6892.30,
-			"trades":       892,
-			"win_rate":     71.4,
-			"avg_hold":     "2.3s",
-			"signals":      156,
+			"id":       "mom-1",
+			"name":     "Momentum Scalper",
+			"status":   "running",
+			"pnl":      6892.30,
+			"trades":   892,
+			"win_rate": 71.4,
+			"avg_hold": "2.3s",
+			"signals":  156,
 		},
 		{
-			"id":           "arb-1",
-			"name":         "Arbitrage Bot",
-			"status":       "paused",
-			"pnl":          1724.80,
-			"trades":       708,
+			"id":            "arb-1",
+			"name":          "Arbitrage Bot",
+			"status":        "paused",
+			"pnl":           1724.80,
+			"trades":        708,
 			"opportunities": 12,
-			"spread_min":   0.3,
+			"spread_min":    0.3,
 		},
 		{
-			"id":           "mean-1",
-			"name":         "Mean Reversion",
-			"status":       "running",
-			"pnl":          2156.20,
-			"trades":       423,
-			"win_rate":     65.8,
-			"lookback":     "30s",
+			"id":       "mean-1",
+			"name":     "Mean Reversion",
+			"status":   "running",
+			"pnl":      2156.20,
+			"trades":   423,
+			"win_rate": 65.8,
+			"lookback": "30s",
 		},
 	}
 
@@ -1218,10 +1218,10 @@ func (gw *APIGateway) handleAdminGetMarkets(w http.ResponseWriter, r *http.Reque
 
 	type MarketWithStats struct {
 		*types.Market
-		Volume    int64 `json:"volume"`
-		BidDepth  int64 `json:"bid_depth"`
-		AskDepth  int64 `json:"ask_depth"`
-		MidPrice  int64 `json:"mid_price"`
+		Volume   int64 `json:"volume"`
+		BidDepth int64 `json:"bid_depth"`
+		AskDepth int64 `json:"ask_depth"`
+		MidPrice int64 `json:"mid_price"`
 	}
 
 	var markets []MarketWithStats

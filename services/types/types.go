@@ -21,16 +21,16 @@ type LedgerEntry struct {
 
 // Order and Intent types
 type Intent struct {
-	ID          string
-	UserID      string
-	MarketID    string
-	Side        string // "buy" or "sell"
-	Price       int64
-	Amount      int64
-	Outcome     int
-	CreatedAt   time.Time
-	ExpiresAt   time.Time
-	Status      string // "pending", "filled", "cancelled", "expired"
+	ID        string
+	UserID    string
+	MarketID  string
+	Side      string // "buy" or "sell"
+	Price     int64
+	Amount    int64
+	Outcome   int
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	Status    string // "pending", "filled", "cancelled", "expired"
 }
 
 type Order struct {
@@ -47,27 +47,27 @@ type Order struct {
 
 // Fill represents a matched trade
 type Fill struct {
-	ID         string
-	IntentID   string
-	UserID     string
-	MarketID   string
-	Side       string
-	Price      int64
-	Amount     int64
-	Outcome    int
-	Timestamp  time.Time
-	OpID       string
+	ID        string
+	IntentID  string
+	UserID    string
+	MarketID  string
+	Side      string
+	Price     int64
+	Amount    int64
+	Outcome   int
+	Timestamp time.Time
+	OpID      string
 }
 
 // Market types
 type Market struct {
-	ID          string
-	Name        string
-	Description string
-	Outcomes    []string
-	State       MarketState
-	CreatedAt   time.Time
-	ResolvedAt  *time.Time
+	ID             string
+	Name           string
+	Description    string
+	Outcomes       []string
+	State          MarketState
+	CreatedAt      time.Time
+	ResolvedAt     *time.Time
 	WinningOutcome *int
 }
 
@@ -89,12 +89,12 @@ func (s MarketState) String() string {
 
 // Position represents user's position in a market
 type Position struct {
-	UserID      string
-	MarketID    string
-	Outcome     int
-	Amount      int64
-	AvgPrice    int64
-	UpdatedAt   time.Time
+	UserID    string
+	MarketID  string
+	Outcome   int
+	Amount    int64
+	AvgPrice  int64
+	UpdatedAt time.Time
 }
 
 // Balance represents user's available balance
@@ -134,15 +134,15 @@ type Event struct {
 }
 
 const (
-	EventTypeIntentReceived   = "intent.received"
-	EventTypeIntentCancelled  = "intent.cancelled"
-	EventTypeFillCreated      = "fill.created"
-	EventTypeLedgerCommitted  = "ledger.committed"
-	EventTypeLedgerRejected   = "ledger.rejected"
-	EventTypeChainDeposit     = "chain.deposit"
-	EventTypeChainWithdrawal  = "chain.withdrawal"
+	EventTypeIntentReceived    = "intent.received"
+	EventTypeIntentCancelled   = "intent.cancelled"
+	EventTypeFillCreated       = "fill.created"
+	EventTypeLedgerCommitted   = "ledger.committed"
+	EventTypeLedgerRejected    = "ledger.rejected"
+	EventTypeChainDeposit      = "chain.deposit"
+	EventTypeChainWithdrawal   = "chain.withdrawal"
 	EventTypeMarketStateChange = "market.state_change"
-	EventTypeKillSwitch       = "kill_switch"
+	EventTypeKillSwitch        = "kill_switch"
 )
 
 // Kill switch levels
@@ -150,9 +150,9 @@ type KillSwitchLevel int
 
 const (
 	KillSwitchL1 KillSwitchLevel = iota + 1 // Stop new positions
-	KillSwitchL2                             // Stop withdrawals
-	KillSwitchL3                             // Stop signing / chain tx
-	KillSwitchL4                             // Read-only mode
+	KillSwitchL2                            // Stop withdrawals
+	KillSwitchL3                            // Stop signing / chain tx
+	KillSwitchL4                            // Read-only mode
 )
 
 func (k KillSwitchLevel) String() string {

@@ -338,9 +338,9 @@ func (me *MatchingEngine) sumOrderAmounts(orders []types.Order) int64 {
 }
 
 type allocationRemainder struct {
-	OrderID    string
-	Amount     int64
-	Remainder  int64
+	OrderID   string
+	Amount    int64
+	Remainder int64
 }
 
 // allocateProRataAmounts allocates an exact matchedVolume using largest remainder.

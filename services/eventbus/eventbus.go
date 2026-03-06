@@ -89,16 +89,16 @@ func (eb *EventBus) WaitFor(ctx context.Context, eventType string, timeout time.
 	// Create a temporary buffered channel
 	tempCh := make(chan types.Event, 1)
 	sub := &subscription{ch: tempCh}
-	
+
 	eb.mu.Lock()
 	eb.subscribers[eventType] = append(eb.subscribers[eventType], sub)
 	eb.mu.Unlock()
-	
+
 	// Cleanup: remove subscription after use
 	defer func() {
 		eb.mu.Lock()
 		defer eb.mu.Unlock()
-		
+
 		if subs, exists := eb.subscribers[eventType]; exists {
 			for i, s := range subs {
 				if s == sub {

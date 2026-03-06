@@ -15,11 +15,11 @@ import (
 
 // LedgerService implements double-entry accounting with strict validation
 type LedgerService struct {
-	mu           sync.RWMutex
-	accounts     map[string]*types.Account
-	seenOpIDs    map[string]bool
-	eventBus     *eventbus.EventBus
-	walLog       []types.LedgerDelta // Write-Ahead Log for recovery
+	mu        sync.RWMutex
+	accounts  map[string]*types.Account
+	seenOpIDs map[string]bool
+	eventBus  *eventbus.EventBus
+	walLog    []types.LedgerDelta // Write-Ahead Log for recovery
 }
 
 func NewLedgerService(eventBus *eventbus.EventBus) *LedgerService {
