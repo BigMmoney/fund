@@ -174,9 +174,9 @@ The matching engine processes intents on a periodic ticker. At each batch bounda
   \ForAll{candidate prices $p$}
     \State $volume(p) \gets \min(demand(p), supply(p))$
   \EndFor
-  \State Select clearing price $p^\*$ maximizing $volume(p)$
+  \State Select clearing price $p^\ast$ maximizing $volume(p)$
   \State Break ties deterministically by choosing the lowest $p$
-  \State Filter buys with price $\ge p^\*$ and sells with price $\le p^\*$
+  \State Filter buys with price $\ge p^\ast$ and sells with price $\le p^\ast$
   \State Let $V \gets \min(total\ eligible\ buy,\ total\ eligible\ sell)$
   \State Allocate $V$ via proportional base assignment
   \State Distribute leftover units by largest remainder with stable tie-breaks
@@ -196,7 +196,7 @@ For each market/outcome partition, the engine evaluates all observed price point
 V(p) = \min(D(p), S(p))
 \]
 
-where \(D(p)\) is cumulative demand from buys willing to trade at or above \(p\), and \(S(p)\) is cumulative supply from sells willing to trade at or below \(p\). The clearing price is the price \(p^\*\) that maximizes \(V(p)\). When several prices produce equal matched volume, the engine chooses the lowest such price.
+where \(D(p)\) is cumulative demand from buys willing to trade at or above \(p\), and \(S(p)\) is cumulative supply from sells willing to trade at or below \(p\). The clearing price is the price \(p^\ast\) that maximizes \(V(p)\). When several prices produce equal matched volume, the engine chooses the lowest such price.
 
 This tie-break is intentionally simple. The paper does not claim it is the only reasonable policy. It claims something narrower and more valuable for this artifact: the policy is deterministic, explicit, and testable.
 
