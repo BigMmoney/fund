@@ -105,10 +105,39 @@ func simulatorScenarios() []ScenarioConfig {
 		{
 			Name:                   "Adaptive-100-250ms",
 			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
 			AdaptiveMinWindowSteps: 10,
 			AdaptiveMaxWindowSteps: 25,
 			AdaptiveOrderThreshold: 10,
 			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:                   "Adaptive-OrderFlow-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveOrderFlow,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 9,
+			AdaptiveQueueThreshold: 16,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:                   "Adaptive-QueueLoad-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveQueueLoad,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 14,
+			AdaptiveQueueThreshold: 10,
 			StepDuration:           10 * time.Millisecond,
 			TotalSteps:             125,
 			Seed:                   42,
@@ -295,12 +324,17 @@ func TestGenerateSimulatorMultiSeedArtifacts(t *testing.T) {
 	immediate := aggregates[0]
 	speedBump := aggregates[1]
 	adaptive := aggregates[5]
+	orderFlowAdaptive := aggregates[6]
+	queueAdaptive := aggregates[7]
 	batch500 := aggregates[4]
 	if !(immediate.MeanP50LatencyMs <= speedBump.MeanP50LatencyMs) {
 		t.Fatalf("expected immediate p50 latency mean to be lower than speed-bump baseline")
 	}
 	if adaptive.AdaptiveWindowMeanMs <= 0 {
 		t.Fatalf("expected adaptive aggregate to report non-zero adaptive mean window")
+	}
+	if orderFlowAdaptive.AdaptiveWindowMeanMs <= 0 || queueAdaptive.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected both adaptive comparison baselines to report non-zero adaptive mean window")
 	}
 	if !(immediate.MeanP50LatencyMs < batch500.MeanP50LatencyMs) {
 		t.Fatalf("expected immediate p50 latency mean to be lower than FBA-500ms")

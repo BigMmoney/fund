@@ -28,11 +28,13 @@ From `docs/benchmarks/simulator_benchmark_profile.json`:
 
 - `Immediate-Surrogate`: `1360.0 orders/s`, `p50 10 ms`, `p99 10 ms`
 - `SpeedBump-50ms`: `1305.6 orders/s`, `p50 60 ms`, `p99 60 ms`
-- `FBA-100ms`: `1360.0 orders/s`, `p50 50 ms`, `p99 310 ms`
-- `FBA-250ms`: `1358.4 orders/s`, `p50 80 ms`, `p99 490 ms`
-- `FBA-500ms`: `1358.7 orders/s`, `p50 190 ms`, `p99 910 ms`
+- `FBA-100ms`: `1348.8 orders/s`, `p50 50 ms`, `p99 170 ms`
+- `FBA-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 490 ms`
+- `FBA-500ms`: `1349.7 orders/s`, `p50 190 ms`, `p99 910 ms`
 - `Adaptive-100-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 430 ms`
-- `FBA-250ms-Stress`: `1775.2 orders/s`, `p50 100 ms`, `p99 590 ms`
+- `Adaptive-OrderFlow-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 430 ms`
+- `Adaptive-QueueLoad-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 400 ms`
+- `FBA-250ms-Stress`: `1761.1 orders/s`, `p50 100 ms`, `p99 590 ms`
 
 All generated scenarios currently report:
 
@@ -49,6 +51,8 @@ From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `
 - `FBA-250ms`: `1337.60 +/- 3.88 orders/s`, `p50 97.50 +/- 4.58 ms`, `p99 452.50 +/- 16.16 ms`
 - `FBA-500ms`: `1338.82 +/- 3.24 orders/s`, `p50 213.75 +/- 24.48 ms`, `p99 835.00 +/- 84.37 ms`
 - `Adaptive-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 207.14 ms`, `p99 360.00 +/- 69.38 ms`
+- `Adaptive-OrderFlow-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 216.67 ms`, `p99 406.25 +/- 46.22 ms`
+- `Adaptive-QueueLoad-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 209.29 ms`, `p99 386.25 +/- 65.09 ms`
 - `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `p50 97.50 +/- 5.75 ms`, `p99 373.75 +/- 70.24 ms`
 
 Measured observations:
@@ -58,6 +62,8 @@ Measured observations:
 - the `100 ms` batch closes the spread to `1.00 +/- 0.00` while increasing mean arbitrage profit to `1015.75 +/- 44.06`
 - the `250 ms` batch lowers mean queue-priority advantage to `0.0273 +/- 0.0182`, below both immediate (`0.0742 +/- 0.0078`) and the speed-bump baseline (`0.0742 +/- 0.0078`)
 - the adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`
+- the order-flow adaptive variant pushes to a larger `216.67 ms` mean window, lowers queue advantage to `0.0244 +/- 0.0209`, but gives back arbitrage-profit performance versus the balanced adaptive baseline
+- the queue-load adaptive variant settles at `209.29 ms`, improves price impact to `4.88 +/- 0.59`, and keeps a lower p99 than the order-flow adaptive variant
 - the stress configuration raises throughput to `1769.25 orders/s` and arbitrage profit to `2057.00`
 
 ## Step API

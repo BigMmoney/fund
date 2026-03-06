@@ -11,6 +11,14 @@ const (
 	ModeAdaptiveBatch MatchingMode = "adaptive_batch"
 )
 
+type AdaptivePolicy string
+
+const (
+	AdaptiveBalanced  AdaptivePolicy = "balanced"
+	AdaptiveOrderFlow AdaptivePolicy = "order_flow"
+	AdaptiveQueueLoad AdaptivePolicy = "queue_load"
+)
+
 type AgentClass string
 
 const (
@@ -46,6 +54,7 @@ type RiskConfig struct {
 type ScenarioConfig struct {
 	Name                    string
 	Mode                    MatchingMode
+	AdaptivePolicy          AdaptivePolicy
 	BatchWindowSteps        int
 	SpeedBumpSteps          int
 	AdaptiveMinWindowSteps  int

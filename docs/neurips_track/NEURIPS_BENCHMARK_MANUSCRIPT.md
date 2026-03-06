@@ -13,7 +13,7 @@ This manuscript defines a benchmark-oriented layer on top of an existing ledger-
 The current benchmark line makes four concrete contributions:
 
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-2. It provides a seedable multi-agent order-flow generator with four agent classes and seven benchmark scenarios.
+2. It provides a seedable multi-agent order-flow generator with four agent classes and nine benchmark scenarios.
 3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
 4. It exposes a step-wise `Reset/Step/Observe/Metrics` API and a first ablation suite for risk limits, tie-breaking, and settlement checks.
 
@@ -23,7 +23,7 @@ Can a ledger-aware benchmark environment make market-design tradeoffs measurable
 
 The current artifact focuses on three concrete questions:
 
-1. How do immediate, speed-bump, and batch execution regimes differ in latency and fill behavior?
+1. How do immediate, speed-bump, adaptive, and batch execution regimes differ in latency and fill behavior?
 2. Can fairness-adjacent proxies such as queue-priority advantage and arbitrage profit be measured in a reproducible environment?
 3. Do settlement invariants remain intact while the environment is stressed with heterogeneous agents and burstier order flow?
 
@@ -82,7 +82,7 @@ These agents are deliberately simple. They are not intended to be a full behavio
 
 ## 6. Tasks and Baselines
 
-The current benchmark suite exposes seven scenarios:
+The current benchmark suite exposes nine scenarios:
 
 1. `Immediate-Surrogate`
 2. `SpeedBump-50ms`
@@ -90,11 +90,13 @@ The current benchmark suite exposes seven scenarios:
 4. `FBA-250ms`
 5. `FBA-500ms`
 6. `Adaptive-100-250ms`
-7. `FBA-250ms-Stress`
+7. `Adaptive-OrderFlow-100-250ms`
+8. `Adaptive-QueueLoad-100-250ms`
+9. `FBA-250ms-Stress`
 
 These are not yet a complete NeurIPS-scale benchmark suite, but they are sufficient to establish a reproducible baseline for future agent-control or adaptive-window work.
 
-The benchmark now includes a heuristic adaptive-window baseline. The next highest-value baseline is a learned or policy-optimized controller rather than another fixed schedule.
+The benchmark now includes three heuristic adaptive-window baselines: a balanced controller, an order-flow-driven controller, and a queue-load-aware controller. The next highest-value baseline is still a learned or policy-optimized controller.
 
 ## 7. Metrics
 
@@ -161,6 +163,8 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 | FBA-250ms | 8 | 1337.60 +/- 3.88 | 686.41 +/- 17.80 | 97.50 +/- 4.58 | 300.00 +/- 56.08 | 452.50 +/- 16.16 | 1.00 +/- 0.00 | 5.36 +/- 0.60 | 0.0273 +/- 0.0182 | 627.25 +/- 107.67 |
 | FBA-500ms | 8 | 1338.82 +/- 3.24 | 626.90 +/- 19.72 | 213.75 +/- 24.48 | 505.00 +/- 30.40 | 835.00 +/- 84.37 | 1.00 +/- 0.00 | 5.08 +/- 1.17 | 0.0341 +/- 0.0191 | 827.62 +/- 294.22 |
 | Adaptive-100-250ms | 8 | 1337.60 +/- 3.88 | 714.29 +/- 22.20 | 81.25 +/- 6.42 | 236.25 +/- 10.92 | 360.00 +/- 69.38 | 1.00 +/- 0.00 | 4.71 +/- 0.49 | 0.0375 +/- 0.0165 | 522.00 +/- 86.23 |
+| Adaptive-OrderFlow-100-250ms | 8 | 1337.60 +/- 3.88 | 671.43 +/- 15.81 | 90.00 +/- 4.90 | 247.50 +/- 6.71 | 406.25 +/- 46.22 | 1.00 +/- 0.00 | 5.93 +/- 0.42 | 0.0244 +/- 0.0209 | 746.75 +/- 115.27 |
+| Adaptive-QueueLoad-100-250ms | 8 | 1337.60 +/- 3.88 | 691.57 +/- 27.02 | 90.00 +/- 7.75 | 261.25 +/- 44.83 | 386.25 +/- 65.09 | 1.00 +/- 0.00 | 4.88 +/- 0.59 | 0.0375 +/- 0.0239 | 624.25 +/- 56.37 |
 | FBA-250ms-Stress | 8 | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
 
 ### 9.2 Observations
@@ -171,8 +175,10 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 - The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and the speed-bump baseline, and `0.0571 +/- 0.0219` for `100 ms` batches.
 - The `500 ms` batch regime pushes mean p50 latency to `213.75 +/- 24.48 ms` and mean p99 latency to `835.00 +/- 84.37 ms`, making the latency cost explicit.
 - The adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`, while keeping p99 below fixed `250 ms` batching.
+- The order-flow adaptive variant pushes to a larger `216.67 ms` mean window and lowers queue-priority advantage further to `0.0244 +/- 0.0209`, but it gives back fills and arbitrage-profit performance relative to the balanced adaptive controller.
+- The queue-load adaptive variant settles at `209.29 ms`, improves price impact to `4.88 +/- 0.59`, and keeps a lower p99 than the order-flow adaptive variant while remaining above the balanced adaptive controller's fill throughput.
 - The stress scenario increases throughput to `1769.25 +/- 6.04 orders/s` and fill throughput to `900.50 +/- 23.67 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
-- Across all `7 x 8 = 56` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
+- Across all `9 x 8 = 72` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
 ### 9.3 Visual Summary
 

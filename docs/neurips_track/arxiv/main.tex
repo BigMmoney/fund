@@ -31,7 +31,7 @@ The benchmark is motivated by a research gap between market-design arguments and
 The current paper makes four concrete contributions:
 \begin{enumerate}[leftmargin=*]
   \item It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-  \item It provides a seedable multi-agent order-flow generator with four agent classes and seven benchmark scenarios.
+  \item It provides a seedable multi-agent order-flow generator with four agent classes and nine benchmark scenarios.
   \item It reports single-seed and eight-seed aggregate benchmark results over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
   \item It exposes a step-wise \texttt{Reset/Step/Observe/Metrics} API and a first ablation suite for risk limits, tie-breaking, and settlement checks.
 \end{enumerate}
@@ -91,7 +91,7 @@ The present environment includes four agent classes:
 These agents are intentionally simple. They are not meant to be realistic economic models of all order flow. Their purpose is to generate heterogeneous but controlled activity so that matching rules can be compared under a repeatable workload. The stress scenario extends the default population with additional retail and arbitrage activity to increase order intensity.
 
 \section{Tasks and Baselines}
-The current benchmark suite contains seven scenarios:
+The current benchmark suite contains nine scenarios:
 \begin{enumerate}[leftmargin=*]
   \item \texttt{Immediate-Surrogate}
   \item \texttt{SpeedBump-50ms}
@@ -99,10 +99,12 @@ The current benchmark suite contains seven scenarios:
   \item \texttt{FBA-250ms}
   \item \texttt{FBA-500ms}
   \item \texttt{Adaptive-100-250ms}
+  \item \texttt{Adaptive-OrderFlow-100-250ms}
+  \item \texttt{Adaptive-QueueLoad-100-250ms}
   \item \texttt{FBA-250ms-Stress}
 \end{enumerate}
 
-The first scenario acts as a continuous-style surrogate. The second applies a fixed $50$ millisecond speed bump before immediate matching. The next three fix batch windows at $100$, $250$, and $500$ milliseconds. The sixth scenario applies a heuristic controller that adapts between $100$ and $250$ milliseconds based on accepted flow and queue depth. The final scenario keeps the $250$ millisecond window while increasing the order-flow intensity. These scenarios are modest compared with a mature benchmark suite, but they are enough to expose first-order tradeoffs between latency, fill throughput, and fairness-adjacent proxy metrics.
+The first scenario acts as a continuous-style surrogate. The second applies a fixed $50$ millisecond speed bump before immediate matching. The next three fix batch windows at $100$, $250$, and $500$ milliseconds. The sixth scenario applies a balanced heuristic controller that adapts between $100$ and $250$ milliseconds based on accepted flow and queue depth. The next two scenarios isolate order-flow-driven and queue-load-aware adaptive policies over the same window range. The final scenario keeps the $250$ millisecond window while increasing the order-flow intensity. These scenarios are modest compared with a mature benchmark suite, but they are enough to expose first-order tradeoffs between latency, fill throughput, and fairness-adjacent proxy metrics.
 
 The benchmark still lacks one baseline that would materially strengthen the NeurIPS-track story:
 \begin{itemize}[leftmargin=*]
@@ -161,7 +163,7 @@ All reported scenarios use the same simulator implementation and differ only in 
     ybar,
     bar width=11pt,
     ymin=0,
-    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,Adaptive 100-250,FBA-250-Stress},
+    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,Adaptive 100-250,Adaptive OrderFlow 100-250,Adaptive QueueLoad 100-250,FBA-250-Stress},
     xtick=data,
     xticklabel style={rotate=20,anchor=east},
     ylabel={Throughput},
@@ -169,8 +171,8 @@ All reported scenarios use the same simulator implementation and differ only in 
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,1348.2) +- (0,4.0) (SpeedBump 50,1294.3) +- (0,3.8) (FBA-100,1337.1) +- (0,4.0) (FBA-250,1337.6) +- (0,3.9) (FBA-500,1338.8) +- (0,3.2) (Adaptive 100-250,1337.6) +- (0,3.9) (FBA-250-Stress,1769.3) +- (0,6.0)};
-\addplot coordinates {(Immediate,813.1) +- (0,18.5) (SpeedBump 50,780.6) +- (0,17.7) (FBA-100,798.7) +- (0,21.7) (FBA-250,686.4) +- (0,17.8) (FBA-500,626.9) +- (0,19.7) (Adaptive 100-250,714.3) +- (0,22.2) (FBA-250-Stress,900.5) +- (0,23.7)};
+\addplot coordinates {(Immediate,1348.2) +- (0,4.0) (SpeedBump 50,1294.3) +- (0,3.8) (FBA-100,1337.1) +- (0,4.0) (FBA-250,1337.6) +- (0,3.9) (FBA-500,1338.8) +- (0,3.2) (Adaptive 100-250,1337.6) +- (0,3.9) (Adaptive OrderFlow 100-250,1337.6) +- (0,3.9) (Adaptive QueueLoad 100-250,1337.6) +- (0,3.9) (FBA-250-Stress,1769.3) +- (0,6.0)};
+\addplot coordinates {(Immediate,813.1) +- (0,18.5) (SpeedBump 50,780.6) +- (0,17.7) (FBA-100,798.7) +- (0,21.7) (FBA-250,686.4) +- (0,17.8) (FBA-500,626.9) +- (0,19.7) (Adaptive 100-250,714.3) +- (0,22.2) (Adaptive OrderFlow 100-250,671.4) +- (0,15.8) (Adaptive QueueLoad 100-250,691.6) +- (0,27.0) (FBA-250-Stress,900.5) +- (0,23.7)};
 \legend{Orders/s,Fills/s}
 \end{axis}
 \end{tikzpicture}
@@ -191,6 +193,8 @@ FBA-100ms & 1337.1 & 798.7 & 46.3 & 146.3 \\
 FBA-250ms & 1337.6 & 686.4 & 97.5 & 452.5 \\
 FBA-500ms & 1338.8 & 626.9 & 213.8 & 835.0 \\
 Adaptive-100-250ms & 1337.6 & 714.3 & 81.3 & 360.0 \\
+Adaptive-OrderFlow-100-250ms & 1337.6 & 671.4 & 90.0 & 406.3 \\
+Adaptive-QueueLoad-100-250ms & 1337.6 & 691.6 & 90.0 & 386.3 \\
 FBA-250ms-Stress & 1769.3 & 900.5 & 97.5 & 373.8 \\
 \bottomrule
 \end{tabular}
@@ -209,6 +213,8 @@ FBA-100ms & 1.00 & 5.96 & 0.0571 & 1015.75 \\
 FBA-250ms & 1.00 & 5.36 & 0.0273 & 627.25 \\
 FBA-500ms & 1.00 & 5.08 & 0.0341 & 827.62 \\
 Adaptive-100-250ms & 1.00 & 4.71 & 0.0375 & 522.00 \\
+Adaptive-OrderFlow-100-250ms & 1.00 & 5.93 & 0.0244 & 746.75 \\
+Adaptive-QueueLoad-100-250ms & 1.00 & 4.88 & 0.0375 & 624.25 \\
 FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
 \bottomrule
 \end{tabular}
@@ -222,7 +228,7 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     width=0.9\linewidth,
     height=5.5cm,
     ymin=0,
-    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,Adaptive 100-250,FBA-250-Stress},
+    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,Adaptive 100-250,Adaptive OrderFlow 100-250,Adaptive QueueLoad 100-250,FBA-250-Stress},
     xtick=data,
     xticklabel style={rotate=20,anchor=east},
     ylabel={Latency (ms)},
@@ -231,9 +237,9 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,46.25) +- (0,3.35) (FBA-250,97.5) +- (0,4.58) (FBA-500,213.75) +- (0,24.48) (Adaptive 100-250,81.25) +- (0,6.42) (FBA-250-Stress,97.5) +- (0,5.75)};
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,100.0) +- (0,0.0) (FBA-250,300.0) +- (0,56.08) (FBA-500,505.0) +- (0,30.40) (Adaptive 100-250,236.25) +- (0,10.92) (FBA-250-Stress,248.75) +- (0,21.76)};
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,146.25) +- (0,35.83) (FBA-250,452.5) +- (0,16.16) (FBA-500,835.0) +- (0,84.37) (Adaptive 100-250,360.0) +- (0,69.38) (FBA-250-Stress,373.75) +- (0,70.24)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,46.25) +- (0,3.35) (FBA-250,97.5) +- (0,4.58) (FBA-500,213.75) +- (0,24.48) (Adaptive 100-250,81.25) +- (0,6.42) (Adaptive OrderFlow 100-250,90.0) +- (0,4.9) (Adaptive QueueLoad 100-250,90.0) +- (0,7.75) (FBA-250-Stress,97.5) +- (0,5.75)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,100.0) +- (0,0.0) (FBA-250,300.0) +- (0,56.08) (FBA-500,505.0) +- (0,30.40) (Adaptive 100-250,236.25) +- (0,10.92) (Adaptive OrderFlow 100-250,247.5) +- (0,6.71) (Adaptive QueueLoad 100-250,261.25) +- (0,44.83) (FBA-250-Stress,248.75) +- (0,21.76)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,146.25) +- (0,35.83) (FBA-250,452.5) +- (0,16.16) (FBA-500,835.0) +- (0,84.37) (Adaptive 100-250,360.0) +- (0,69.38) (Adaptive OrderFlow 100-250,406.25) +- (0,46.22) (Adaptive QueueLoad 100-250,386.25) +- (0,65.09) (FBA-250-Stress,373.75) +- (0,70.24)};
 \legend{p50,p95,p99}
 \end{axis}
 \end{tikzpicture}
@@ -249,7 +255,7 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     ybar,
     bar width=10pt,
     ymin=0,
-    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,Adaptive 100-250,FBA-250-Stress},
+    symbolic x coords={Immediate,SpeedBump 50,FBA-100,FBA-250,FBA-500,Adaptive 100-250,Adaptive OrderFlow 100-250,Adaptive QueueLoad 100-250,FBA-250-Stress},
     xtick=data,
     xticklabel style={rotate=20,anchor=east},
     ylabel={Scaled proxy value},
@@ -257,8 +263,8 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,74.2) +- (0,7.8) (SpeedBump 50,74.2) +- (0,7.8) (FBA-100,57.1) +- (0,21.9) (FBA-250,27.3) +- (0,18.2) (FBA-500,34.1) +- (0,19.1) (Adaptive 100-250,37.5) +- (0,16.5) (FBA-250-Stress,26.9) +- (0,27.2)};
-\addplot coordinates {(Immediate,67.0) +- (0,3.4) (SpeedBump 50,134.6) +- (0,5.9) (FBA-100,101.6) +- (0,4.4) (FBA-250,62.7) +- (0,10.8) (FBA-500,82.8) +- (0,29.4) (Adaptive 100-250,52.2) +- (0,8.6) (FBA-250-Stress,205.7) +- (0,23.6)};
+\addplot coordinates {(Immediate,74.2) +- (0,7.8) (SpeedBump 50,74.2) +- (0,7.8) (FBA-100,57.1) +- (0,21.9) (FBA-250,27.3) +- (0,18.2) (FBA-500,34.1) +- (0,19.1) (Adaptive 100-250,37.5) +- (0,16.5) (Adaptive OrderFlow 100-250,24.4) +- (0,20.9) (Adaptive QueueLoad 100-250,37.5) +- (0,23.9) (FBA-250-Stress,26.9) +- (0,27.2)};
+\addplot coordinates {(Immediate,67.0) +- (0,3.4) (SpeedBump 50,134.6) +- (0,5.9) (FBA-100,101.6) +- (0,4.4) (FBA-250,62.7) +- (0,10.8) (FBA-500,82.8) +- (0,29.4) (Adaptive 100-250,52.2) +- (0,8.6) (Adaptive OrderFlow 100-250,74.7) +- (0,11.5) (Adaptive QueueLoad 100-250,62.4) +- (0,5.6) (FBA-250-Stress,205.7) +- (0,23.6)};
 \legend{Queue advantage x1000,Arbitrage profit / 10}
 \end{axis}
 \end{tikzpicture}
@@ -274,11 +280,11 @@ Second, the $50$ millisecond speed-bump baseline introduces a fixed $60$ millise
 
 Third, moving from immediate execution to fixed batch windows creates a clear latency tradeoff without materially changing mean order throughput in the non-stress scenarios. The $100$ millisecond batch already raises mean p99 latency to $146.25$ milliseconds, while the $500$ millisecond batch pushes mean p99 latency to $835.00$ milliseconds.
 
-Fourth, the $250$ millisecond batch regime lowers the queue-priority-advantage proxy to $0.0273$, below immediate execution ($0.0742$), the speed-bump baseline ($0.0742$), and the $100$ millisecond batch regime ($0.0571$). The adaptive heuristic settles around a mean window of $207.14$ milliseconds and lowers the arbitrage-profit proxy to $522.00$, below both fixed $100$ and fixed $250$ millisecond batching. This does not prove fairness in a strong economic sense, but it does suggest that the benchmark is sensitive to mechanism-dependent priority effects.
+Fourth, the $250$ millisecond batch regime lowers the queue-priority-advantage proxy to $0.0273$, below immediate execution ($0.0742$), the speed-bump baseline ($0.0742$), and the $100$ millisecond batch regime ($0.0571$). The balanced adaptive heuristic settles around a mean window of $207.14$ milliseconds and lowers the arbitrage-profit proxy to $522.00$, below both fixed $100$ and fixed $250$ millisecond batching. The order-flow adaptive variant pushes to a higher mean window of $216.67$ milliseconds and lowers queue advantage to $0.0244$, but it gives back fills and arbitrage-profit performance. The queue-load adaptive variant settles at $209.29$ milliseconds, improves price impact to $4.88$, and keeps a lower p99 than the order-flow variant. This does not prove fairness in a strong economic sense, but it does suggest that the benchmark is sensitive to mechanism-dependent priority effects.
 
 The stress scenario increases throughput to $1769.25$ orders per second and $900.50$ fills per second. It also increases the arbitrage-profit proxy to $2057.00$, which shows that higher activity does not automatically imply improved fairness-adjacent outcomes.
 
-Across all $7 \times 8 = 56$ aggregate runs, the environment reports zero negative-balance violations and zero conservation breaches. This is the most important infrastructure-facing result at the current stage: benchmark comparisons are being made without giving up basic settlement safety.
+Across all $9 \times 8 = 72$ aggregate runs, the environment reports zero negative-balance violations and zero conservation breaches. This is the most important infrastructure-facing result at the current stage: benchmark comparisons are being made without giving up basic settlement safety.
 
 \subsection{Ablation Snapshot}
 We also generate a targeted ablation suite over seeds $[13, 17, 19, 23]$ for a stressed constrained $250$ millisecond batch regime. Relaxing risk limits increases throughput from $1190.48$ to $1770.24$ orders per second and removes all risk rejections, but it also increases the arbitrage-profit proxy from $685.25$ to $2198.50$. Randomizing tie-breaks leaves throughput roughly unchanged while worsening p99 latency from $320.00$ to $402.50$ milliseconds. Disabling settlement checks does not change throughput in this setup, indicating that invariant enforcement is not the dominant bottleneck for the present benchmark scale.

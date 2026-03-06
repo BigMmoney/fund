@@ -412,11 +412,43 @@ func (e *Environment) nextAdaptiveWindow() int {
 
 	next := e.currentBatchWindow
 	queueDepth := len(e.buys) + len(e.sells)
-	switch {
-	case e.lastStepAccepted >= orderThreshold || queueDepth >= queueThreshold:
-		next = minInt(maxWindow, e.currentBatchWindow+5)
-	case e.lastStepAccepted <= maxInt(1, orderThreshold/2) && queueDepth <= maxInt(2, queueThreshold/2):
-		next = maxInt(minWindow, e.currentBatchWindow-5)
+	imbalance := absInt(len(e.buys) - len(e.sells))
+	crossDepth := minInt(len(e.buys), len(e.sells))
+	stepUp := 5
+	stepDown := 5
+	policy := e.cfg.AdaptivePolicy
+	if policy == "" {
+		policy = AdaptiveBalanced
+	}
+
+	switch policy {
+	case AdaptiveOrderFlow:
+		stepUp = 10
+		stepDown = 5
+		switch {
+		case e.lastStepAccepted >= orderThreshold:
+			next = minInt(maxWindow, e.currentBatchWindow+stepUp)
+		case e.lastStepAccepted <= maxInt(1, orderThreshold/2):
+			next = maxInt(minWindow, e.currentBatchWindow-stepDown)
+		}
+	case AdaptiveQueueLoad:
+		stepUp = 8
+		stepDown = 10
+		switch {
+		case queueDepth >= queueThreshold && crossDepth <= maxInt(2, queueThreshold/3):
+			next = minInt(maxWindow, e.currentBatchWindow+stepUp)
+		case imbalance >= maxInt(3, queueThreshold/2):
+			next = minInt(maxWindow, e.currentBatchWindow+stepUp)
+		case queueDepth <= maxInt(2, queueThreshold/2) && imbalance <= 1:
+			next = maxInt(minWindow, e.currentBatchWindow-stepDown)
+		}
+	default:
+		switch {
+		case e.lastStepAccepted >= orderThreshold || queueDepth >= queueThreshold:
+			next = minInt(maxWindow, e.currentBatchWindow+stepUp)
+		case e.lastStepAccepted <= maxInt(1, orderThreshold/2) && queueDepth <= maxInt(2, queueThreshold/2):
+			next = maxInt(minWindow, e.currentBatchWindow-stepDown)
+		}
 	}
 	if next < minWindow {
 		next = minWindow
@@ -496,4 +528,11 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

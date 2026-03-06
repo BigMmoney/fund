@@ -7,7 +7,7 @@ Scope:
 - immediate-clearing surrogate baseline
 - fixed-delay speed-bump baseline
 - frequent batch auction scenarios
-- adaptive-window heuristic baseline
+- adaptive-window heuristic baselines, including balanced, order-flow, and queue-load variants
 - agent-based order flow
 - ledger-aware settlement checks
 - fairness and market-quality proxy metrics
