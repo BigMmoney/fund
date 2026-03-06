@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"math"
 	"math/rand"
 	"time"
 
@@ -34,6 +35,8 @@ type Environment struct {
 	batchCycleSteps       int
 	lastStepAccepted      int
 	adaptiveWindowHistory []int
+	runtimeRiskScale      float64
+	runtimeRandomTieBreak bool
 }
 
 type pendingOrder struct {
@@ -83,6 +86,8 @@ func (e *Environment) Reset() Observation {
 	e.lastStepAccepted = 0
 	e.adaptiveWindowHistory = nil
 	e.currentBatchWindow = e.initialBatchWindow()
+	e.runtimeRiskScale = 1.0
+	e.runtimeRandomTieBreak = e.cfg.RandomizeBatchTieBreak
 	return e.Observe()
 }
 
@@ -162,7 +167,10 @@ func (e *Environment) Run() BenchmarkResult {
 		e.Step()
 	}
 
-	elapsed := time.Since(start)
+	return e.benchmarkResult(time.Since(start))
+}
+
+func (e *Environment) benchmarkResult(elapsed time.Duration) BenchmarkResult {
 	stats := benchmark.ComputeLatencyStats(e.latencies)
 	activeSteps := e.maxActiveStep + 1
 	if activeSteps <= 0 {
@@ -215,7 +223,8 @@ func (e *Environment) runStep(step int) {
 		for _, order := range orders {
 			e.ordersSubmitted++
 			e.metricAcc.addSubmitted(order.Class, order.Amount)
-			if !e.cfg.DisableRiskLimits && (order.Amount > e.cfg.Risk.MaxOrderAmount || perStepCount >= e.cfg.Risk.MaxOrdersPerStep) {
+			maxOrderAmount, maxOrdersPerStep := e.effectiveRiskLimits()
+			if !e.cfg.DisableRiskLimits && (order.Amount > maxOrderAmount || perStepCount >= maxOrdersPerStep) {
 				e.riskRejections++
 				continue
 			}
@@ -259,7 +268,7 @@ func (e *Environment) flushBatch(step int) {
 	if step > e.maxActiveStep {
 		e.maxActiveStep = step
 	}
-	fills := processBatchBookWithOptions(&e.buys, &e.sells, step, e.fundamentals[minInt(step, len(e.fundamentals)-1)], e.cfg.RandomizeBatchTieBreak, e.rng)
+	fills := processBatchBookWithOptions(&e.buys, &e.sells, step, e.fundamentals[minInt(step, len(e.fundamentals)-1)], e.runtimeRandomTieBreak, e.rng)
 	e.applyFills(fills)
 }
 
@@ -477,6 +486,25 @@ func (e *Environment) adaptiveWindowStats() (int, int, float64) {
 	}
 	stepMs := float64(e.cfg.StepDuration.Milliseconds())
 	return int(float64(minSteps) * stepMs), int(float64(maxSteps) * stepMs), (float64(sum) / float64(len(e.adaptiveWindowHistory))) * stepMs
+}
+
+func (e *Environment) effectiveRiskLimits() (int64, int) {
+	if e.cfg.DisableRiskLimits {
+		return e.cfg.Risk.MaxOrderAmount, e.cfg.Risk.MaxOrdersPerStep
+	}
+	scale := e.runtimeRiskScale
+	if scale <= 0 {
+		scale = 1.0
+	}
+	maxOrderAmount := int64(math.Round(float64(e.cfg.Risk.MaxOrderAmount) * scale))
+	if maxOrderAmount < 1 {
+		maxOrderAmount = 1
+	}
+	maxOrdersPerStep := int(math.Round(float64(e.cfg.Risk.MaxOrdersPerStep) * scale))
+	if maxOrdersPerStep < 1 {
+		maxOrdersPerStep = 1
+	}
+	return maxOrderAmount, maxOrdersPerStep
 }
 
 func generateFundamentals(steps int, seed int64) []int64 {

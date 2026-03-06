@@ -16,7 +16,7 @@ The original paper line is a market-infrastructure systems paper. This track upg
 ## New Components
 
 - `simulator/`: benchmark environment, agent models, metrics, step API, and tests
-- `simulator/adapter.go`: minimal gym-style adapter with action specs and reward-bearing timesteps
+- `simulator/adapter.go`: minimal gym-style adapter with batch-window, risk-scale, and tie-break controls plus reward-bearing timesteps
 - `docs/benchmarks/simulator_benchmark_profile.*`: generated experiment outputs
 - `docs/benchmarks/simulator_multiseed_profile.*`: multi-seed aggregate outputs
 - `docs/benchmarks/simulator_ablation_profile.*`: ablation outputs
@@ -35,6 +35,7 @@ From `docs/benchmarks/simulator_benchmark_profile.json`:
 - `Adaptive-100-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 430 ms`
 - `Adaptive-OrderFlow-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 430 ms`
 - `Adaptive-QueueLoad-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 400 ms`
+- `Policy-BurstAware-100-250ms`: `1340.5 orders/s`, `p50 80 ms`, `p99 450 ms`
 - `FBA-250ms-Stress`: `1761.1 orders/s`, `p50 100 ms`, `p99 590 ms`
 
 All generated scenarios currently report:
@@ -54,6 +55,7 @@ From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `
 - `Adaptive-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 207.14 ms`, `p99 360.00 +/- 69.38 ms`
 - `Adaptive-OrderFlow-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 216.67 ms`, `p99 406.25 +/- 46.22 ms`
 - `Adaptive-QueueLoad-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 209.29 ms`, `p99 386.25 +/- 65.09 ms`
+- `Policy-BurstAware-100-250ms`: `1337.70 +/- 2.82 orders/s`, `policy mean window 250.00 ms`, `p99 406.25 +/- 57.03 ms`
 - `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `p50 97.50 +/- 5.75 ms`, `p99 373.75 +/- 70.24 ms`
 
 Measured observations:
@@ -82,8 +84,15 @@ The repository now includes a minimal adapter layer:
 
 - `NewAdapter(cfg)` for scenario-backed environment construction
 - `Reset()` returning observation, metrics, reward, done, and info
-- `Step(action)` with adaptive-window control for adaptive scenarios
-- `ActionSpec()` advertising whether a scenario supports window-control actions
+- `Step(action)` with batch-window, risk-scale, and tie-break control hooks
+- `ActionSpec()` advertising which controls a scenario supports
+
+The current policy baseline is adapter-driven rather than hard-wired inside `Environment.Run()`:
+
+- `Policy-BurstAware-100-250ms`
+  - uses `Adapter.Step(action)`
+  - controls batch window, risk scale, and tie-break mode
+  - produces a distinct benchmark line in the generated artifacts
 
 ## Ablation Snapshot
 

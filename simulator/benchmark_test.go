@@ -145,6 +145,21 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
+			Name:                   "Policy-BurstAware-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			PolicyController:       PolicyBurstAware,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
 			Name:             "FBA-250ms-Stress",
 			Mode:             ModeBatch,
 			BatchWindowSteps: 25,
@@ -155,6 +170,13 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:             RiskConfig{MaxOrderAmount: 10, MaxOrdersPerStep: 36},
 		},
 	}
+}
+
+func runScenario(cfg ScenarioConfig) BenchmarkResult {
+	if cfg.PolicyController != PolicyNone {
+		return NewAdapter(cfg).RunPolicy(cfg.PolicyController)
+	}
+	return NewEnvironment(cfg).Run()
 }
 
 func ablationScenarios() []ScenarioConfig {
@@ -218,8 +240,8 @@ func scenarioByName(t *testing.T, name string) ScenarioConfig {
 
 func TestSimulatorDeterminism(t *testing.T) {
 	cfg := scenarioByName(t, "SpeedBump-50ms")
-	left := NewEnvironment(cfg).Run()
-	right := NewEnvironment(cfg).Run()
+	left := runScenario(cfg)
+	right := runScenario(cfg)
 
 	if left.Fills != right.Fills ||
 		left.OrdersAccepted != right.OrdersAccepted ||
@@ -231,7 +253,7 @@ func TestSimulatorDeterminism(t *testing.T) {
 
 func TestSimulatorSettlementSafety(t *testing.T) {
 	cfg := scenarioByName(t, "FBA-250ms-Stress")
-	result := NewEnvironment(cfg).Run()
+	result := runScenario(cfg)
 	if result.NegativeBalanceViolations != 0 {
 		t.Fatalf("expected no negative balances, got %d", result.NegativeBalanceViolations)
 	}
@@ -267,7 +289,7 @@ func TestEnvironmentStepAPI(t *testing.T) {
 }
 
 func TestAdaptiveBatchWindowSummary(t *testing.T) {
-	result := NewEnvironment(scenarioByName(t, "Adaptive-100-250ms")).Run()
+	result := runScenario(scenarioByName(t, "Adaptive-100-250ms"))
 	if result.AdaptiveWindowMeanMs <= 0 {
 		t.Fatalf("expected adaptive window mean to be populated, got %+v", result)
 	}
@@ -296,6 +318,9 @@ func TestAdapterResetAndStep(t *testing.T) {
 	if next.Info.CurrentBatchWindowMs != 250 {
 		t.Fatalf("expected current window 250ms, got %+v", next.Info)
 	}
+	if !next.Info.ActionSpec.SupportsRiskLimitScale || !next.Info.ActionSpec.SupportsTieBreakToggle {
+		t.Fatalf("expected expanded action space, got %+v", next.Info.ActionSpec)
+	}
 }
 
 func TestAdapterIgnoresActionOutsideAdaptiveMode(t *testing.T) {
@@ -309,6 +334,19 @@ func TestAdapterIgnoresActionOutsideAdaptiveMode(t *testing.T) {
 	if next.Info.AppliedAction.TargetBatchWindowSteps != nil {
 		t.Fatalf("expected no applied action for non-adaptive mode, got %+v", next.Info.AppliedAction)
 	}
+	if !next.Info.ActionSpec.SupportsRiskLimitScale {
+		t.Fatalf("expected risk-limit scale control to remain available")
+	}
+}
+
+func TestPolicyControllerProducesNamedResult(t *testing.T) {
+	result := runScenario(scenarioByName(t, "Policy-BurstAware-100-250ms"))
+	if result.Name != "Policy-BurstAware-100-250ms" {
+		t.Fatalf("expected policy-run result name, got %+v", result)
+	}
+	if result.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected policy baseline to record adaptive window stats, got %+v", result)
+	}
 }
 
 func TestGenerateSimulatorBenchmarkArtifacts(t *testing.T) {
@@ -319,7 +357,7 @@ func TestGenerateSimulatorBenchmarkArtifacts(t *testing.T) {
 
 	results := make([]BenchmarkResult, 0, len(simulatorScenarios()))
 	for _, cfg := range simulatorScenarios() {
-		results = append(results, NewEnvironment(cfg).Run())
+		results = append(results, runScenario(cfg))
 	}
 
 	immediate := results[0]
@@ -351,7 +389,7 @@ func TestGenerateSimulatorMultiSeedArtifacts(t *testing.T) {
 		for _, seed := range seeds {
 			cfg := base
 			cfg.Seed = seed
-			runs = append(runs, NewEnvironment(cfg).Run())
+			runs = append(runs, runScenario(cfg))
 		}
 		aggregates = append(aggregates, summarizeRuns(base, runs))
 	}
@@ -398,7 +436,7 @@ func TestGenerateSimulatorAblationArtifacts(t *testing.T) {
 		for _, seed := range seeds {
 			cfg := base
 			cfg.Seed = seed
-			runs = append(runs, NewEnvironment(cfg).Run())
+			runs = append(runs, runScenario(cfg))
 		}
 		aggregates = append(aggregates, summarizeRuns(base, runs))
 	}

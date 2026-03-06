@@ -19,6 +19,13 @@ const (
 	AdaptiveQueueLoad AdaptivePolicy = "queue_load"
 )
 
+type PolicyController string
+
+const (
+	PolicyNone       PolicyController = ""
+	PolicyBurstAware PolicyController = "burst_aware"
+)
+
 type AgentClass string
 
 const (
@@ -55,6 +62,7 @@ type ScenarioConfig struct {
 	Name                    string
 	Mode                    MatchingMode
 	AdaptivePolicy          AdaptivePolicy
+	PolicyController        PolicyController
 	BatchWindowSteps        int
 	SpeedBumpSteps          int
 	AdaptiveMinWindowSteps  int

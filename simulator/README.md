@@ -8,11 +8,12 @@ Scope:
 - fixed-delay speed-bump baseline
 - frequent batch auction scenarios
 - adaptive-window heuristic baselines, including balanced, order-flow, and queue-load variants
+- adapter-driven policy baseline (`Policy-BurstAware-100-250ms`)
 - agent-based order flow
 - ledger-aware settlement checks
 - fairness and market-quality proxy metrics
 - step-wise `Reset/Step/Observe/Metrics` API for downstream control loops
-- minimal gym-style adapter via `NewAdapter`, with action specs and reward-bearing timesteps
+- minimal gym-style adapter via `NewAdapter`, with batch-window, risk-scale, and tie-break controls plus reward-bearing timesteps
 
 Key outputs:
 
