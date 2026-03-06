@@ -1,0 +1,52 @@
+name: Benchmark Artifacts
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  system-and-frontend-bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: Generate matching batch-window profile
+        env:
+          RUN_SYSTEM_BENCH: "1"
+        run: go test ./matching -run TestGenerateMatchingSystemProfile -v
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-modern/package-lock.json
+
+      - name: Frontend benchmark
+        working-directory: frontend-modern
+        run: |
+          npm ci
+          npm run benchmark:check
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-artifacts
+          path: |
+            docs/benchmarks/matching_system_profile.json
+            docs/benchmarks/matching_system_profile.md
+            frontend-modern/docs/benchmarks/benchmark-latest.json
+            frontend-modern/docs/benchmarks/benchmark-latest.svg

@@ -1,294 +1,159 @@
-# Prediction Platform - Dual-Rail (Offchain + Onchain)
+# Ledger-First Market Infrastructure with Frequent Batch Auction Matching
 
-A high-performance prediction market platform implementing FBA (Frequent Batch Auction) matching with dual-entry ledger accounting.
+Go-based modular exchange/prediction market systems prototype.
+
+Frequent Batch Auction (FBA) matching, double-entry ledger settlement, risk controls, and event-driven state propagation.
+
+## System Metrics (Synthetic Workload)
+
+Source artifact: `docs/benchmarks/matching_system_profile.json`  
+Workload: 200 buy/sell pairs in one market/outcome per scenario.
+
+| Batch Window | Orders/s | Fills/s | p50 Latency | p99 Latency |
+|---|---:|---:|---:|---:|
+| 100ms | 4958.8 | 4958.8 | 80.66ms | 80.66ms |
+| 500ms | 832.8 | 832.8 | 480.29ms | 480.29ms |
+| 1000ms | 407.4 | 407.4 | 981.85ms | 981.85ms |
+
+Interpretation:
+- tighter batch windows improve latency but increase matching cadence and system churn;
+- wider windows smooth cadence but raise tail latency (p99).
 
 ## Architecture
 
-### Core Services
+```mermaid
+flowchart TD
+    C[Client / Strategy Agent] --> API[API Gateway]
+    API --> MATCH[Matching Engine FBA]
+    API --> RISK[Risk Engine + Kill Switch]
+    MATCH --> LEDGER[Ledger Service Double Entry]
+    LEDGER --> IDX[Indexer / Chain Event Reconciliation]
+    MATCH --> BUS[Event Bus]
+    LEDGER --> BUS
+    RISK --> BUS
+    BUS --> API
+```
 
-- **API Gateway** (`:8080`) - REST API and WebSocket endpoints
-- **Ledger Service** (`:8081`) - Double-entry accounting system
-- **Matching Engine** (`:8082`) - FBA batch auction processing
-- **Indexer Service** (`:8083`) - Blockchain event monitoring
-- **Risk Service** (`:8084`) - Market state management and risk controls
+Core services:
+- API Gateway (`api/`)
+- Matching Engine (`matching/`)
+- Ledger Service (`ledger/`)
+- Risk Service (`risk/`)
+- Indexer (`indexer/`)
+- Shared Event + Type layer (`services/`)
 
-### Shared Components
+## Correctness Guarantees
 
-- **Event Bus** - Inter-service communication
-- **Types Package** - Shared data structures
-- **Utils Package** - Common utilities
+The project treats correctness as explicit invariants, not implicit assumptions.
 
-## Features
+1. `No negative user/market balances`
+- ledger rejects deltas that would make non-system accounts negative.
 
-✅ **FBA Matching Engine**
-- Batch auctions every 500ms
-- Clearing price optimization
-- Proportional fill allocation
+2. `Conservation of funds`
+- internal ledger transfer preserves total balance across accounts.
 
-✅ **Double-Entry Ledger**
-- Atomic transactions
-- Balance validation
-- Operation idempotency
-- Write-Ahead Log (WAL)
+3. `Replay is idempotent`
+- duplicate `op_id` is rejected; replay cannot mutate balances.
 
-✅ **Blockchain Integration**
-- Deposit/withdrawal tracking
-- Reorg handling
-- Confirmation requirements
+4. `Partial fills preserve consistency`
+- buy/sell fill totals are balanced at clearing; no fill exceeds order size.
 
-✅ **Risk Management**
-- Market state machine (OPEN/CLOSE_ONLY/CLOSED/FINALIZED)
-- Dynamic risk adjustment
-- Kill switch (L1-L4)
+5. `Deterministic matching semantics`
+- deterministic clearing-price tie-break and deterministic pro-rata remainder allocation.
 
-✅ **Real-time Updates**
-- WebSocket support
-- Event-driven architecture
-- Live order book and trades
+6. `Risk transitions follow FSM gating`
+- market state + kill-switch levels enforce monotonic permission restrictions.
 
-## Quick Start
+Invariant tests:
+- `matching/main_test.go`
+- `ledger/main_test.go`
+- `risk/main_test.go`
+- `matching/profile_test.go` (benchmark profile generation)
+
+## Repository Layout
+
+```text
+fund/
+├─ api/
+├─ ledger/
+├─ matching/
+├─ risk/
+├─ indexer/
+├─ services/
+├─ benchmark/
+├─ docs/
+│  └─ benchmarks/
+├─ frontend-modern/
+├─ .github/workflows/
+└─ start.ps1
+```
+
+## Onboarding
 
 ### Prerequisites
+- Go 1.21+
+- Node 20+ (for `frontend-modern` quality/benchmark tasks)
 
-- Go 1.21 or higher
-- Git
-
-### Installation
+### Setup
 
 ```powershell
-# Clone repository
-git clone <your-repo-url>
-cd pre_trading
-
-# Install dependencies
+git clone https://github.com/BigMmoney/fund.git
+cd fund
 go mod tidy
+```
 
-# Start all services
+### Start Services
+
+```powershell
 .\start.ps1
 ```
 
-### Manual Start (Individual Services)
+### Run Core Invariants
 
 ```powershell
-# Terminal 1 - Ledger
-cd ledger
-go run main.go
-
-# Terminal 2 - Matching
-cd matching
-go run main.go
-
-# Terminal 3 - Indexer
-cd indexer
-go run main.go
-
-# Terminal 4 - Risk
-cd risk
-go run main.go
-
-# Terminal 5 - API
-cd api
-go run main.go
+go test ./matching ./ledger ./risk -v
 ```
 
-## API Endpoints
-
-### REST API
-
-#### Create Intent
-```bash
-POST http://localhost:8080/v1/intents
-Content-Type: application/json
-
-{
-  "user_id": "user1",
-  "market_id": "market1",
-  "side": "buy",
-  "price": 55,
-  "amount": 1000,
-  "outcome": 0,
-  "expires_in": 60
-}
-```
-
-#### Get Markets
-```bash
-GET http://localhost:8080/v1/markets
-```
-
-#### Get Balances
-```bash
-GET http://localhost:8080/v1/balances?user_id=user1
-```
-
-#### Cancel Order
-```bash
-POST http://localhost:8080/v1/orders/{intent_id}/cancel
-```
-
-#### Request Withdrawal
-```bash
-POST http://localhost:8080/v1/withdrawals
-Content-Type: application/json
-
-{
-  "user_id": "user1",
-  "amount": 1000,
-  "address": "0x..."
-}
-```
-
-### WebSocket
-
-```javascript
-const ws = new WebSocket('ws://localhost:8080/ws');
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log('Event:', data);
-};
-```
-
-## Configuration
-
-Edit `config.yaml` to customize:
-
-- Service ports
-- Batch window duration
-- Confirmation requirements
-- Risk parameters
-- Database connections
-
-## Ledger Accounts
-
-### User Accounts
-- `U:{user_id}:USDC` - Available balance
-- `U:{user_id}:USDC:HOLD` - Held balance for orders
-- `U:{user_id}:OUTCOME:{market}:{outcome}` - Outcome shares
-
-### Market Accounts
-- `M:{market_id}:ESCROW:USDC` - Market escrow
-- `M:{market_id}:FEE:USDC` - Collected fees
-- `M:{market_id}:OUTCOME_POOL` - Outcome share pool
-
-### System Accounts
-- `SYS:ONCHAIN_VAULT:USDC` - Chain vault balance
-
-## Market States
-
-1. **PROPOSED** - Market created but not active
-2. **OPEN** - Normal trading
-3. **CLOSE_ONLY** - No new positions, can only close
-4. **CLOSED** - No trading
-5. **FINALIZED** - Resolved, settlements in progress
-
-## Kill Switch Levels
-
-- **L1** - Stop new positions
-- **L2** - Stop withdrawals
-- **L3** - Stop chain transactions
-- **L4** - Read-only mode
-
-## Development
-
-### Project Structure
-
-```
-pre_trading/
-├── api/              # API Gateway
-├── ledger/           # Ledger Service
-├── matching/         # Matching Engine
-├── indexer/          # Indexer Service
-├── risk/             # Risk Service
-├── services/         # Shared packages
-│   ├── types/        # Data structures
-│   ├── eventbus/     # Event bus
-│   └── utils/        # Utilities
-├── frontend/         # React frontend (optional)
-├── config.yaml       # Configuration
-├── go.mod            # Go dependencies
-├── start.ps1         # Startup script
-└── README.md         # This file
-```
-
-### Adding a New Service
-
-1. Create service directory
-2. Implement main.go
-3. Import shared types from `services/types`
-4. Use event bus for communication
-5. Add to start.ps1
-
-## Testing
+### Run Frontend Invariants + Benchmark
 
 ```powershell
-# Run all tests
-go test ./...
-
-# Test specific service
-cd ledger
-go test -v
-
-# Test with coverage
-go test -cover ./...
+cd frontend-modern
+npm install
+npm run ci:quality
 ```
 
-## Monitoring
+### Generate System Batch-Window Profile
 
-- Health check: `http://localhost:8080/health`
-- Logs: `./logs/`
-- Metrics: Configure Prometheus endpoint in config.yaml
+```powershell
+cd ..
+$env:RUN_SYSTEM_BENCH="1"
+go test ./matching -run TestGenerateMatchingSystemProfile -v
+```
 
-## Production Deployment
+## CI / Workflow Matrix
 
-### Prerequisites
-- PostgreSQL database
-- Redis cache
-- Redpanda/Kafka event bus
-- Blockchain RPC endpoint
+1. `system-invariants.yml`
+- core service invariants (`matching`, `ledger`, `risk`)
 
-### Configuration
-1. Update `config.yaml` with production values
-2. Set environment variables for secrets
-3. Configure TLS certificates
-4. Set up monitoring and alerting
+2. `ci.yml`
+- Go lint + test baseline and frontend invariant tests
 
-### Security Checklist
-- [ ] Change JWT secret
-- [ ] Enable rate limiting
-- [ ] Configure CORS properly
-- [ ] Use API keys for service-to-service communication
-- [ ] Enable HSM/KMS for signing
-- [ ] Set up multi-sig for treasury
-- [ ] Configure kill switch procedures
-- [ ] Test backup and restore
-- [ ] Run security audit
+3. `bench.yml`
+- generates system + frontend benchmark artifacts
 
-## Troubleshooting
+4. `release.yml`
+- tag-driven GitHub release pipeline
 
-### Services won't start
-- Check if ports are available
-- Verify Go is installed: `go version`
-- Check logs in `./logs/`
+## Research / Paper Track
 
-### WebSocket not connecting
-- Verify API service is running
-- Check CORS configuration
-- Ensure firewall allows connections
+Paper blueprint and writing plan:
+- `docs/PAPER_BLUEPRINT.md`
 
-### Ledger transactions failing
-- Check account balances
-- Verify op_id uniqueness
-- Review WAL logs
-
-## Documentation
-
-See `prediction_platform_full_design_v1_2.txt` for complete technical design.
+Suggested framing:
+- systems + market infrastructure (not product UI)
+- deterministic settlement and replay safety
+- fairness/latency tradeoff under FBA windows
 
 ## License
 
-[Your License Here]
-
-## Support
-
-For issues and questions, please open a GitHub issue.
+Project license to be finalized.
