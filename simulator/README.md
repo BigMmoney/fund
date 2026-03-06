@@ -8,7 +8,7 @@ Scope:
 - fixed-delay speed-bump baseline
 - frequent batch auction scenarios
 - adaptive-window heuristic baselines, including balanced, order-flow, and queue-load variants
-- adapter-driven policy baselines (`Policy-BurstAware-100-250ms`, `Policy-LearnedLinUCB-100-250ms`)
+- adapter-driven policy baselines (`Policy-BurstAware-100-250ms`, `Policy-LearnedLinUCB-100-250ms`, `Policy-LearnedTinyMLP-100-250ms`)
 - agent-based order flow
 - ledger-aware settlement checks
 - fairness and market-quality proxy metrics
@@ -16,6 +16,7 @@ Scope:
 - minimal gym-style adapter via `NewAdapter`, with batch-window, risk-scale, tie-break, release-cadence, and price-aggression controls plus reward-bearing timesteps
 - schema documentation in `docs/neurips_track/ENVIRONMENT_SCHEMA.md`
 - mechanism ablations and agent/workload ablations
+- parameter-grid sweeps over arbitrage intensity and maker quote width
 
 Key outputs:
 
@@ -25,6 +26,7 @@ Key outputs:
 - `docs/benchmarks/simulator_multiseed_profile.*`
 - `docs/benchmarks/simulator_ablation_profile.*`
 - `docs/benchmarks/simulator_agent_ablation_profile.*`
+- `docs/benchmarks/simulator_parameter_grid_profile.*`
 
 To generate artifacts:
 
@@ -40,4 +42,7 @@ go test ./simulator -run TestGenerateSimulatorAblationArtifacts -v
 
 $env:RUN_SIM_AGENT_ABLATION="1"
 go test ./simulator -run TestGenerateSimulatorAgentAblationArtifacts -v
+
+$env:RUN_SIM_GRID="1"
+go test ./simulator -run TestGenerateSimulatorParameterGridArtifacts -v
 ```

@@ -32,3 +32,27 @@ Source: `docs/benchmarks/simulator_agent_ablation_profile.*`
 - `Ablation-RelaxedRisk` confirms that risk gating is a real throughput bottleneck in the stressed constrained configuration.
 - `AgentSweep-ArbIntensityHigh` shows that the benchmark reacts sharply to latency-sensitive flow, rather than only to mechanism toggles.
 - `AgentSweep-MakersWide` increases p99 tail latency and reduces fills, making quote-width sensitivity visible in the benchmark.
+
+## Parameter Grid Sweep
+
+Source: `docs/benchmarks/simulator_parameter_grid_profile.*`
+
+Grid definition:
+
+- rows: arbitrageur intensity multiplier `{0, 1, 2, 3}`
+- columns: maker quote-width multiplier `{1, 2, 3}`
+
+Selected cells:
+
+| Arb Multiplier | Maker Width | Orders/s | Fills/s | p99 (ms) | Queue Adv. | Arb Profit |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1 | 1272.42 | 612.50 | 390.00 | -0.6093 | 0.00 |
+| 1 | 1 | 1338.29 | 670.83 | 345.00 | 0.0075 | 676.00 |
+| 2 | 3 | 1404.17 | 580.75 | 462.50 | 0.0001 | 1534.25 |
+| 3 | 3 | 1470.04 | 682.54 | 462.50 | -0.0080 | 2151.00 |
+
+Interpretation:
+
+- removing arbitrageurs collapses the arbitrage-profit proxy and flips queue advantage strongly negative
+- increasing arbitrage intensity consistently raises arbitrage-profit proxy and throughput
+- wider maker quotes push p99 tails upward and reduce fills, especially once arbitrage pressure is already elevated

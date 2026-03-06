@@ -8,6 +8,7 @@ ROOT = Path(r"D:\pre_trading")
 DATA_PATH = ROOT / "docs" / "benchmarks" / "simulator_multiseed_profile.json"
 ABLATION_PATH = ROOT / "docs" / "benchmarks" / "simulator_ablation_profile.json"
 AGENT_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_agent_ablation_profile.json"
+GRID_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_grid_profile.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
 
 
@@ -153,10 +154,55 @@ def line_chart_with_ci(
     write_svg(out_path, wrap_svg(width, height, "\n".join(body)))
 
 
+def heat_color(value: float, min_value: float, max_value: float) -> str:
+    if max_value <= min_value:
+        ratio = 0.5
+    else:
+        ratio = (value - min_value) / (max_value - min_value)
+    ratio = max(0.0, min(1.0, ratio))
+    r = int(22 + ratio * 220)
+    g = int(74 + (1 - ratio) * 110)
+    b = int(120 + (1 - ratio) * 80)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def heatmap_chart(
+    title: str,
+    values: dict[tuple[int, int], tuple[float, float]],
+    x_values: list[int],
+    y_values: list[int],
+    out_path: Path,
+    footer: str,
+) -> None:
+    width, height = 880, 540
+    left, top = 150, 90
+    cell_w, cell_h = 150, 90
+    metrics = [metric for metric, _ in values.values()]
+    min_metric = min(metrics)
+    max_metric = max(metrics)
+    body = [f'<text class="title" x="{left}" y="38">{title}</text>']
+    body.append(f'<text class="label" x="{left}" y="{height-20}">{footer}</text>')
+    for idx, x_val in enumerate(x_values):
+        x = left + idx * cell_w
+        body.append(f'<text class="legend" x="{x + cell_w/2:.1f}" y="{top-18}" text-anchor="middle">Maker x{x_val}</text>')
+    for idy, y_val in enumerate(y_values):
+        y = top + idy * cell_h
+        body.append(f'<text class="legend" x="{left-20}" y="{y + cell_h/2 + 4:.1f}" text-anchor="end">Arb x{y_val}</text>')
+        for idx, x_val in enumerate(x_values):
+            x = left + idx * cell_w
+            mean, ci = values[(y_val, x_val)]
+            color = heat_color(mean, min_metric, max_metric)
+            body.append(f'<rect x="{x}" y="{y}" width="{cell_w-8}" height="{cell_h-8}" fill="{color}" rx="12" opacity="0.88"/>')
+            body.append(f'<text class="value" x="{x + (cell_w-8)/2:.1f}" y="{y + 35:.1f}" text-anchor="middle">{mean:.1f}</text>')
+            body.append(f'<text class="label" x="{x + (cell_w-8)/2:.1f}" y="{y + 58:.1f}" text-anchor="middle">+/- {ci:.1f}</text>')
+    write_svg(out_path, wrap_svg(width, height, "\n".join(body)))
+
+
 def generate() -> None:
     results = load_results()
     ablations = load_named_results(ABLATION_PATH)
     agent_sweeps = load_named_results(AGENT_SWEEP_PATH)
+    grid_sweep = load_named_results(GRID_SWEEP_PATH)
     categories = []
     for r in results:
         label = r["name"].replace("Immediate-Surrogate", "Immediate")
@@ -255,6 +301,41 @@ def generate() -> None:
         ],
         FIG_DIR / "agent_sweeps.svg",
         "Orders/s and scaled p99 latency",
+    )
+
+    grid_p99 = {
+        (r["arbitrageur_intensity_multiplier"], r["maker_quote_width_multiplier"]): (
+            r["mean_p99_latency_ms"],
+            r["ci95_p99_latency_ms"],
+        )
+        for r in grid_sweep
+    }
+    grid_arb = {
+        (r["arbitrageur_intensity_multiplier"], r["maker_quote_width_multiplier"]): (
+            r["mean_latency_arbitrage_profit"],
+            r["ci95_latency_arbitrage_profit"],
+        )
+        for r in grid_sweep
+    }
+    x_values = sorted({r["maker_quote_width_multiplier"] for r in grid_sweep})
+    y_values = sorted({r["arbitrageur_intensity_multiplier"] for r in grid_sweep})
+
+    heatmap_chart(
+        "Parameter Grid: p99 Latency Heatmap",
+        grid_p99,
+        x_values,
+        y_values,
+        FIG_DIR / "grid_p99_heatmap.svg",
+        "Rows: arbitrageur intensity, columns: maker quote width",
+    )
+
+    heatmap_chart(
+        "Parameter Grid: Arbitrage Profit Heatmap",
+        grid_arb,
+        x_values,
+        y_values,
+        FIG_DIR / "grid_arb_heatmap.svg",
+        "Rows: arbitrageur intensity, columns: maker quote width",
     )
 
 

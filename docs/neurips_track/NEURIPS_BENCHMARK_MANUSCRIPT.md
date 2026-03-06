@@ -13,7 +13,7 @@ This manuscript defines a benchmark-oriented layer on top of an existing ledger-
 The current benchmark line makes four concrete contributions:
 
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-2. It provides a seedable multi-agent order-flow generator with four agent classes, eleven benchmark scenarios, and explicit agent/workload sweeps.
+2. It provides a seedable multi-agent order-flow generator with four agent classes, twelve benchmark scenarios, explicit agent/workload sweeps, and a full parameter grid over arbitrage intensity and maker quote width.
 3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
 4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a gym-style adapter with five runtime control channels, two adapter-driven policy baselines, documented observation/action/metrics schemas, and ablation suites for both market-structure toggles and agent/workload perturbations.
 
@@ -90,7 +90,7 @@ These agents are deliberately simple. They are not intended to be a full behavio
 
 ## 6. Tasks and Baselines
 
-The current benchmark suite exposes eleven scenarios:
+The current benchmark suite exposes twelve scenarios:
 
 1. `Immediate-Surrogate`
 2. `SpeedBump-50ms`
@@ -102,11 +102,12 @@ The current benchmark suite exposes eleven scenarios:
 8. `Adaptive-QueueLoad-100-250ms`
 9. `Policy-BurstAware-100-250ms`
 10. `Policy-LearnedLinUCB-100-250ms`
-11. `FBA-250ms-Stress`
+11. `Policy-LearnedTinyMLP-100-250ms`
+12. `FBA-250ms-Stress`
 
 These are not yet a complete NeurIPS-scale benchmark suite, but they are sufficient to establish a reproducible baseline for future agent-control or adaptive-window work.
 
-The benchmark now includes three heuristic adaptive-window baselines and two adapter-driven policy controllers. The burst-aware controller is hand-written. The learned baseline is now a contextual linear bandit over discrete action bundles built from the expanded action space and normalized observation features. It is still lightweight, but it is now a real learned control baseline instead of a static threshold sweep.
+The benchmark now includes three heuristic adaptive-window baselines and three adapter-driven policy controllers. The burst-aware controller is hand-written. The learned baselines are a contextual linear bandit and a small two-layer policy network trained with a deterministic cross-entropy-style search over the same discrete action bundle set.
 
 ## 7. Metrics
 
@@ -175,6 +176,7 @@ We report two layers of results:
 | Adaptive-QueueLoad-100-250ms | 8 | 1337.60 +/- 3.88 | 691.57 +/- 27.02 | 90.00 +/- 7.75 | 261.25 +/- 44.83 | 386.25 +/- 65.09 | 1.00 +/- 0.00 | 4.88 +/- 0.59 | 0.0375 +/- 0.0239 | 624.25 +/- 56.37 |
 | Policy-BurstAware-100-250ms | 8 | 1338.89 +/- 2.97 | 670.83 +/- 28.54 | 98.75 +/- 4.15 | 263.75 +/- 47.63 | 400.00 +/- 57.25 | 1.00 +/- 0.00 | 5.31 +/- 0.52 | 0.0305 +/- 0.0214 | 621.00 +/- 94.21 |
 | Policy-LearnedLinUCB-100-250ms | 8 | 1337.60 +/- 3.88 | 745.24 +/- 34.21 | 47.50 +/- 3.00 | 101.25 +/- 2.29 | 158.75 +/- 15.66 | 1.00 +/- 0.00 | 5.94 +/- 0.40 | 0.0447 +/- 0.0223 | 959.62 +/- 63.59 |
+| Policy-LearnedTinyMLP-100-250ms | 8 | 1340.28 +/- 3.23 | 846.83 +/- 21.98 | 57.50 +/- 3.00 | 126.25 +/- 3.35 | 185.00 +/- 36.34 | 1.00 +/- 0.00 | 4.45 +/- 0.40 | 0.0339 +/- 0.0154 | 740.25 +/- 96.50 |
 | FBA-250ms-Stress | 8 | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
 
 ### 9.2 Observations
@@ -185,6 +187,7 @@ We report two layers of results:
 - The balanced adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`.
 - The burst-aware policy controller saturates the mean window at `250.00 ms`, yielding lower queue-priority advantage (`0.0305 +/- 0.0214`) and lower arbitrage-profit proxy (`621.00 +/- 94.21`) than the learned controller, but at much higher latency tails.
 - The learned LinUCB controller collapses to a fast control policy (`100.00 ms` mean window), improving fills (`745.24 +/- 34.21`) and reducing p99 to `158.75 +/- 15.66 ms`, but worsening queue-priority advantage (`0.0447 +/- 0.0223`) and arbitrage-profit proxy (`959.62 +/- 63.59`) relative to the burst-aware controller.
+- The learned TinyMLP controller settles at a moderate `130.00 ms` mean window, pushes fills to `846.83 +/- 21.98`, and keeps queue-priority advantage (`0.0339 +/- 0.0154`) and arbitrage-profit proxy (`740.25 +/- 96.50`) materially below the LinUCB controller while still preserving a much lower p99 tail than the burst-aware policy.
 - The stress scenario increases throughput to `1769.25 +/- 6.04 orders/s` and fill throughput to `900.50 +/- 23.67 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
 - Across all `11 x 8 = 88` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
@@ -199,6 +202,10 @@ We report two layers of results:
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
 ![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
+
+![Parameter-grid p99 heatmap](figures/grid_p99_heatmap.svg)
+
+![Parameter-grid arbitrage heatmap](figures/grid_arb_heatmap.svg)
 
 ### 9.4 Mechanism Ablation Snapshot
 
@@ -238,14 +245,27 @@ These sweeps make the benchmark more than a mechanism toggle suite:
 - widening maker quotes pushes p99 to `485.00 ms` and reduces fills to `595.63`
 - increasing informed intensity raises throughput modestly while keeping arbitrage-profit proxy much closer to control than the arbitrage sweep
 
+### 9.6 Parameter Grid Snapshot
+
+From `docs/benchmarks/simulator_parameter_grid_profile.*` over seeds `[61, 67, 71, 73]`, the benchmark now exposes a full `4 x 3` parameter grid:
+
+- arbitrageur intensity multiplier `{0, 1, 2, 3}`
+- maker quote-width multiplier `{1, 2, 3}`
+
+This grid shows three concrete effects:
+
+- removing arbitrageurs collapses the arbitrage-profit proxy to `0.00` across the entire first row and flips queue advantage strongly negative
+- increasing arbitrage intensity from `1` to `3` consistently raises throughput and arbitrage-profit proxy, reaching `2151.00 +/- 392.11` in the `(arb=3, maker=3)` cell
+- wider maker quotes raise p99 tails and suppress fills, especially once arbitrage pressure is already elevated
+
 ## 10. Limitations
 
 The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
 
 - proxy fairness metrics rather than richer behavioral or welfare metrics
 - the adapter action space is still narrow compared with a full exchange-control environment
-- the learned controller is still a lightweight contextual linear bandit, not a richer policy-learning result
-- the current agent/workload sweeps are still small and do not yet cover full parameter grids over market-maker or informed-flow behaviors
+- the strongest learned controller is still a small policy network trained with deterministic search rather than a richer gradient-based or offline-RL setup
+- the current grids cover arbitrage intensity and maker quote width, but not yet full parameter grids over retail or informed-flow regimes
 
 ## 11. Related Work
 
@@ -261,7 +281,7 @@ This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evalu
 
 To push this track toward a stronger benchmark paper:
 
-1. replace the current LinUCB baseline with a stronger learned controller on the same action space
+1. replace the current TinyMLP baseline with a stronger learned controller on the same action space
 2. add explicit agent-behavior experiments for queue advantage and arbitrage capture
 3. broaden the policy interface beyond batch window, risk scale, release cadence, price aggression, and tie-break toggles
-4. expand the sweep suite into full parameter grids with confidence-interval plots
+4. expand the sweep suite into larger multi-parameter grids over retail, informed, and maker behavior with confidence-interval plots

@@ -1,8 +1,11 @@
 package simulator
 
 import (
+	"encoding/json"
 	"math"
+	"math/rand"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -93,6 +96,26 @@ type linearArmModel struct {
 type learnedLinUCBPolicy struct {
 	Actions []linearArmModel
 	Alpha   float64
+}
+
+type tinyMLPModel struct {
+	Actions    []learnedActionCandidate
+	InputDim   int
+	HiddenDim  int
+	W1         [][]float64
+	B1         []float64
+	W2         [][]float64
+	B2         []float64
+	TrainScore float64
+}
+
+var learnedPolicyCache = struct {
+	sync.Mutex
+	linucb map[string]learnedLinUCBPolicy
+	tiny   map[string]tinyMLPModel
+}{
+	linucb: make(map[string]learnedLinUCBPolicy),
+	tiny:   make(map[string]tinyMLPModel),
 }
 
 func NewAdapter(cfg ScenarioConfig) *Adapter {
@@ -190,12 +213,16 @@ func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	start := time.Now()
 	timestep := a.Reset()
 	var linucb *learnedLinUCBPolicy
+	var tiny *tinyMLPModel
 	if policy == PolicyLearnedLinUCB {
-		model := trainLearnedLinUCBPolicy(a.env.cfg)
+		model := cachedLinUCBPolicy(a.env.cfg)
 		linucb = &model
+	} else if policy == PolicyLearnedTinyMLP {
+		model := cachedTinyMLPPolicy(a.env.cfg)
+		tiny = &model
 	}
 	for !timestep.Done {
-		action := a.selectAction(policy, timestep.Observation, linucb)
+		action := a.selectAction(policy, timestep.Observation, linucb, tiny)
 		timestep = a.Step(action)
 	}
 	result := a.env.benchmarkResult(time.Since(start))
@@ -260,7 +287,7 @@ func (a *Adapter) applyAction(action ControlAction) ControlAction {
 	return applied
 }
 
-func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy) ControlAction {
+func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel) ControlAction {
 	switch policy {
 	case PolicyBurstAware:
 		return burstAwareAction(a.ActionSpec(), observation)
@@ -269,6 +296,11 @@ func (a *Adapter) selectAction(policy PolicyController, observation Observation,
 			return ControlAction{}
 		}
 		return chooseLinUCBAction(a.ActionSpec(), observation, *linucb)
+	case PolicyLearnedTinyMLP:
+		if tiny == nil {
+			return ControlAction{}
+		}
+		return chooseTinyMLPAction(a.ActionSpec(), observation, *tiny)
 	default:
 		return ControlAction{}
 	}
@@ -337,9 +369,28 @@ func policyScenarioName(base string, policy PolicyController) string {
 		return "Policy-BurstAware-100-250ms"
 	case PolicyLearnedLinUCB:
 		return "Policy-LearnedLinUCB-100-250ms"
+	case PolicyLearnedTinyMLP:
+		return "Policy-LearnedTinyMLP-100-250ms"
 	default:
 		return base
 	}
+}
+
+func cachedLinUCBPolicy(cfg ScenarioConfig) learnedLinUCBPolicy {
+	key := policyCacheKey(cfg, PolicyLearnedLinUCB)
+	learnedPolicyCache.Lock()
+	if cached, ok := learnedPolicyCache.linucb[key]; ok {
+		learnedPolicyCache.Unlock()
+		return cached
+	}
+	learnedPolicyCache.Unlock()
+
+	trained := trainLearnedLinUCBPolicy(cfg)
+
+	learnedPolicyCache.Lock()
+	learnedPolicyCache.linucb[key] = trained
+	learnedPolicyCache.Unlock()
+	return trained
 }
 
 func trainLearnedLinUCBPolicy(cfg ScenarioConfig) learnedLinUCBPolicy {
@@ -379,6 +430,90 @@ func trainLearnedLinUCBPolicy(cfg ScenarioConfig) learnedLinUCBPolicy {
 	}
 
 	return policy
+}
+
+func cachedTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
+	key := policyCacheKey(cfg, PolicyLearnedTinyMLP)
+	learnedPolicyCache.Lock()
+	if cached, ok := learnedPolicyCache.tiny[key]; ok {
+		learnedPolicyCache.Unlock()
+		return cached
+	}
+	learnedPolicyCache.Unlock()
+
+	trained := trainTinyMLPPolicy(cfg)
+
+	learnedPolicyCache.Lock()
+	learnedPolicyCache.tiny[key] = trained
+	learnedPolicyCache.Unlock()
+	return trained
+}
+
+func trainTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
+	trainingSeeds := []int64{101, 103, 107, 109}
+	spec := NewAdapter(cfg).ActionSpec()
+	actions := candidateBanditActions(spec)
+	inputDim := len(observationFeatures(Observation{}))
+	hiddenDim := 8
+	paramCount := inputDim*hiddenDim + hiddenDim + hiddenDim*len(actions) + len(actions)
+	mean := make([]float64, paramCount)
+	std := make([]float64, paramCount)
+	for idx := range std {
+		std[idx] = 0.35
+	}
+	rng := rand.New(rand.NewSource(trainingRandomSeed(cfg)))
+	type candidate struct {
+		params []float64
+		score  float64
+	}
+	bestScore := math.Inf(-1)
+	bestParams := append([]float64(nil), mean...)
+	const (
+		population = 18
+		elites     = 5
+		iterations = 5
+	)
+	for iter := 0; iter < iterations; iter++ {
+		candidates := make([]candidate, 0, population)
+		for sample := 0; sample < population; sample++ {
+			params := make([]float64, paramCount)
+			for idx := range params {
+				params[idx] = mean[idx] + std[idx]*rng.NormFloat64()
+			}
+			score := evaluateTinyMLPParams(cfg, actions, inputDim, hiddenDim, params, trainingSeeds)
+			candidates = append(candidates, candidate{params: params, score: score})
+			if score > bestScore {
+				bestScore = score
+				bestParams = append([]float64(nil), params...)
+			}
+		}
+		sort.Slice(candidates, func(i, j int) bool {
+			return candidates[i].score > candidates[j].score
+		})
+		for idx := range mean {
+			mean[idx] = 0
+		}
+		for _, elite := range candidates[:elites] {
+			for idx := range mean {
+				mean[idx] += elite.params[idx]
+			}
+		}
+		for idx := range mean {
+			mean[idx] /= float64(elites)
+		}
+		for idx := range std {
+			variance := 0.0
+			for _, elite := range candidates[:elites] {
+				delta := elite.params[idx] - mean[idx]
+				variance += delta * delta
+			}
+			variance /= float64(elites)
+			std[idx] = math.Max(0.05, math.Sqrt(variance))
+		}
+	}
+	model := decodeTinyMLP(bestParams, inputDim, hiddenDim, actions)
+	model.TrainScore = bestScore
+	return model
 }
 
 func candidateBanditActions(spec ActionSpec) []learnedActionCandidate {
@@ -452,6 +587,50 @@ func candidateBanditActions(spec ActionSpec) []learnedActionCandidate {
 	}
 }
 
+func evaluateTinyMLPParams(cfg ScenarioConfig, actions []learnedActionCandidate, inputDim, hiddenDim int, params []float64, seeds []int64) float64 {
+	model := decodeTinyMLP(params, inputDim, hiddenDim, actions)
+	score := 0.0
+	for _, seed := range seeds {
+		trainingCfg := cfg
+		trainingCfg.Seed = seed
+		adapter := NewAdapter(trainingCfg)
+		timestep := adapter.Reset()
+		for !timestep.Done {
+			action := chooseTinyMLPAction(adapter.ActionSpec(), timestep.Observation, model)
+			timestep = adapter.Step(action)
+			score += timestep.Reward
+		}
+	}
+	return score / float64(len(seeds))
+}
+
+func decodeTinyMLP(params []float64, inputDim, hiddenDim int, actions []learnedActionCandidate) tinyMLPModel {
+	offset := 0
+	w1 := make([][]float64, hiddenDim)
+	for h := 0; h < hiddenDim; h++ {
+		w1[h] = append([]float64(nil), params[offset:offset+inputDim]...)
+		offset += inputDim
+	}
+	b1 := append([]float64(nil), params[offset:offset+hiddenDim]...)
+	offset += hiddenDim
+	outputDim := len(actions)
+	w2 := make([][]float64, outputDim)
+	for out := 0; out < outputDim; out++ {
+		w2[out] = append([]float64(nil), params[offset:offset+hiddenDim]...)
+		offset += hiddenDim
+	}
+	b2 := append([]float64(nil), params[offset:offset+outputDim]...)
+	return tinyMLPModel{
+		Actions:   append([]learnedActionCandidate(nil), actions...),
+		InputDim:  inputDim,
+		HiddenDim: hiddenDim,
+		W1:        w1,
+		B1:        b1,
+		W2:        w2,
+		B2:        b2,
+	}
+}
+
 func makeAction(window *int, risk *float64, tie *bool, cadence *int, price *int64) ControlAction {
 	return ControlAction{
 		TargetBatchWindowSteps: window,
@@ -484,6 +663,34 @@ func fallbackBanditAction(spec ActionSpec) ControlAction {
 		intPtr(cadence),
 		int64Ptr(0),
 	)
+}
+
+func chooseTinyMLPAction(spec ActionSpec, observation Observation, model tinyMLPModel) ControlAction {
+	features := observationFeatures(observation)
+	hidden := make([]float64, model.HiddenDim)
+	for h := 0; h < model.HiddenDim; h++ {
+		sum := model.B1[h]
+		for i := 0; i < model.InputDim; i++ {
+			sum += model.W1[h][i] * features[i]
+		}
+		hidden[h] = math.Tanh(sum)
+	}
+	bestIdx := 0
+	bestScore := math.Inf(-1)
+	for out := range model.Actions {
+		score := model.B2[out]
+		for h := 0; h < model.HiddenDim; h++ {
+			score += model.W2[out][h] * hidden[h]
+		}
+		if score > bestScore {
+			bestScore = score
+			bestIdx = out
+		}
+	}
+	if bestIdx < 0 || bestIdx >= len(model.Actions) {
+		return fallbackBanditAction(spec)
+	}
+	return model.Actions[bestIdx].Action
 }
 
 func observationFeatures(observation Observation) []float64 {
@@ -718,6 +925,22 @@ func rankedBanditModels(policy learnedLinUCBPolicy) []linearArmModel {
 		return models[i].Updates > models[j].Updates
 	})
 	return models
+}
+
+func trainingRandomSeed(cfg ScenarioConfig) int64 {
+	return int64(len(cfg.Agents))*97 + int64(cfg.TotalSteps)*31 + int64(cfg.AdaptiveMinWindowSteps+cfg.AdaptiveMaxWindowSteps) + 20260307
+}
+
+func policyCacheKey(cfg ScenarioConfig, policy PolicyController) string {
+	keyCfg := cfg
+	keyCfg.Seed = 0
+	keyCfg.Name = ""
+	keyCfg.PolicyController = policy
+	raw, err := json.Marshal(keyCfg)
+	if err != nil {
+		return string(policy)
+	}
+	return string(raw)
 }
 
 func (a *Adapter) computeReward(delta MetricsDelta) float64 {

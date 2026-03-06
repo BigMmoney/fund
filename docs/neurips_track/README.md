@@ -23,6 +23,7 @@ The original paper line is a market-infrastructure systems paper. This track upg
 - `docs/benchmarks/simulator_multiseed_profile.*`: multi-seed aggregate outputs
 - `docs/benchmarks/simulator_ablation_profile.*`: mechanism ablation outputs
 - `docs/benchmarks/simulator_agent_ablation_profile.*`: agent and workload sweep outputs
+- `docs/benchmarks/simulator_parameter_grid_profile.*`: full parameter-grid outputs
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, and metrics schema
 - `APPENDIX_TABLES.md`: appendix-ready ablation and sweep tables
@@ -34,14 +35,15 @@ From `docs/benchmarks/simulator_benchmark_profile.json`:
 
 - `Immediate-Surrogate`: `1360.0 orders/s`, `p50 10 ms`, `p99 10 ms`
 - `SpeedBump-50ms`: `1305.6 orders/s`, `p50 60 ms`, `p99 60 ms`
-- `FBA-100ms`: `1348.8 orders/s`, `p50 50 ms`, `p99 170 ms`
+- `FBA-100ms`: `1348.8 orders/s`, `p50 50 ms`, `p99 310 ms`
 - `FBA-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 490 ms`
 - `FBA-500ms`: `1349.7 orders/s`, `p50 190 ms`, `p99 910 ms`
-- `Adaptive-100-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 430 ms`
-- `Adaptive-OrderFlow-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 430 ms`
-- `Adaptive-QueueLoad-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 400 ms`
-- `Policy-BurstAware-100-250ms`: `1343.7 orders/s`, `p50 80 ms`, `p99 440 ms`
-- `Policy-LearnedLinUCB-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 180 ms`
+- `Adaptive-100-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 290 ms`
+- `Adaptive-OrderFlow-100-250ms`: `1347.6 orders/s`, `p50 90 ms`, `p99 480 ms`
+- `Adaptive-QueueLoad-100-250ms`: `1347.6 orders/s`, `p50 80 ms`, `p99 410 ms`
+- `Policy-BurstAware-100-250ms`: `1343.7 orders/s`, `p50 80 ms`, `p99 400 ms`
+- `Policy-LearnedLinUCB-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 120 ms`
+- `Policy-LearnedTinyMLP-100-250ms`: `1348.4 orders/s`, `p50 60 ms`, `p99 250 ms`
 - `FBA-250ms-Stress`: `1761.1 orders/s`, `p50 100 ms`, `p99 590 ms`
 
 All generated scenarios currently report:
@@ -63,6 +65,7 @@ From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `
 - `Adaptive-QueueLoad-100-250ms`: `1337.60 +/- 3.88 orders/s`, `adaptive mean window 209.29 ms`, `p99 386.25 +/- 65.09 ms`
 - `Policy-BurstAware-100-250ms`: `1338.89 +/- 2.97 orders/s`, `policy mean window 250.00 ms`, `p99 400.00 +/- 57.25 ms`
 - `Policy-LearnedLinUCB-100-250ms`: `1337.60 +/- 3.88 orders/s`, `policy mean window 100.00 ms`, `p99 158.75 +/- 15.66 ms`
+- `Policy-LearnedTinyMLP-100-250ms`: `1340.28 +/- 3.23 orders/s`, `policy mean window 130.00 ms`, `p99 185.00 +/- 36.34 ms`
 - `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `p50 97.50 +/- 5.75 ms`, `p99 373.75 +/- 70.24 ms`
 
 Measured observations:
@@ -73,6 +76,7 @@ Measured observations:
 - the balanced adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`
 - the burst-aware policy drives the adapter to the slow end of the window range (`250 ms`) and improves fairness-adjacent proxies relative to the learned controller
 - the learned LinUCB controller drives the adapter to a fast release profile (`100 ms` mean window), improving fills (`745.24 +/- 34.21`) and tail latency (`p99 158.75 +/- 15.66 ms`), but worsening queue-advantage and arbitrage-profit proxies (`0.0447`, `959.62`)
+- the learned TinyMLP controller lands between burst-aware and LinUCB on latency (`p99 185.00 +/- 36.34 ms`), but improves fills to `846.83 +/- 21.98` while keeping queue advantage (`0.0339 +/- 0.0154`) and arbitrage-profit proxy (`740.25 +/- 96.50`) much closer to the burst-aware policy than LinUCB
 - the stress configuration raises throughput to `1769.25 orders/s` and arbitrage profit to `2057.00`
 
 ## Step API
@@ -104,6 +108,9 @@ Current policy baselines:
 - `Policy-LearnedLinUCB-100-250ms`
   - contextual linear bandit over discrete action bundles and normalized observation features
   - optimizes toward stronger latency/fill outcomes, not fairness-adjacent proxy minima
+- `Policy-LearnedTinyMLP-100-250ms`
+  - small two-layer policy network trained with deterministic cross-entropy-style search
+  - improves fills materially over both burst-aware and LinUCB while staying closer to burst-aware on fairness-adjacent proxy scores
 
 ## Ablation and Sweep Snapshot
 
@@ -120,6 +127,13 @@ From `docs/benchmarks/simulator_agent_ablation_profile.json` over seeds `[43, 47
 - `AgentSweep-ArbIntensityHigh`: raises arbitrage-profit proxy to `1730.75`
 - `AgentSweep-MakersWide`: pushes p99 out to `485.00 ms`
 
+From `docs/benchmarks/simulator_parameter_grid_profile.json` over seeds `[61, 67, 71, 73]`:
+
+- arbitrageur intensity and maker quote width now have a full `4 x 3` grid
+- `Arb x3 / Maker x3` reaches `2151.00` arbitrage-profit proxy
+- `Arb x0 / Maker x1` collapses arbitrage-profit proxy to `0.00`
+- wider maker quotes systematically increase p99 and reduce fills under elevated arbitrage pressure
+
 ## Visualizations
 
 Generated from `docs/benchmarks/simulator_multiseed_profile.json`:
@@ -133,6 +147,10 @@ Generated from `docs/benchmarks/simulator_multiseed_profile.json`:
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
 ![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
+
+![Parameter grid p99 heatmap](figures/grid_p99_heatmap.svg)
+
+![Parameter grid arbitrage heatmap](figures/grid_arb_heatmap.svg)
 
 ## Regeneration
 
@@ -148,4 +166,7 @@ go test ./simulator -run TestGenerateSimulatorAblationArtifacts -v
 
 $env:RUN_SIM_AGENT_ABLATION='1'
 go test ./simulator -run TestGenerateSimulatorAgentAblationArtifacts -v
+
+$env:RUN_SIM_GRID='1'
+go test ./simulator -run TestGenerateSimulatorParameterGridArtifacts -v
 ```

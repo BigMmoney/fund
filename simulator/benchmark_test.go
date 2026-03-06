@@ -50,6 +50,24 @@ type aggregateResult struct {
 	RiskRejectionsTotal            int          `json:"risk_rejections_total"`
 }
 
+type gridSweepResult struct {
+	ArbitrageurIntensityMultiplier int     `json:"arbitrageur_intensity_multiplier"`
+	MakerQuoteWidthMultiplier      int     `json:"maker_quote_width_multiplier"`
+	Runs                           int     `json:"runs"`
+	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
+	CI95OrdersPerSec               float64 `json:"ci95_orders_per_sec"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
+	MeanAveragePriceImpact         float64 `json:"mean_average_price_impact"`
+	CI95AveragePriceImpact         float64 `json:"ci95_average_price_impact"`
+	MeanQueuePriorityAdvantage     float64 `json:"mean_queue_priority_advantage"`
+	CI95QueuePriorityAdvantage     float64 `json:"ci95_queue_priority_advantage"`
+	MeanLatencyArbitrageProfit     float64 `json:"mean_latency_arbitrage_profit"`
+	CI95LatencyArbitrageProfit     float64 `json:"ci95_latency_arbitrage_profit"`
+}
+
 func simulatorScenarios() []ScenarioConfig {
 	return []ScenarioConfig{
 		{
@@ -163,6 +181,21 @@ func simulatorScenarios() []ScenarioConfig {
 			Name:                   "Policy-LearnedLinUCB-100-250ms",
 			Mode:                   ModeAdaptiveBatch,
 			PolicyController:       PolicyLearnedLinUCB,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:                   "Policy-LearnedTinyMLP-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			PolicyController:       PolicyLearnedTinyMLP,
 			AdaptivePolicy:         AdaptiveBalanced,
 			AdaptiveMinWindowSteps: 10,
 			AdaptiveMaxWindowSteps: 25,
@@ -328,6 +361,37 @@ func scenarioByName(t *testing.T, name string) ScenarioConfig {
 	return ScenarioConfig{}
 }
 
+func parameterGridScenarios() []ScenarioConfig {
+	arbMultipliers := []int{0, 1, 2, 3}
+	makerWidths := []int{1, 2, 3}
+	scenarios := make([]ScenarioConfig, 0, len(arbMultipliers)*len(makerWidths))
+	for _, arb := range arbMultipliers {
+		for _, maker := range makerWidths {
+			agents := DefaultPopulation()
+			switch {
+			case arb == 0:
+				agents = WithoutAgentClass(agents, AgentArbitrageur)
+			case arb > 1:
+				agents = AdjustClassBaseSize(ScaleClassIntensity(agents, AgentArbitrageur, arb, 1), AgentArbitrageur, 1)
+			}
+			if maker > 1 {
+				agents = AdjustClassQuoteWidth(agents, AgentMarketMaker, int64(maker))
+			}
+			scenarios = append(scenarios, ScenarioConfig{
+				Name:             fmt.Sprintf("Grid-Arb%d-Maker%d", arb, maker),
+				Mode:             ModeBatch,
+				BatchWindowSteps: 25,
+				StepDuration:     10 * time.Millisecond,
+				TotalSteps:       125,
+				Seed:             201,
+				Agents:           agents,
+				Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+			})
+		}
+	}
+	return scenarios
+}
+
 func TestSimulatorDeterminism(t *testing.T) {
 	cfg := scenarioByName(t, "SpeedBump-50ms")
 	left := runScenario(cfg)
@@ -483,6 +547,14 @@ func TestLearnedPolicyImprovesTailVersusBurstAware(t *testing.T) {
 	}
 }
 
+func TestTinyMLPPolicyImprovesTailVersusBurstAware(t *testing.T) {
+	burst := runScenario(scenarioByName(t, "Policy-BurstAware-100-250ms"))
+	learned := runScenario(scenarioByName(t, "Policy-LearnedTinyMLP-100-250ms"))
+	if learned.P99LatencyMs >= burst.P99LatencyMs {
+		t.Fatalf("expected tiny MLP controller to improve p99 tail, burst=%+v learned=%+v", burst, learned)
+	}
+}
+
 func TestGenerateSimulatorBenchmarkArtifacts(t *testing.T) {
 	t.Helper()
 	if os.Getenv("RUN_SIM_BENCH") != "1" {
@@ -618,6 +690,38 @@ func TestGenerateSimulatorAgentAblationArtifacts(t *testing.T) {
 	}
 	if err := writeSimulatorAgentAblationArtifacts(aggregates, seeds); err != nil {
 		t.Fatalf("write agent/workload ablation artifacts: %v", err)
+	}
+}
+
+func TestGenerateSimulatorParameterGridArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_GRID") != "1" {
+		t.Skip("set RUN_SIM_GRID=1 to generate simulator parameter-grid artifacts")
+	}
+
+	seeds := []int64{61, 67, 71, 73}
+	gridResults := make([]gridSweepResult, 0, len(parameterGridScenarios()))
+	for _, base := range parameterGridScenarios() {
+		runs := make([]BenchmarkResult, 0, len(seeds))
+		for _, seed := range seeds {
+			cfg := base
+			cfg.Seed = seed
+			runs = append(runs, runScenario(cfg))
+		}
+		gridResults = append(gridResults, summarizeGridRun(base, runs))
+	}
+
+	control := findGridResult(t, gridResults, 1, 1)
+	noArb := findGridResult(t, gridResults, 0, 1)
+	highArbWide := findGridResult(t, gridResults, 3, 3)
+	if noArb.MeanLatencyArbitrageProfit >= control.MeanLatencyArbitrageProfit {
+		t.Fatalf("expected zero-arbitrageur grid cell to reduce arb profit, control=%+v noArb=%+v", control, noArb)
+	}
+	if highArbWide.MeanP99LatencyMs <= control.MeanP99LatencyMs {
+		t.Fatalf("expected high-arb/wide-maker cell to worsen p99, control=%+v high=%+v", control, highArbWide)
+	}
+	if err := writeSimulatorGridArtifacts(gridResults, seeds); err != nil {
+		t.Fatalf("write grid artifacts: %v", err)
 	}
 }
 
@@ -889,6 +993,119 @@ func writeSimulatorAgentAblationArtifacts(results []aggregateResult, seeds []int
 			r.Name, r.MeanOrdersPerSec, r.MeanFillsPerSec, r.MeanP99LatencyMs, r.MeanAveragePriceImpact, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit))
 		csv.WriteString(fmt.Sprintf("%s,%s,%.4f,%.4f,%.4f,%.4f,%.6f,%.4f\n",
 			r.Name, r.Mode, r.MeanOrdersPerSec, r.MeanFillsPerSec, r.MeanP99LatencyMs, r.MeanAveragePriceImpact, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func summarizeGridRun(base ScenarioConfig, runs []BenchmarkResult) gridSweepResult {
+	arbMultiplier := 0
+	makerWidth := 1
+	if _, err := fmt.Sscanf(base.Name, "Grid-Arb%d-Maker%d", &arbMultiplier, &makerWidth); err != nil {
+		arbMultiplier = 0
+		makerWidth = 1
+	}
+
+	orders := make([]float64, 0, len(runs))
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	impact := make([]float64, 0, len(runs))
+	queue := make([]float64, 0, len(runs))
+	arb := make([]float64, 0, len(runs))
+	for _, run := range runs {
+		orders = append(orders, run.OrdersPerSec)
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		impact = append(impact, run.AveragePriceImpact)
+		queue = append(queue, run.QueuePriorityAdvantage)
+		arb = append(arb, run.LatencyArbitrageProfit)
+	}
+	meanOrders, stdOrders := meanStd(orders)
+	meanFills, stdFills := meanStd(fills)
+	meanP99, stdP99 := meanStd(p99)
+	meanImpact, ciImpact := meanCI95(impact)
+	meanQueue, ciQueue := meanCI95(queue)
+	meanArb, ciArb := meanCI95(arb)
+	return gridSweepResult{
+		ArbitrageurIntensityMultiplier: arbMultiplier,
+		MakerQuoteWidthMultiplier:      makerWidth,
+		Runs:                           len(runs),
+		MeanOrdersPerSec:               meanOrders,
+		CI95OrdersPerSec:               ci95HalfWidth(stdOrders, len(orders)),
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ci95HalfWidth(stdFills, len(fills)),
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ci95HalfWidth(stdP99, len(p99)),
+		MeanAveragePriceImpact:         meanImpact,
+		CI95AveragePriceImpact:         ciImpact,
+		MeanQueuePriorityAdvantage:     meanQueue,
+		CI95QueuePriorityAdvantage:     ciQueue,
+		MeanLatencyArbitrageProfit:     meanArb,
+		CI95LatencyArbitrageProfit:     ciArb,
+	}
+}
+
+func findGridResult(t *testing.T, results []gridSweepResult, arb, maker int) gridSweepResult {
+	t.Helper()
+	for _, result := range results {
+		if result.ArbitrageurIntensityMultiplier == arb && result.MakerQuoteWidthMultiplier == maker {
+			return result
+		}
+	}
+	t.Fatalf("grid cell arb=%d maker=%d not found", arb, maker)
+	return gridSweepResult{}
+}
+
+func writeSimulatorGridArtifacts(results []gridSweepResult, seeds []int64) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_parameter_grid_profile.json")
+	mdPath := filepath.Join(base, "simulator_parameter_grid_profile.md")
+	csvPath := filepath.Join(base, "simulator_parameter_grid_profile.csv")
+
+	payload := map[string]any{
+		"seeds":   seeds,
+		"results": results,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Parameter Grid Profile\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
+	md.WriteString("| Arb Multiplier | Maker Width Multiplier | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+
+	var csv strings.Builder
+	csv.WriteString("arbitrageur_intensity_multiplier,maker_quote_width_multiplier,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit\n")
+	for _, r := range results {
+		md.WriteString(fmt.Sprintf("| %d | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+			r.ArbitrageurIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
+			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
+			r.MeanFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
+		csv.WriteString(fmt.Sprintf("%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f\n",
+			r.ArbitrageurIntensityMultiplier, r.MakerQuoteWidthMultiplier, r.Runs,
+			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
+			r.MeanFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {

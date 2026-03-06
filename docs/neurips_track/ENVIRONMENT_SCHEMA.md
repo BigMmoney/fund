@@ -112,9 +112,12 @@ Important fields:
 
 ## Current Learned Controller Interface
 
-The current learned policy baseline is `Policy-LearnedLinUCB-100-250ms`.
+The current learned policy baselines are:
 
-It operates over the action bundle:
+- `Policy-LearnedLinUCB-100-250ms`
+- `Policy-LearnedTinyMLP-100-250ms`
+
+Both operate over the action bundle:
 
 - batch window
 - risk scale
@@ -122,7 +125,7 @@ It operates over the action bundle:
 - release cadence
 - price aggression bias
 
-The current observation features used by the controller are:
+The current observation features used by the learned controllers are:
 
 - normalized queue depth
 - normalized buy/sell imbalance
@@ -131,4 +134,8 @@ The current observation features used by the controller are:
 - risk rejections
 - episode progress
 
-This is still a lightweight learned baseline. It is intended as a benchmark-control reference, not as a claim of state-of-the-art policy learning.
+`Policy-LearnedLinUCB-100-250ms` uses a contextual linear bandit over discrete action bundles.
+
+`Policy-LearnedTinyMLP-100-250ms` uses a small two-layer policy network trained with a deterministic cross-entropy-style search procedure over the same discrete action set.
+
+These are still lightweight learned baselines. They are intended as benchmark-control references, not as claims of state-of-the-art policy learning.
