@@ -1,0 +1,71 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{enumitem}
+
+\title{A Ledger-Aware Benchmark for Market Infrastructure under Frequent Batch Auctions}
+\author{Author Name \\ Institution \\ \texttt{email@example.com}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs.
+\end{abstract}
+
+\section{Introduction}
+This paper is a parallel benchmark track built on top of an existing market-infrastructure systems prototype. The objective is not to replace the original systems paper, but to provide a reusable evaluation environment for market-design and execution-policy studies under ledger-aware settlement constraints.
+
+\section{Research Questions}
+We focus on three questions:
+\begin{enumerate}[leftmargin=*]
+  \item How do immediate and frequent-batch-auction regimes differ in latency and fill behavior?
+  \item Can fairness-adjacent signals such as queue-priority advantage and latency-arbitrage profit be measured reproducibly?
+  \item Do settlement invariants hold under heterogeneous agent populations and stress scenarios?
+\end{enumerate}
+
+\section{Environment}
+The benchmark environment consists of seedable agent models, configurable matching modes, deterministic settlement application, and generated benchmark artifacts. The current implementation covers immediate execution, fixed batch windows, and a stress scenario.
+
+\section{Metrics}
+We report:
+\begin{itemize}[leftmargin=*]
+  \item orders/s and fills/s
+  \item p50/p95/p99 latency
+  \item average spread and price impact
+  \item queue-priority advantage, execution dispersion, and arbitrage profit
+  \item settlement safety violations
+\end{itemize}
+
+\section{Current Results}
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Scenario & Orders/s & Fills/s & p50 (ms) & p99 (ms) \\
+\midrule
+Immediate-Surrogate & 1360.0 & 829.2 & 10 & 10 \\
+FBA-100ms & 1360.0 & 802.5 & 50 & 310 \\
+FBA-250ms & 1358.4 & 628.8 & 80 & 490 \\
+FBA-500ms & 1358.7 & 644.7 & 190 & 910 \\
+FBA-250ms-Stress & 1775.2 & 987.2 & 100 & 590 \\
+\bottomrule
+\end{tabular}
+\caption{Current simulator benchmark snapshot. All scenarios report zero conservation breaches and zero negative-balance violations.}
+\end{table}
+
+\section{Limitations}
+The benchmark currently uses fixed policies and proxy fairness metrics. It does not yet provide multi-seed aggregate reporting, adaptive execution baselines, or richer market-impact simulation.
+
+\section{Conclusion}
+This benchmark track establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
