@@ -18,19 +18,29 @@ type aggregateResult struct {
 	Runs                           int     `json:"runs"`
 	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
 	StdOrdersPerSec                float64 `json:"std_orders_per_sec"`
+	CI95OrdersPerSec               float64 `json:"ci95_orders_per_sec"`
 	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
 	StdFillsPerSec                 float64 `json:"std_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
 	MeanP50LatencyMs               float64 `json:"mean_p50_latency_ms"`
 	StdP50LatencyMs                float64 `json:"std_p50_latency_ms"`
+	CI95P50LatencyMs               float64 `json:"ci95_p50_latency_ms"`
 	MeanP95LatencyMs               float64 `json:"mean_p95_latency_ms"`
 	StdP95LatencyMs                float64 `json:"std_p95_latency_ms"`
+	CI95P95LatencyMs               float64 `json:"ci95_p95_latency_ms"`
 	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
 	StdP99LatencyMs                float64 `json:"std_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
 	MeanAverageSpread              float64 `json:"mean_average_spread"`
+	CI95AverageSpread              float64 `json:"ci95_average_spread"`
 	MeanAveragePriceImpact         float64 `json:"mean_average_price_impact"`
+	CI95AveragePriceImpact         float64 `json:"ci95_average_price_impact"`
 	MeanQueuePriorityAdvantage     float64 `json:"mean_queue_priority_advantage"`
+	CI95QueuePriorityAdvantage     float64 `json:"ci95_queue_priority_advantage"`
 	MeanLatencyArbitrageProfit     float64 `json:"mean_latency_arbitrage_profit"`
+	CI95LatencyArbitrageProfit     float64 `json:"ci95_latency_arbitrage_profit"`
 	MeanExecutionDispersion        float64 `json:"mean_execution_dispersion"`
+	CI95ExecutionDispersion        float64 `json:"ci95_execution_dispersion"`
 	NegativeBalanceViolationsTotal int     `json:"negative_balance_violations_total"`
 	ConservationBreachesTotal      int     `json:"conservation_breaches_total"`
 	RiskRejectionsTotal            int     `json:"risk_rejections_total"`
@@ -252,15 +262,20 @@ func summarizeRuns(base ScenarioConfig, runs []BenchmarkResult) aggregateResult 
 		agg.RiskRejectionsTotal += run.RiskRejections
 	}
 	agg.MeanOrdersPerSec, agg.StdOrdersPerSec = meanStd(orders)
+	agg.CI95OrdersPerSec = ci95HalfWidth(agg.StdOrdersPerSec, len(orders))
 	agg.MeanFillsPerSec, agg.StdFillsPerSec = meanStd(fills)
+	agg.CI95FillsPerSec = ci95HalfWidth(agg.StdFillsPerSec, len(fills))
 	agg.MeanP50LatencyMs, agg.StdP50LatencyMs = meanStd(p50)
+	agg.CI95P50LatencyMs = ci95HalfWidth(agg.StdP50LatencyMs, len(p50))
 	agg.MeanP95LatencyMs, agg.StdP95LatencyMs = meanStd(p95)
+	agg.CI95P95LatencyMs = ci95HalfWidth(agg.StdP95LatencyMs, len(p95))
 	agg.MeanP99LatencyMs, agg.StdP99LatencyMs = meanStd(p99)
-	agg.MeanAverageSpread, _ = meanStd(spread)
-	agg.MeanAveragePriceImpact, _ = meanStd(impact)
-	agg.MeanQueuePriorityAdvantage, _ = meanStd(queue)
-	agg.MeanLatencyArbitrageProfit, _ = meanStd(arb)
-	agg.MeanExecutionDispersion, _ = meanStd(dispersion)
+	agg.CI95P99LatencyMs = ci95HalfWidth(agg.StdP99LatencyMs, len(p99))
+	agg.MeanAverageSpread, agg.CI95AverageSpread = meanCI95(spread)
+	agg.MeanAveragePriceImpact, agg.CI95AveragePriceImpact = meanCI95(impact)
+	agg.MeanQueuePriorityAdvantage, agg.CI95QueuePriorityAdvantage = meanCI95(queue)
+	agg.MeanLatencyArbitrageProfit, agg.CI95LatencyArbitrageProfit = meanCI95(arb)
+	agg.MeanExecutionDispersion, agg.CI95ExecutionDispersion = meanCI95(dispersion)
 	return agg
 }
 
@@ -289,22 +304,29 @@ func writeSimulatorMultiSeedArtifacts(results []aggregateResult, seeds []int64) 
 	var md strings.Builder
 	md.WriteString("# Simulator Multi-Seed Benchmark Profile\n\n")
 	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
-	md.WriteString("| Scenario | Runs | Window (ms) | Mean Orders/s | Std Orders/s | Mean Fills/s | Mean p50 (ms) | Mean p95 (ms) | Mean p99 (ms) | Mean Spread | Mean Impact | Mean Queue Adv. | Mean Arb Profit | Mean Dispersion |\n")
-	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	md.WriteString("| Scenario | Runs | Window (ms) | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 
 	var csv strings.Builder
-	csv.WriteString("scenario,mode,batch_window_ms,runs,mean_orders_per_sec,std_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,mean_average_spread,mean_average_price_impact,mean_queue_priority_advantage,mean_latency_arbitrage_profit,mean_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
+	csv.WriteString("scenario,mode,batch_window_ms,runs,mean_orders_per_sec,std_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,std_fills_per_sec,ci95_fills_per_sec,mean_p50_latency_ms,std_p50_latency_ms,ci95_p50_latency_ms,mean_p95_latency_ms,std_p95_latency_ms,ci95_p95_latency_ms,mean_p99_latency_ms,std_p99_latency_ms,ci95_p99_latency_ms,mean_average_spread,ci95_average_spread,mean_average_price_impact,ci95_average_price_impact,mean_queue_priority_advantage,ci95_queue_priority_advantage,mean_latency_arbitrage_profit,ci95_latency_arbitrage_profit,mean_execution_dispersion,ci95_execution_dispersion,negative_balance_violations_total,conservation_breaches_total,risk_rejections_total\n")
 
 	for _, r := range results {
-		md.WriteString(fmt.Sprintf("| %s | %d | %d | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.4f | %.2f | %.4f |\n",
-			r.Name, r.Runs, r.BatchWindowMs, r.MeanOrdersPerSec, r.StdOrdersPerSec, r.MeanFillsPerSec,
-			r.MeanP50LatencyMs, r.MeanP95LatencyMs, r.MeanP99LatencyMs, r.MeanAverageSpread,
-			r.MeanAveragePriceImpact, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit, r.MeanExecutionDispersion))
-		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.4f,%.6f,%d,%d,%d\n",
-			r.Name, r.Mode, r.BatchWindowMs, r.Runs, r.MeanOrdersPerSec, r.StdOrdersPerSec, r.MeanFillsPerSec, r.StdFillsPerSec,
-			r.MeanP50LatencyMs, r.StdP50LatencyMs, r.MeanP95LatencyMs, r.StdP95LatencyMs, r.MeanP99LatencyMs, r.StdP99LatencyMs,
-			r.MeanAverageSpread, r.MeanAveragePriceImpact, r.MeanQueuePriorityAdvantage, r.MeanLatencyArbitrageProfit,
-			r.MeanExecutionDispersion, r.NegativeBalanceViolationsTotal, r.ConservationBreachesTotal, r.RiskRejectionsTotal))
+		md.WriteString(fmt.Sprintf("| %s | %d | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+			r.Name, r.Runs, r.BatchWindowMs, r.MeanOrdersPerSec, r.CI95OrdersPerSec, r.MeanFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP50LatencyMs, r.CI95P50LatencyMs, r.MeanP95LatencyMs, r.CI95P95LatencyMs, r.MeanP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAverageSpread, r.CI95AverageSpread, r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage, r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit))
+		csv.WriteString(fmt.Sprintf("%s,%s,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.4f,%.4f,%.6f,%.6f,%d,%d,%d\n",
+			r.Name, r.Mode, r.BatchWindowMs, r.Runs, r.MeanOrdersPerSec, r.StdOrdersPerSec, r.CI95OrdersPerSec,
+			r.MeanFillsPerSec, r.StdFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP50LatencyMs, r.StdP50LatencyMs, r.CI95P50LatencyMs,
+			r.MeanP95LatencyMs, r.StdP95LatencyMs, r.CI95P95LatencyMs,
+			r.MeanP99LatencyMs, r.StdP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAverageSpread, r.CI95AverageSpread, r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanQueuePriorityAdvantage, r.CI95QueuePriorityAdvantage,
+			r.MeanLatencyArbitrageProfit, r.CI95LatencyArbitrageProfit,
+			r.MeanExecutionDispersion, r.CI95ExecutionDispersion,
+			r.NegativeBalanceViolationsTotal, r.ConservationBreachesTotal, r.RiskRejectionsTotal))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
@@ -332,4 +354,16 @@ func meanStd(values []float64) (float64, float64) {
 	}
 	variance /= float64(len(values))
 	return mean, math.Sqrt(variance)
+}
+
+func meanCI95(values []float64) (float64, float64) {
+	mean, std := meanStd(values)
+	return mean, ci95HalfWidth(std, len(values))
+}
+
+func ci95HalfWidth(std float64, n int) float64 {
+	if n <= 1 {
+		return 0
+	}
+	return 1.96 * std / math.Sqrt(float64(n))
 }

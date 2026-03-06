@@ -163,15 +163,15 @@ All reported scenarios use the same simulator implementation and differ only in 
     xticklabel style={rotate=20,anchor=east},
     ylabel={Throughput},
     legend style={at={(0.5,1.15)},anchor=south,legend columns=2},
-    nodes near coords,
-    nodes near coords align={vertical},
+    error bars/y dir=both,
+    error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,1348.2) (FBA-100,1348.2) (FBA-250,1348.3) (FBA-500,1347.8) (FBA-250-Stress,1783.4)};
-\addplot coordinates {(Immediate,813.1) (FBA-100,805.3) (FBA-250,691.9) (FBA-500,631.1) (FBA-250-Stress,907.7)};
+\addplot coordinates {(Immediate,1348.2) +- (0,4.0) (FBA-100,1348.2) +- (0,4.0) (FBA-250,1348.3) +- (0,3.9) (FBA-500,1347.8) +- (0,3.3) (FBA-250-Stress,1783.4) +- (0,6.1)};
+\addplot coordinates {(Immediate,813.1) +- (0,18.5) (FBA-100,805.3) +- (0,21.9) (FBA-250,691.9) +- (0,17.9) (FBA-500,631.1) +- (0,19.9) (FBA-250-Stress,907.7) +- (0,23.9)};
 \legend{Orders/s,Fills/s}
 \end{axis}
 \end{tikzpicture}
-\caption{Aggregate throughput comparison across the five current benchmark scenarios.}
+\caption{Aggregate throughput comparison with 95\% confidence-interval error bars.}
 \end{figure}
 
 \section{Results}
@@ -221,14 +221,16 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     ylabel={Latency (ms)},
     legend style={at={(0.5,1.15)},anchor=south,legend columns=3},
     mark=*,
+    error bars/y dir=both,
+    error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,10.0) (FBA-100,46.25) (FBA-250,97.5) (FBA-500,213.75) (FBA-250-Stress,97.5)};
-\addplot coordinates {(Immediate,10.0) (FBA-100,100.0) (FBA-250,300.0) (FBA-500,505.0) (FBA-250-Stress,248.75)};
-\addplot coordinates {(Immediate,10.0) (FBA-100,146.25) (FBA-250,452.5) (FBA-500,835.0) (FBA-250-Stress,373.75)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (FBA-100,46.25) +- (0,3.35) (FBA-250,97.5) +- (0,4.58) (FBA-500,213.75) +- (0,24.48) (FBA-250-Stress,97.5) +- (0,5.75)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (FBA-100,100.0) +- (0,0.0) (FBA-250,300.0) +- (0,56.08) (FBA-500,505.0) +- (0,30.40) (FBA-250-Stress,248.75) +- (0,21.76)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (FBA-100,146.25) +- (0,35.83) (FBA-250,452.5) +- (0,16.16) (FBA-500,835.0) +- (0,84.37) (FBA-250-Stress,373.75) +- (0,70.24)};
 \legend{p50,p95,p99}
 \end{axis}
 \end{tikzpicture}
-\caption{Latency profiles show the tail cost introduced by longer batch windows.}
+\caption{Latency profiles with 95\% confidence intervals show the tail cost introduced by longer batch windows.}
 \end{figure}
 
 \begin{figure}[t]
@@ -245,13 +247,15 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     xticklabel style={rotate=20,anchor=east},
     ylabel={Scaled proxy value},
     legend style={at={(0.5,1.15)},anchor=south,legend columns=2},
+    error bars/y dir=both,
+    error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,74.2) (FBA-100,57.1) (FBA-250,27.3) (FBA-500,34.1) (FBA-250-Stress,26.9)};
-\addplot coordinates {(Immediate,67.0) (FBA-100,101.6) (FBA-250,62.7) (FBA-500,82.8) (FBA-250-Stress,205.7)};
+\addplot coordinates {(Immediate,74.2) +- (0,7.8) (FBA-100,57.1) +- (0,21.9) (FBA-250,27.3) +- (0,18.2) (FBA-500,34.1) +- (0,19.1) (FBA-250-Stress,26.9) +- (0,27.2)};
+\addplot coordinates {(Immediate,67.0) +- (0,3.4) (FBA-100,101.6) +- (0,4.4) (FBA-250,62.7) +- (0,10.8) (FBA-500,82.8) +- (0,29.4) (FBA-250-Stress,205.7) +- (0,23.6)};
 \legend{Queue advantage x1000,Arbitrage profit / 10}
 \end{axis}
 \end{tikzpicture}
-\caption{Fairness-adjacent proxy metrics show that the $250$ms batch regime lowers queue advantage, while the stress case raises arbitrage-profit proxy.}
+\caption{Fairness-adjacent proxy metrics with 95\% confidence intervals show that the $250$ms batch regime lowers queue advantage, while the stress case raises arbitrage-profit proxy.}
 \end{figure}
 
 \subsection{Observed Tradeoffs}

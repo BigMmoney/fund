@@ -143,27 +143,27 @@ The repository also materializes three figure assets for the current aggregate p
 We report two layers of results:
 
 1. a single-seed reproducibility snapshot in `docs/benchmarks/simulator_benchmark_profile.*`
-2. an eight-seed aggregate profile in `docs/benchmarks/simulator_multiseed_profile.*`
+2. an eight-seed aggregate profile in `docs/benchmarks/simulator_multiseed_profile.*`, reported as `mean +/- CI95`
 
 The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a more defensible paper-facing summary than a single deterministic seed.
 
 ### 9.1 Multi-Seed Summary
 
-| Scenario | Runs | Mean Orders/s | Mean Fills/s | Mean p50 (ms) | Mean p95 (ms) | Mean p99 (ms) | Mean Spread | Mean Impact | Mean Queue Adv. | Mean Arb Profit |
+| Scenario | Runs | Orders/s (mean +/- CI95) | Fills/s (mean +/- CI95) | p50 (mean +/- CI95) | p95 (mean +/- CI95) | p99 (mean +/- CI95) | Spread (mean +/- CI95) | Impact (mean +/- CI95) | Queue Adv. (mean +/- CI95) | Arb Profit (mean +/- CI95) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Immediate-Surrogate | 8 | 1348.23 | 813.12 | 10.00 | 10.00 | 10.00 | 1.98 | 3.38 | 0.0742 | 669.62 |
-| FBA-100ms | 8 | 1348.23 | 805.31 | 46.25 | 100.00 | 146.25 | 1.00 | 5.96 | 0.0571 | 1015.75 |
-| FBA-250ms | 8 | 1348.30 | 691.90 | 97.50 | 300.00 | 452.50 | 1.00 | 5.36 | 0.0273 | 627.25 |
-| FBA-500ms | 8 | 1347.75 | 631.08 | 213.75 | 505.00 | 835.00 | 1.00 | 5.08 | 0.0341 | 827.62 |
-| FBA-250ms-Stress | 8 | 1783.40 | 907.70 | 97.50 | 248.75 | 373.75 | 1.00 | 5.35 | 0.0269 | 2057.00 |
+| Immediate-Surrogate | 8 | 1348.23 +/- 3.99 | 813.12 +/- 18.47 | 10.00 +/- 0.00 | 10.00 +/- 0.00 | 10.00 +/- 0.00 | 1.98 +/- 0.17 | 3.38 +/- 0.23 | 0.0742 +/- 0.0078 | 669.62 +/- 34.30 |
+| FBA-100ms | 8 | 1348.23 +/- 3.99 | 805.31 +/- 21.89 | 46.25 +/- 3.35 | 100.00 +/- 0.00 | 146.25 +/- 35.83 | 1.00 +/- 0.00 | 5.96 +/- 0.41 | 0.0571 +/- 0.0219 | 1015.75 +/- 44.06 |
+| FBA-250ms | 8 | 1348.30 +/- 3.91 | 691.90 +/- 17.94 | 97.50 +/- 4.58 | 300.00 +/- 56.08 | 452.50 +/- 16.16 | 1.00 +/- 0.00 | 5.36 +/- 0.60 | 0.0273 +/- 0.0182 | 627.25 +/- 107.67 |
+| FBA-500ms | 8 | 1347.75 +/- 3.26 | 631.08 +/- 19.85 | 213.75 +/- 24.48 | 505.00 +/- 30.40 | 835.00 +/- 84.37 | 1.00 +/- 0.00 | 5.08 +/- 1.17 | 0.0341 +/- 0.0191 | 827.62 +/- 294.22 |
+| FBA-250ms-Stress | 8 | 1783.40 +/- 6.08 | 907.70 +/- 23.86 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
 
 ### 9.2 Observations
 
 - Immediate execution retains the lowest latency profile, with `10 ms` mean p50, p95, and p99 under the current discrete-time simulator.
-- Moving to `100 ms` batches preserves mean order throughput while increasing mean p99 latency to `146.25 ms`.
-- The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273`, compared with `0.0742` for immediate execution and `0.0571` for `100 ms` batches.
-- The `500 ms` batch regime pushes mean p50 latency to `213.75 ms` and mean p99 latency to `835.00 ms`, making the latency cost explicit.
-- The stress scenario increases throughput to `1783.40 orders/s` and fill throughput to `907.70 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00`.
+- Moving to `100 ms` batches preserves mean order throughput within a narrow confidence band while increasing mean p99 latency to `146.25 +/- 35.83 ms`.
+- The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and `0.0571 +/- 0.0219` for `100 ms` batches.
+- The `500 ms` batch regime pushes mean p50 latency to `213.75 +/- 24.48 ms` and mean p99 latency to `835.00 +/- 84.37 ms`, making the latency cost explicit.
+- The stress scenario increases throughput to `1783.40 +/- 6.08 orders/s` and fill throughput to `907.70 +/- 23.86 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
 - Across all `5 x 8 = 40` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
 ### 9.3 Visual Summary

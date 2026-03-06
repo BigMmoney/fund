@@ -36,19 +36,19 @@ All generated scenarios currently report:
 
 ## Multi-Seed Experimental Snapshot
 
-From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `[7, 11, 19, 23, 29, 31, 37, 41]`:
+From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `[7, 11, 19, 23, 29, 31, 37, 41]` and reported as `mean +/- CI95`:
 
-- `Immediate-Surrogate`: `1348.23 +/- 5.77 orders/s`, `p50 10.00 ms`, `p99 10.00 ms`
-- `FBA-100ms`: `1348.23 +/- 5.77 orders/s`, `p50 46.25 ms`, `p99 146.25 ms`
-- `FBA-250ms`: `1348.30 +/- 5.64 orders/s`, `p50 97.50 ms`, `p99 452.50 ms`
-- `FBA-500ms`: `1347.75 +/- 4.70 orders/s`, `p50 213.75 ms`, `p99 835.00 ms`
-- `FBA-250ms-Stress`: `1783.40 +/- 8.78 orders/s`, `p50 97.50 ms`, `p99 373.75 ms`
+- `Immediate-Surrogate`: `1348.23 +/- 3.99 orders/s`, `p50 10.00 +/- 0.00 ms`, `p99 10.00 +/- 0.00 ms`
+- `FBA-100ms`: `1348.23 +/- 3.99 orders/s`, `p50 46.25 +/- 3.35 ms`, `p99 146.25 +/- 35.83 ms`
+- `FBA-250ms`: `1348.30 +/- 3.91 orders/s`, `p50 97.50 +/- 4.58 ms`, `p99 452.50 +/- 16.16 ms`
+- `FBA-500ms`: `1347.75 +/- 3.26 orders/s`, `p50 213.75 +/- 24.48 ms`, `p99 835.00 +/- 84.37 ms`
+- `FBA-250ms-Stress`: `1783.40 +/- 6.08 orders/s`, `p50 97.50 +/- 5.75 ms`, `p99 373.75 +/- 70.24 ms`
 
 Measured observations:
 
 - immediate execution keeps the lowest latency tail but also the widest quoted spread (`1.98`)
-- the `100 ms` batch closes the spread to `1.00` while increasing mean arbitrage profit to `1015.75`
-- the `250 ms` batch lowers mean queue-priority advantage to `0.0273`, below both immediate (`0.0742`) and `100 ms` batch (`0.0571`)
+- the `100 ms` batch closes the spread to `1.00 +/- 0.00` while increasing mean arbitrage profit to `1015.75 +/- 44.06`
+- the `250 ms` batch lowers mean queue-priority advantage to `0.0273 +/- 0.0182`, below both immediate (`0.0742 +/- 0.0078`) and `100 ms` batch (`0.0571 +/- 0.0219`)
 - the stress configuration raises throughput to `1783.40 orders/s` and arbitrage profit to `2057.00`
 
 ## Visualizations

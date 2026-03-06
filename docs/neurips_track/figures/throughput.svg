@@ -1,47 +1,77 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img">
-<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}</style>
-<rect class="bg" x="0" y="0" width="960" height="520" rx="18"/>
-<text class="title" x="90" y="38">Throughput Comparison</text>
-<text class="label" x="90" y="500">Mean throughput</text>
-<line class="grid" x1="90" y1="70.0" x2="920" y2="70.0"/>
-<text class="label" x="18" y="74.0">1997</text>
-<line class="grid" x1="90" y1="142.0" x2="920" y2="142.0"/>
-<text class="label" x="18" y="146.0">1598</text>
-<line class="grid" x1="90" y1="214.0" x2="920" y2="214.0"/>
-<text class="label" x="18" y="218.0">1198</text>
-<line class="grid" x1="90" y1="286.0" x2="920" y2="286.0"/>
-<text class="label" x="18" y="290.0">799</text>
-<line class="grid" x1="90" y1="358.0" x2="920" y2="358.0"/>
-<text class="label" x="18" y="362.0">399</text>
-<line class="grid" x1="90" y1="430.0" x2="920" y2="430.0"/>
-<text class="label" x="18" y="434.0">0</text>
-<line class="axis" x1="90" y1="70" x2="90" y2="430"/>
-<line class="axis" x1="90" y1="430" x2="920" y2="430"/>
-<rect x="117.7" y="187.0" width="44.3" height="243.0" fill="#2dd4bf" rx="8"/>
-<text class="value" x="139.8" y="179.0" text-anchor="middle">1348.2</text>
-<rect x="173.0" y="283.4" width="44.3" height="146.6" fill="#38bdf8" rx="8"/>
-<text class="value" x="195.1" y="275.4" text-anchor="middle">813.1</text>
-<text class="label" x="173.0" y="458" text-anchor="middle">Immediate</text>
-<rect x="283.7" y="187.0" width="44.3" height="243.0" fill="#2dd4bf" rx="8"/>
-<text class="value" x="305.8" y="179.0" text-anchor="middle">1348.2</text>
-<rect x="339.0" y="284.9" width="44.3" height="145.1" fill="#38bdf8" rx="8"/>
-<text class="value" x="361.1" y="276.9" text-anchor="middle">805.3</text>
-<text class="label" x="339.0" y="458" text-anchor="middle">100ms</text>
-<rect x="449.7" y="187.0" width="44.3" height="243.0" fill="#2dd4bf" rx="8"/>
-<text class="value" x="471.8" y="179.0" text-anchor="middle">1348.3</text>
-<rect x="505.0" y="305.3" width="44.3" height="124.7" fill="#38bdf8" rx="8"/>
-<text class="value" x="527.1" y="297.3" text-anchor="middle">691.9</text>
-<text class="label" x="505.0" y="458" text-anchor="middle">250ms</text>
-<rect x="615.7" y="187.1" width="44.3" height="242.9" fill="#2dd4bf" rx="8"/>
-<text class="value" x="637.8" y="179.1" text-anchor="middle">1347.8</text>
-<rect x="671.0" y="316.3" width="44.3" height="113.7" fill="#38bdf8" rx="8"/>
-<text class="value" x="693.1" y="308.3" text-anchor="middle">631.1</text>
-<text class="label" x="671.0" y="458" text-anchor="middle">500ms</text>
-<rect x="781.7" y="108.6" width="44.3" height="321.4" fill="#2dd4bf" rx="8"/>
-<text class="value" x="803.8" y="100.6" text-anchor="middle">1783.4</text>
-<rect x="837.0" y="266.4" width="44.3" height="163.6" fill="#38bdf8" rx="8"/>
-<text class="value" x="859.1" y="258.4" text-anchor="middle">907.7</text>
-<text class="label" x="837.0" y="458" text-anchor="middle">250ms Stress</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="540" viewBox="0 0 980 540" role="img">
+<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}.err{stroke:#dbeafe; stroke-width:1.5;}</style>
+<rect class="bg" x="0" y="0" width="980" height="540" rx="18"/>
+<text class="title" x="90" y="38">Throughput Comparison (95% CI)</text>
+<text class="label" x="90" y="520">Mean throughput</text>
+<line class="grid" x1="90" y1="70.0" x2="940" y2="70.0"/>
+<text class="label" x="12" y="74.0">2004</text>
+<line class="grid" x1="90" y1="146.0" x2="940" y2="146.0"/>
+<text class="label" x="12" y="150.0">1603</text>
+<line class="grid" x1="90" y1="222.0" x2="940" y2="222.0"/>
+<text class="label" x="12" y="226.0">1203</text>
+<line class="grid" x1="90" y1="298.0" x2="940" y2="298.0"/>
+<text class="label" x="12" y="302.0">802</text>
+<line class="grid" x1="90" y1="374.0" x2="940" y2="374.0"/>
+<text class="label" x="12" y="378.0">401</text>
+<line class="grid" x1="90" y1="450.0" x2="940" y2="450.0"/>
+<text class="label" x="12" y="454.0">0</text>
+<line class="axis" x1="90" y1="70" x2="90" y2="450"/>
+<line class="axis" x1="90" y1="450" x2="940" y2="450"/>
+<rect x="118.3" y="194.4" width="45.3" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="141.0" y1="193.6" x2="141.0" y2="195.1"/>
+<line class="err" x1="134.0" y1="193.6" x2="148.0" y2="193.6"/>
+<line class="err" x1="134.0" y1="195.1" x2="148.0" y2="195.1"/>
+<text class="value" x="141.0" y="183.6" text-anchor="middle">1348.2</text>
+<rect x="175.0" y="295.8" width="45.3" height="154.2" fill="#38bdf8" rx="8"/>
+<line class="err" x1="197.7" y1="292.3" x2="197.7" y2="299.3"/>
+<line class="err" x1="190.7" y1="292.3" x2="204.7" y2="292.3"/>
+<line class="err" x1="190.7" y1="299.3" x2="204.7" y2="299.3"/>
+<text class="value" x="197.7" y="282.3" text-anchor="middle">813.1</text>
+<text class="label" x="175.0" y="478" text-anchor="middle">Immediate</text>
+<rect x="288.3" y="194.4" width="45.3" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="311.0" y1="193.6" x2="311.0" y2="195.1"/>
+<line class="err" x1="304.0" y1="193.6" x2="318.0" y2="193.6"/>
+<line class="err" x1="304.0" y1="195.1" x2="318.0" y2="195.1"/>
+<text class="value" x="311.0" y="183.6" text-anchor="middle">1348.2</text>
+<rect x="345.0" y="297.3" width="45.3" height="152.7" fill="#38bdf8" rx="8"/>
+<line class="err" x1="367.7" y1="293.2" x2="367.7" y2="301.5"/>
+<line class="err" x1="360.7" y1="293.2" x2="374.7" y2="293.2"/>
+<line class="err" x1="360.7" y1="301.5" x2="374.7" y2="301.5"/>
+<text class="value" x="367.7" y="283.2" text-anchor="middle">805.3</text>
+<text class="label" x="345.0" y="478" text-anchor="middle">100ms</text>
+<rect x="458.3" y="194.4" width="45.3" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="481.0" y1="193.6" x2="481.0" y2="195.1"/>
+<line class="err" x1="474.0" y1="193.6" x2="488.0" y2="193.6"/>
+<line class="err" x1="474.0" y1="195.1" x2="488.0" y2="195.1"/>
+<text class="value" x="481.0" y="183.6" text-anchor="middle">1348.3</text>
+<rect x="515.0" y="318.8" width="45.3" height="131.2" fill="#38bdf8" rx="8"/>
+<line class="err" x1="537.7" y1="315.4" x2="537.7" y2="322.2"/>
+<line class="err" x1="530.7" y1="315.4" x2="544.7" y2="315.4"/>
+<line class="err" x1="530.7" y1="322.2" x2="544.7" y2="322.2"/>
+<text class="value" x="537.7" y="305.4" text-anchor="middle">691.9</text>
+<text class="label" x="515.0" y="478" text-anchor="middle">250ms</text>
+<rect x="628.3" y="194.5" width="45.3" height="255.5" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="651.0" y1="193.8" x2="651.0" y2="195.1"/>
+<line class="err" x1="644.0" y1="193.8" x2="658.0" y2="193.8"/>
+<line class="err" x1="644.0" y1="195.1" x2="658.0" y2="195.1"/>
+<text class="value" x="651.0" y="183.8" text-anchor="middle">1347.8</text>
+<rect x="685.0" y="330.3" width="45.3" height="119.7" fill="#38bdf8" rx="8"/>
+<line class="err" x1="707.7" y1="326.6" x2="707.7" y2="334.1"/>
+<line class="err" x1="700.7" y1="326.6" x2="714.7" y2="326.6"/>
+<line class="err" x1="700.7" y1="334.1" x2="714.7" y2="334.1"/>
+<text class="value" x="707.7" y="316.6" text-anchor="middle">631.1</text>
+<text class="label" x="685.0" y="478" text-anchor="middle">500ms</text>
+<rect x="798.3" y="111.9" width="45.3" height="338.1" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="821.0" y1="110.7" x2="821.0" y2="113.0"/>
+<line class="err" x1="814.0" y1="110.7" x2="828.0" y2="110.7"/>
+<line class="err" x1="814.0" y1="113.0" x2="828.0" y2="113.0"/>
+<text class="value" x="821.0" y="100.7" text-anchor="middle">1783.4</text>
+<rect x="855.0" y="277.9" width="45.3" height="172.1" fill="#38bdf8" rx="8"/>
+<line class="err" x1="877.7" y1="273.4" x2="877.7" y2="282.4"/>
+<line class="err" x1="870.7" y1="273.4" x2="884.7" y2="273.4"/>
+<line class="err" x1="870.7" y1="282.4" x2="884.7" y2="282.4"/>
+<text class="value" x="877.7" y="263.4" text-anchor="middle">907.7</text>
+<text class="label" x="855.0" y="478" text-anchor="middle">250ms Stress</text>
 <rect x="730" y="22" width="14" height="14" fill="#2dd4bf" rx="3"/>
 <text class="legend" x="752" y="34">Orders/s</text>
 <rect x="730" y="44" width="14" height="14" fill="#38bdf8" rx="3"/>
