@@ -22,9 +22,9 @@ const (
 type PolicyController string
 
 const (
-	PolicyNone       PolicyController = ""
-	PolicyBurstAware PolicyController = "burst_aware"
-	PolicyLearnedBandit PolicyController = "learned_bandit"
+	PolicyNone          PolicyController = ""
+	PolicyBurstAware    PolicyController = "burst_aware"
+	PolicyLearnedLinUCB PolicyController = "learned_linucb"
 )
 
 type AgentClass string

@@ -15,7 +15,7 @@ The current benchmark line makes four concrete contributions:
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
 2. It provides a seedable multi-agent order-flow generator with four agent classes, eleven benchmark scenarios, and explicit agent/workload sweeps.
 3. It reports both single-seed and eight-seed aggregate benchmark outputs over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
-4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a gym-style adapter with five runtime control channels, two adapter-driven policy baselines, and ablation suites for both market-structure toggles and agent/workload perturbations.
+4. It exposes a step-wise `Reset/Step/Observe/Metrics` API, a gym-style adapter with five runtime control channels, two adapter-driven policy baselines, documented observation/action/metrics schemas, and ablation suites for both market-structure toggles and agent/workload perturbations.
 
 ## 2. Research Question
 
@@ -101,12 +101,12 @@ The current benchmark suite exposes eleven scenarios:
 7. `Adaptive-OrderFlow-100-250ms`
 8. `Adaptive-QueueLoad-100-250ms`
 9. `Policy-BurstAware-100-250ms`
-10. `Policy-LearnedBandit-100-250ms`
+10. `Policy-LearnedLinUCB-100-250ms`
 11. `FBA-250ms-Stress`
 
 These are not yet a complete NeurIPS-scale benchmark suite, but they are sufficient to establish a reproducible baseline for future agent-control or adaptive-window work.
 
-The benchmark now includes three heuristic adaptive-window baselines and two adapter-driven policy controllers. The burst-aware controller is hand-written. The learned baseline is now a contextual bandit over discrete action bundles built from the expanded action space. It is still lightweight, but it is now a real learned control baseline instead of a static threshold sweep.
+The benchmark now includes three heuristic adaptive-window baselines and two adapter-driven policy controllers. The burst-aware controller is hand-written. The learned baseline is now a contextual linear bandit over discrete action bundles built from the expanded action space and normalized observation features. It is still lightweight, but it is now a real learned control baseline instead of a static threshold sweep.
 
 ## 7. Metrics
 
@@ -174,7 +174,7 @@ We report two layers of results:
 | Adaptive-OrderFlow-100-250ms | 8 | 1337.60 +/- 3.88 | 671.43 +/- 15.81 | 90.00 +/- 4.90 | 247.50 +/- 6.71 | 406.25 +/- 46.22 | 1.00 +/- 0.00 | 5.93 +/- 0.42 | 0.0244 +/- 0.0209 | 746.75 +/- 115.27 |
 | Adaptive-QueueLoad-100-250ms | 8 | 1337.60 +/- 3.88 | 691.57 +/- 27.02 | 90.00 +/- 7.75 | 261.25 +/- 44.83 | 386.25 +/- 65.09 | 1.00 +/- 0.00 | 4.88 +/- 0.59 | 0.0375 +/- 0.0239 | 624.25 +/- 56.37 |
 | Policy-BurstAware-100-250ms | 8 | 1338.89 +/- 2.97 | 670.83 +/- 28.54 | 98.75 +/- 4.15 | 263.75 +/- 47.63 | 400.00 +/- 57.25 | 1.00 +/- 0.00 | 5.31 +/- 0.52 | 0.0305 +/- 0.0214 | 621.00 +/- 94.21 |
-| Policy-LearnedBandit-100-250ms | 8 | 1337.60 +/- 3.88 | 743.06 +/- 24.50 | 45.00 +/- 3.46 | 106.25 +/- 5.94 | 155.00 +/- 14.70 | 1.00 +/- 0.00 | 5.60 +/- 0.31 | 0.0423 +/- 0.0169 | 896.50 +/- 70.68 |
+| Policy-LearnedLinUCB-100-250ms | 8 | 1337.60 +/- 3.88 | 745.24 +/- 34.21 | 47.50 +/- 3.00 | 101.25 +/- 2.29 | 158.75 +/- 15.66 | 1.00 +/- 0.00 | 5.94 +/- 0.40 | 0.0447 +/- 0.0223 | 959.62 +/- 63.59 |
 | FBA-250ms-Stress | 8 | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 97.50 +/- 5.75 | 248.75 +/- 21.76 | 373.75 +/- 70.24 | 1.00 +/- 0.00 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 |
 
 ### 9.2 Observations
@@ -183,8 +183,8 @@ We report two layers of results:
 - The `50 ms` speed-bump baseline introduces a fixed `60 ms` latency profile and lower throughput (`1294.30 +/- 3.84 orders/s`) while keeping the immediate-style queue-priority-advantage proxy (`0.0742 +/- 0.0078`).
 - The `250 ms` batch regime materially reduces mean queue-priority advantage to `0.0273 +/- 0.0182`, compared with `0.0742 +/- 0.0078` for immediate execution and the speed-bump baseline, and `0.0571 +/- 0.0219` for `100 ms` batches.
 - The balanced adaptive heuristic settles around a `207.14 ms` mean window and reduces arbitrage-profit proxy to `522.00 +/- 86.23`, below both `FBA-100ms` and `FBA-250ms`.
-- The burst-aware policy controller saturates the mean window at `250.00 ms`, yielding lower queue-priority advantage (`0.0305 +/- 0.0214`) and lower arbitrage-profit proxy (`621.00 +/- 94.21`) than the learned bandit, but at much higher latency tails.
-- The learned bandit controller collapses to a fast control policy (`100.00 ms` mean window), improving fills (`743.06 +/- 24.50`) and reducing p99 to `155.00 +/- 14.70 ms`, but worsening queue-priority advantage (`0.0423 +/- 0.0169`) and arbitrage-profit proxy (`896.50 +/- 70.68`) relative to the burst-aware controller.
+- The burst-aware policy controller saturates the mean window at `250.00 ms`, yielding lower queue-priority advantage (`0.0305 +/- 0.0214`) and lower arbitrage-profit proxy (`621.00 +/- 94.21`) than the learned controller, but at much higher latency tails.
+- The learned LinUCB controller collapses to a fast control policy (`100.00 ms` mean window), improving fills (`745.24 +/- 34.21`) and reducing p99 to `158.75 +/- 15.66 ms`, but worsening queue-priority advantage (`0.0447 +/- 0.0223`) and arbitrage-profit proxy (`959.62 +/- 63.59`) relative to the burst-aware controller.
 - The stress scenario increases throughput to `1769.25 +/- 6.04 orders/s` and fill throughput to `900.50 +/- 23.67 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00 +/- 235.64`.
 - Across all `11 x 8 = 88` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
@@ -195,6 +195,10 @@ We report two layers of results:
 ![Latency profile](figures/latency.svg)
 
 ![Fairness proxy comparison](figures/fairness.svg)
+
+![Mechanism ablation snapshot](figures/ablation.svg)
+
+![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
 
 ### 9.4 Mechanism Ablation Snapshot
 
@@ -240,7 +244,7 @@ The current artifact is still short of a strong top-tier benchmark submission. T
 
 - proxy fairness metrics rather than richer behavioral or welfare metrics
 - the adapter action space is still narrow compared with a full exchange-control environment
-- the learned controller is still a lightweight contextual bandit, not a richer policy-learning result
+- the learned controller is still a lightweight contextual linear bandit, not a richer policy-learning result
 - the current agent/workload sweeps are still small and do not yet cover full parameter grids over market-maker or informed-flow behaviors
 
 ## 11. Related Work
@@ -257,7 +261,7 @@ This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evalu
 
 To push this track toward a stronger benchmark paper:
 
-1. replace the contextual bandit with a stronger learned controller on the same action space
+1. replace the current LinUCB baseline with a stronger learned controller on the same action space
 2. add explicit agent-behavior experiments for queue advantage and arbitrage capture
 3. broaden the policy interface beyond batch window, risk scale, release cadence, price aggression, and tie-break toggles
 4. expand the sweep suite into full parameter grids with confidence-interval plots

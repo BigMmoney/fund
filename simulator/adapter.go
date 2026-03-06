@@ -1,8 +1,8 @@
 package simulator
 
 import (
-	"fmt"
 	"math"
+	"sort"
 	"time"
 )
 
@@ -81,14 +81,18 @@ type learnedActionCandidate struct {
 	Action ControlAction
 }
 
-type banditArmStats struct {
-	Count     int
-	RewardSum float64
+type linearArmModel struct {
+	Name    string
+	Action  ControlAction
+	A       [][]float64
+	B       []float64
+	Theta   []float64
+	Updates int
 }
 
-type learnedBanditPolicy struct {
-	Actions []learnedActionCandidate
-	Stats   map[string][]banditArmStats
+type learnedLinUCBPolicy struct {
+	Actions []linearArmModel
+	Alpha   float64
 }
 
 func NewAdapter(cfg ScenarioConfig) *Adapter {
@@ -185,13 +189,13 @@ func (a *Adapter) ActionSpec() ActionSpec {
 func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	start := time.Now()
 	timestep := a.Reset()
-	var bandit *learnedBanditPolicy
-	if policy == PolicyLearnedBandit {
-		model := trainLearnedBanditPolicy(a.env.cfg)
-		bandit = &model
+	var linucb *learnedLinUCBPolicy
+	if policy == PolicyLearnedLinUCB {
+		model := trainLearnedLinUCBPolicy(a.env.cfg)
+		linucb = &model
 	}
 	for !timestep.Done {
-		action := a.selectAction(policy, timestep.Observation, bandit)
+		action := a.selectAction(policy, timestep.Observation, linucb)
 		timestep = a.Step(action)
 	}
 	result := a.env.benchmarkResult(time.Since(start))
@@ -256,15 +260,15 @@ func (a *Adapter) applyAction(action ControlAction) ControlAction {
 	return applied
 }
 
-func (a *Adapter) selectAction(policy PolicyController, observation Observation, bandit *learnedBanditPolicy) ControlAction {
+func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy) ControlAction {
 	switch policy {
 	case PolicyBurstAware:
 		return burstAwareAction(a.ActionSpec(), observation)
-	case PolicyLearnedBandit:
-		if bandit == nil {
+	case PolicyLearnedLinUCB:
+		if linucb == nil {
 			return ControlAction{}
 		}
-		return chooseBanditAction(a.ActionSpec(), observation, *bandit)
+		return chooseLinUCBAction(a.ActionSpec(), observation, *linucb)
 	default:
 		return ControlAction{}
 	}
@@ -331,20 +335,31 @@ func policyScenarioName(base string, policy PolicyController) string {
 	switch policy {
 	case PolicyBurstAware:
 		return "Policy-BurstAware-100-250ms"
-	case PolicyLearnedBandit:
-		return "Policy-LearnedBandit-100-250ms"
+	case PolicyLearnedLinUCB:
+		return "Policy-LearnedLinUCB-100-250ms"
 	default:
 		return base
 	}
 }
 
-func trainLearnedBanditPolicy(cfg ScenarioConfig) learnedBanditPolicy {
+func trainLearnedLinUCBPolicy(cfg ScenarioConfig) learnedLinUCBPolicy {
 	trainingSeeds := []int64{101, 103, 107, 109, 113, 127}
 	spec := NewAdapter(cfg).ActionSpec()
 	actions := candidateBanditActions(spec)
-	policy := learnedBanditPolicy{
-		Actions: actions,
-		Stats:   make(map[string][]banditArmStats),
+	featureDim := len(observationFeatures(Observation{}))
+	models := make([]linearArmModel, 0, len(actions))
+	for _, candidate := range actions {
+		models = append(models, linearArmModel{
+			Name:   candidate.Name,
+			Action: candidate.Action,
+			A:      identityMatrix(featureDim),
+			B:      make([]float64, featureDim),
+			Theta:  make([]float64, featureDim),
+		})
+	}
+	policy := learnedLinUCBPolicy{
+		Actions: models,
+		Alpha:   0.55,
 	}
 
 	for _, seed := range trainingSeeds {
@@ -353,13 +368,13 @@ func trainLearnedBanditPolicy(cfg ScenarioConfig) learnedBanditPolicy {
 		adapter := NewAdapter(trainingCfg)
 		timestep := adapter.Reset()
 		for !timestep.Done {
-			key := banditContextKey(timestep.Observation)
-			arm := selectBanditArm(policy, key)
+			features := observationFeatures(timestep.Observation)
+			arm := selectLinUCBArm(policy, features)
 			timestep = adapter.Step(policy.Actions[arm].Action)
-			stats := policy.ensureStats(key)
-			stats[arm].Count++
-			stats[arm].RewardSum += timestep.Reward
-			policy.Stats[key] = stats
+			policy.Actions[arm].A = outerAdd(policy.Actions[arm].A, features)
+			addScaledInPlace(policy.Actions[arm].B, features, timestep.Reward)
+			policy.Actions[arm].Theta = solveLinearSystem(policy.Actions[arm].A, policy.Actions[arm].B)
+			policy.Actions[arm].Updates++
 		}
 	}
 
@@ -447,64 +462,13 @@ func makeAction(window *int, risk *float64, tie *bool, cadence *int, price *int6
 	}
 }
 
-func banditContextKey(observation Observation) string {
-	queueDepth := observation.BuyDepth + observation.SellDepth + observation.PendingOrders
-	queueBucket := bucketize(queueDepth, 4, 8, 12)
-	imbalanceBucket := bucketize(absInt(observation.BuyDepth-observation.SellDepth), 1, 4, 7)
-	pendingBucket := bucketize(observation.PendingOrders, 0, 2, 5)
-	spreadBucket := 0
-	if observation.Spread > 1 {
-		spreadBucket = 1
-	}
-	riskBucket := 0
-	if observation.RiskRejections > 0 {
-		riskBucket = 1
-	}
-	return fmt.Sprintf("q%d_i%d_p%d_s%d_r%d", queueBucket, imbalanceBucket, pendingBucket, spreadBucket, riskBucket)
-}
-
-func selectBanditArm(policy learnedBanditPolicy, key string) int {
-	stats := policy.ensureStats(key)
-	total := 0
-	for _, arm := range stats {
-		total += arm.Count
-	}
-	bestIdx := 0
-	bestScore := -1e18
-	for idx, arm := range stats {
-		if arm.Count == 0 {
-			return idx
-		}
-		mean := arm.RewardSum / float64(arm.Count)
-		bonus := 1.25 * math.Sqrt(math.Log(float64(total+1))/float64(arm.Count))
-		score := mean + bonus
-		if score > bestScore {
-			bestScore = score
-			bestIdx = idx
-		}
-	}
-	return bestIdx
-}
-
-func chooseBanditAction(spec ActionSpec, observation Observation, policy learnedBanditPolicy) ControlAction {
-	key := banditContextKey(observation)
-	stats, ok := policy.Stats[key]
-	if !ok || len(stats) != len(policy.Actions) {
+func chooseLinUCBAction(spec ActionSpec, observation Observation, policy learnedLinUCBPolicy) ControlAction {
+	if len(policy.Actions) == 0 {
 		return fallbackBanditAction(spec)
 	}
-	bestIdx := 0
-	bestMean := -1e18
-	for idx, arm := range stats {
-		if arm.Count == 0 {
-			continue
-		}
-		mean := arm.RewardSum / float64(arm.Count)
-		if mean > bestMean {
-			bestMean = mean
-			bestIdx = idx
-		}
-	}
-	if bestMean == -1e18 {
+	features := observationFeatures(observation)
+	bestIdx := selectLinUCBArm(policy, features)
+	if bestIdx < 0 || bestIdx >= len(policy.Actions) {
 		return fallbackBanditAction(spec)
 	}
 	return policy.Actions[bestIdx].Action
@@ -522,14 +486,44 @@ func fallbackBanditAction(spec ActionSpec) ControlAction {
 	)
 }
 
-func (p learnedBanditPolicy) ensureStats(key string) []banditArmStats {
-	stats, ok := p.Stats[key]
-	if ok && len(stats) == len(p.Actions) {
-		return stats
+func observationFeatures(observation Observation) []float64 {
+	queueDepth := float64(observation.BuyDepth + observation.SellDepth + observation.PendingOrders)
+	imbalance := float64(absInt(observation.BuyDepth - observation.SellDepth))
+	spread := float64(observation.Spread)
+	pending := float64(observation.PendingOrders)
+	risk := float64(observation.RiskRejections)
+	progress := 0.0
+	if observation.Step > 0 {
+		progress = float64(observation.Step) / 125.0
 	}
-	stats = make([]banditArmStats, len(p.Actions))
-	p.Stats[key] = stats
-	return stats
+	return []float64{
+		1.0,
+		queueDepth / 16.0,
+		imbalance / 8.0,
+		spread / 4.0,
+		pending / 8.0,
+		risk / 4.0,
+		progress,
+	}
+}
+
+func selectLinUCBArm(policy learnedLinUCBPolicy, features []float64) int {
+	bestIdx := 0
+	bestScore := math.Inf(-1)
+	for idx, arm := range policy.Actions {
+		invA := invertMatrix(arm.A)
+		exploit := dot(arm.Theta, features)
+		explore := policy.Alpha * math.Sqrt(maxFloat(quadraticForm(features, invA), 0))
+		score := exploit + explore
+		if arm.Updates == 0 {
+			score += 1e6
+		}
+		if score > bestScore {
+			bestScore = score
+			bestIdx = idx
+		}
+	}
+	return bestIdx
 }
 
 func bucketize(v int, low, mid, high int) int {
@@ -578,6 +572,152 @@ func absFloat(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+func dot(left, right []float64) float64 {
+	sum := 0.0
+	for idx := range left {
+		sum += left[idx] * right[idx]
+	}
+	return sum
+}
+
+func identityMatrix(size int) [][]float64 {
+	matrix := make([][]float64, size)
+	for i := range matrix {
+		matrix[i] = make([]float64, size)
+		matrix[i][i] = 1.0
+	}
+	return matrix
+}
+
+func copyMatrix(src [][]float64) [][]float64 {
+	dst := make([][]float64, len(src))
+	for i := range src {
+		dst[i] = append([]float64(nil), src[i]...)
+	}
+	return dst
+}
+
+func outerAdd(matrix [][]float64, features []float64) [][]float64 {
+	out := copyMatrix(matrix)
+	for i := range features {
+		for j := range features {
+			out[i][j] += features[i] * features[j]
+		}
+	}
+	return out
+}
+
+func addScaledInPlace(dst, src []float64, scale float64) {
+	for idx := range dst {
+		dst[idx] += src[idx] * scale
+	}
+}
+
+func solveLinearSystem(a [][]float64, b []float64) []float64 {
+	n := len(a)
+	aug := make([][]float64, n)
+	for i := 0; i < n; i++ {
+		aug[i] = make([]float64, n+1)
+		copy(aug[i], a[i])
+		aug[i][n] = b[i]
+	}
+	for col := 0; col < n; col++ {
+		pivot := col
+		for row := col + 1; row < n; row++ {
+			if math.Abs(aug[row][col]) > math.Abs(aug[pivot][col]) {
+				pivot = row
+			}
+		}
+		if math.Abs(aug[pivot][col]) < 1e-9 {
+			continue
+		}
+		aug[col], aug[pivot] = aug[pivot], aug[col]
+		scale := aug[col][col]
+		for j := col; j <= n; j++ {
+			aug[col][j] /= scale
+		}
+		for row := 0; row < n; row++ {
+			if row == col {
+				continue
+			}
+			factor := aug[row][col]
+			for j := col; j <= n; j++ {
+				aug[row][j] -= factor * aug[col][j]
+			}
+		}
+	}
+	solution := make([]float64, n)
+	for i := 0; i < n; i++ {
+		solution[i] = aug[i][n]
+	}
+	return solution
+}
+
+func invertMatrix(a [][]float64) [][]float64 {
+	n := len(a)
+	aug := make([][]float64, n)
+	for i := 0; i < n; i++ {
+		aug[i] = make([]float64, 2*n)
+		copy(aug[i], a[i])
+		aug[i][n+i] = 1.0
+	}
+	for col := 0; col < n; col++ {
+		pivot := col
+		for row := col + 1; row < n; row++ {
+			if math.Abs(aug[row][col]) > math.Abs(aug[pivot][col]) {
+				pivot = row
+			}
+		}
+		if math.Abs(aug[pivot][col]) < 1e-9 {
+			return identityMatrix(n)
+		}
+		aug[col], aug[pivot] = aug[pivot], aug[col]
+		scale := aug[col][col]
+		for j := col; j < 2*n; j++ {
+			aug[col][j] /= scale
+		}
+		for row := 0; row < n; row++ {
+			if row == col {
+				continue
+			}
+			factor := aug[row][col]
+			for j := col; j < 2*n; j++ {
+				aug[row][j] -= factor * aug[col][j]
+			}
+		}
+	}
+	out := make([][]float64, n)
+	for i := 0; i < n; i++ {
+		out[i] = append([]float64(nil), aug[i][n:]...)
+	}
+	return out
+}
+
+func quadraticForm(x []float64, matrix [][]float64) float64 {
+	tmp := make([]float64, len(x))
+	for i := range matrix {
+		for j := range matrix[i] {
+			tmp[i] += matrix[i][j] * x[j]
+		}
+	}
+	return dot(x, tmp)
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func rankedBanditModels(policy learnedLinUCBPolicy) []linearArmModel {
+	models := append([]linearArmModel(nil), policy.Actions...)
+	sort.Slice(models, func(i, j int) bool {
+		return models[i].Updates > models[j].Updates
+	})
+	return models
 }
 
 func (a *Adapter) computeReward(delta MetricsDelta) float64 {

@@ -6,11 +6,18 @@ from pathlib import Path
 
 ROOT = Path(r"D:\pre_trading")
 DATA_PATH = ROOT / "docs" / "benchmarks" / "simulator_multiseed_profile.json"
+ABLATION_PATH = ROOT / "docs" / "benchmarks" / "simulator_ablation_profile.json"
+AGENT_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_agent_ablation_profile.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
 
 
 def load_results() -> list[dict]:
     payload = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+    return payload["results"]
+
+
+def load_named_results(path: Path) -> list[dict]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
     return payload["results"]
 
 
@@ -148,6 +155,8 @@ def line_chart_with_ci(
 
 def generate() -> None:
     results = load_results()
+    ablations = load_named_results(ABLATION_PATH)
+    agent_sweeps = load_named_results(AGENT_SWEEP_PATH)
     categories = []
     for r in results:
         label = r["name"].replace("Immediate-Surrogate", "Immediate")
@@ -199,6 +208,53 @@ def generate() -> None:
         categories,
         FIG_DIR / "fairness.svg",
         "Scaled proxy value",
+    )
+
+    bar_chart_with_ci(
+        "Mechanism Ablation Snapshot",
+        [
+            (
+                "Orders/s",
+                "#2dd4bf",
+                [r["mean_orders_per_sec"] for r in ablations],
+                [0.0 for _ in ablations],
+            ),
+            (
+                "Arb Profit / 10",
+                "#f472b6",
+                [r["mean_latency_arbitrage_profit"] / 10 for r in ablations],
+                [0.0 for _ in ablations],
+            ),
+        ],
+        [r["name"].replace("Ablation-", "") for r in ablations],
+        FIG_DIR / "ablation.svg",
+        "Orders/s and scaled arb profit",
+    )
+
+    bar_chart_with_ci(
+        "Agent and Workload Sweep Snapshot",
+        [
+            (
+                "Orders/s",
+                "#38bdf8",
+                [r["mean_orders_per_sec"] for r in agent_sweeps],
+                [0.0 for _ in agent_sweeps],
+            ),
+            (
+                "p99 / 2",
+                "#f59e0b",
+                [r["mean_p99_latency_ms"] / 2 for r in agent_sweeps],
+                [0.0 for _ in agent_sweeps],
+            ),
+        ],
+        [
+            r["name"]
+            .replace("AgentAblation-", "")
+            .replace("AgentSweep-", "")
+            for r in agent_sweeps
+        ],
+        FIG_DIR / "agent_sweeps.svg",
+        "Orders/s and scaled p99 latency",
     )
 
 

@@ -160,9 +160,9 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
-			Name:                   "Policy-LearnedBandit-100-250ms",
+			Name:                   "Policy-LearnedLinUCB-100-250ms",
 			Mode:                   ModeAdaptiveBatch,
-			PolicyController:       PolicyLearnedBandit,
+			PolicyController:       PolicyLearnedLinUCB,
 			AdaptivePolicy:         AdaptiveBalanced,
 			AdaptiveMinWindowSteps: 10,
 			AdaptiveMaxWindowSteps: 25,
@@ -466,12 +466,20 @@ func TestPolicyControllerProducesNamedResult(t *testing.T) {
 }
 
 func TestLearnedPolicyControllerProducesNamedResult(t *testing.T) {
-	result := runScenario(scenarioByName(t, "Policy-LearnedBandit-100-250ms"))
-	if result.Name != "Policy-LearnedBandit-100-250ms" {
+	result := runScenario(scenarioByName(t, "Policy-LearnedLinUCB-100-250ms"))
+	if result.Name != "Policy-LearnedLinUCB-100-250ms" {
 		t.Fatalf("expected learned-policy result name, got %+v", result)
 	}
 	if result.AdaptiveWindowMeanMs <= 0 {
 		t.Fatalf("expected learned policy baseline to record adaptive window stats, got %+v", result)
+	}
+}
+
+func TestLearnedPolicyImprovesTailVersusBurstAware(t *testing.T) {
+	burst := runScenario(scenarioByName(t, "Policy-BurstAware-100-250ms"))
+	learned := runScenario(scenarioByName(t, "Policy-LearnedLinUCB-100-250ms"))
+	if learned.P99LatencyMs >= burst.P99LatencyMs {
+		t.Fatalf("expected learned controller to improve p99 tail, burst=%+v learned=%+v", burst, learned)
 	}
 }
 
