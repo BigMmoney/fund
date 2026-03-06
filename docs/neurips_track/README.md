@@ -1,4 +1,4 @@
-# Benchmark Track
+# NeurIPS Track
 
 This directory is a parallel paper track. It does not replace the existing `docs/arxiv/` manuscript.
 
@@ -15,8 +15,9 @@ The original paper line is a market-infrastructure systems paper. This track upg
 
 - `simulator/`: benchmark environment, agent models, metrics, and tests
 - `docs/benchmarks/simulator_benchmark_profile.*`: generated experiment outputs
-- `BENCHMARK_PAPER_MANUSCRIPT.md`: benchmark-oriented manuscript draft
-- `arxiv/`: isolated LaTeX source for the benchmark-track paper
+- `docs/benchmarks/simulator_multiseed_profile.*`: multi-seed aggregate outputs
+- `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
+- `arxiv/`: isolated LaTeX source for the NeurIPS-track paper
 
 ## Current Benchmark Snapshot
 
@@ -35,14 +36,13 @@ All generated scenarios currently report:
 
 ## Multi-Seed Experimental Snapshot
 
-From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds
-`[7, 11, 19, 23, 29, 31, 37, 41]`:
+From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `[7, 11, 19, 23, 29, 31, 37, 41]`:
 
-- `Immediate-Surrogate`: `1348.23 ± 5.77 orders/s`, `p50 10.00 ms`, `p99 10.00 ms`
-- `FBA-100ms`: `1348.23 ± 5.77 orders/s`, `p50 46.25 ms`, `p99 146.25 ms`
-- `FBA-250ms`: `1348.30 ± 5.64 orders/s`, `p50 97.50 ms`, `p99 452.50 ms`
-- `FBA-500ms`: `1347.75 ± 4.70 orders/s`, `p50 213.75 ms`, `p99 835.00 ms`
-- `FBA-250ms-Stress`: `1783.40 ± 8.78 orders/s`, `p50 97.50 ms`, `p99 373.75 ms`
+- `Immediate-Surrogate`: `1348.23 +/- 5.77 orders/s`, `p50 10.00 ms`, `p99 10.00 ms`
+- `FBA-100ms`: `1348.23 +/- 5.77 orders/s`, `p50 46.25 ms`, `p99 146.25 ms`
+- `FBA-250ms`: `1348.30 +/- 5.64 orders/s`, `p50 97.50 ms`, `p99 452.50 ms`
+- `FBA-500ms`: `1347.75 +/- 4.70 orders/s`, `p50 213.75 ms`, `p99 835.00 ms`
+- `FBA-250ms-Stress`: `1783.40 +/- 8.78 orders/s`, `p50 97.50 ms`, `p99 373.75 ms`
 
 Measured observations:
 

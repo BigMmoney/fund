@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while batch-window changes induce clear latency and market-quality tradeoffs. This benchmark track is designed as a parallel research artifact and does not replace the existing systems-paper line.
+We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while batch-window changes induce clear latency and market-quality tradeoffs. This NeurIPS-track benchmark manuscript is designed as a parallel research artifact and does not replace the existing systems-paper line.
 
 ## 1. Research Question
 
@@ -98,22 +98,22 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 - The stress scenario increases throughput to `1783.40 orders/s` and fill throughput to `907.70 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00`.
 - Across all `5 x 8 = 40` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
 
-These results are sufficient for a benchmark-track draft, but not yet sufficient for a top-tier ML benchmark submission. The missing pieces are:
+These results are sufficient for a NeurIPS-track benchmark draft, but not yet sufficient for a top-tier ML benchmark submission. The missing pieces are:
 
 - richer baselines such as speed-bump or adaptive-window policies
 - more explicit fairness metrics
-- multi-seed aggregate reporting
+- confidence intervals
 - agent-based market-behavior studies beyond proxy metrics
 
 ## 6. Positioning
 
-This benchmark-track manuscript should be treated as a separate line from the existing systems-paper manuscript in `docs/PAPER_MANUSCRIPT.md`. The systems paper argues for a ledger-first market-infrastructure design. This benchmark paper argues for a reusable evaluation environment built on top of those same settlement constraints.
+This NeurIPS-track manuscript should be treated as a separate line from the existing systems-paper manuscript in `docs/PAPER_MANUSCRIPT.md` and the original arXiv sources in `docs/arxiv/`. The systems paper argues for a ledger-first market-infrastructure design. This benchmark paper argues for a reusable evaluation environment built on top of those same settlement constraints.
 
 ## 7. Next Upgrade Path
 
 To push this track toward a stronger benchmark paper:
 
 1. add adaptive-window and speed-bump baselines
-2. add multi-seed aggregate evaluation and confidence intervals
+2. add confidence intervals and error-bar figures
 3. add explicit agent-behavior experiments for queue advantage and arbitrage capture
 4. package the simulator behind a cleaner `reset/step/observe/metrics` API
