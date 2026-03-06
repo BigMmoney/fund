@@ -51,6 +51,16 @@ Measured observations:
 - the `250 ms` batch lowers mean queue-priority advantage to `0.0273`, below both immediate (`0.0742`) and `100 ms` batch (`0.0571`)
 - the stress configuration raises throughput to `1783.40 orders/s` and arbitrage profit to `2057.00`
 
+## Visualizations
+
+Generated from `docs/benchmarks/simulator_multiseed_profile.json`:
+
+![Throughput comparison](figures/throughput.svg)
+
+![Latency profile](figures/latency.svg)
+
+![Fairness proxy comparison](figures/fairness.svg)
+
 ## Regeneration
 
 ```powershell

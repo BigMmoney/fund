@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img">
+<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}</style>
+<rect class="bg" x="0" y="0" width="960" height="520" rx="18"/>
+<text class="title" x="90" y="38">Throughput Comparison</text>
+<text class="label" x="90" y="500">Mean throughput</text>
+<line class="grid" x1="90" y1="70.0" x2="920" y2="70.0"/>
+<text class="label" x="18" y="74.0">1997</text>
+<line class="grid" x1="90" y1="142.0" x2="920" y2="142.0"/>
+<text class="label" x="18" y="146.0">1598</text>
+<line class="grid" x1="90" y1="214.0" x2="920" y2="214.0"/>
+<text class="label" x="18" y="218.0">1198</text>
+<line class="grid" x1="90" y1="286.0" x2="920" y2="286.0"/>
+<text class="label" x="18" y="290.0">799</text>
+<line class="grid" x1="90" y1="358.0" x2="920" y2="358.0"/>
+<text class="label" x="18" y="362.0">399</text>
+<line class="grid" x1="90" y1="430.0" x2="920" y2="430.0"/>
+<text class="label" x="18" y="434.0">0</text>
+<line class="axis" x1="90" y1="70" x2="90" y2="430"/>
+<line class="axis" x1="90" y1="430" x2="920" y2="430"/>
+<rect x="117.7" y="187.0" width="44.3" height="243.0" fill="#2dd4bf" rx="8"/>
+<text class="value" x="139.8" y="179.0" text-anchor="middle">1348.2</text>
+<rect x="173.0" y="283.4" width="44.3" height="146.6" fill="#38bdf8" rx="8"/>
+<text class="value" x="195.1" y="275.4" text-anchor="middle">813.1</text>
+<text class="label" x="173.0" y="458" text-anchor="middle">Immediate</text>
+<rect x="283.7" y="187.0" width="44.3" height="243.0" fill="#2dd4bf" rx="8"/>
+<text class="value" x="305.8" y="179.0" text-anchor="middle">1348.2</text>
+<rect x="339.0" y="284.9" width="44.3" height="145.1" fill="#38bdf8" rx="8"/>
+<text class="value" x="361.1" y="276.9" text-anchor="middle">805.3</text>
+<text class="label" x="339.0" y="458" text-anchor="middle">100ms</text>
+<rect x="449.7" y="187.0" width="44.3" height="243.0" fill="#2dd4bf" rx="8"/>
+<text class="value" x="471.8" y="179.0" text-anchor="middle">1348.3</text>
+<rect x="505.0" y="305.3" width="44.3" height="124.7" fill="#38bdf8" rx="8"/>
+<text class="value" x="527.1" y="297.3" text-anchor="middle">691.9</text>
+<text class="label" x="505.0" y="458" text-anchor="middle">250ms</text>
+<rect x="615.7" y="187.1" width="44.3" height="242.9" fill="#2dd4bf" rx="8"/>
+<text class="value" x="637.8" y="179.1" text-anchor="middle">1347.8</text>
+<rect x="671.0" y="316.3" width="44.3" height="113.7" fill="#38bdf8" rx="8"/>
+<text class="value" x="693.1" y="308.3" text-anchor="middle">631.1</text>
+<text class="label" x="671.0" y="458" text-anchor="middle">500ms</text>
+<rect x="781.7" y="108.6" width="44.3" height="321.4" fill="#2dd4bf" rx="8"/>
+<text class="value" x="803.8" y="100.6" text-anchor="middle">1783.4</text>
+<rect x="837.0" y="266.4" width="44.3" height="163.6" fill="#38bdf8" rx="8"/>
+<text class="value" x="859.1" y="258.4" text-anchor="middle">907.7</text>
+<text class="label" x="837.0" y="458" text-anchor="middle">250ms Stress</text>
+<rect x="730" y="22" width="14" height="14" fill="#2dd4bf" rx="3"/>
+<text class="legend" x="752" y="34">Orders/s</text>
+<rect x="730" y="44" width="14" height="14" fill="#38bdf8" rx="3"/>
+<text class="legend" x="752" y="56">Fills/s</text>
+</svg>

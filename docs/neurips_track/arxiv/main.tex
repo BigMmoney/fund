@@ -7,6 +7,8 @@
 \usepackage{booktabs}
 \usepackage{enumitem}
 \usepackage{amsmath}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 
 \title{A Ledger-Aware Benchmark for Market Infrastructure under Frequent Batch Auctions}
 \author{Author Name \\ Institution \\ \texttt{email@example.com}}
@@ -147,6 +149,31 @@ We report two result layers. The first is a single-seed reproducibility snapshot
 
 All reported scenarios use the same simulator implementation and differ only in matching mode, batch-window size, seed, and population intensity. The current setup uses a discrete-time step duration of $10$ milliseconds. Fixed-window batch scenarios aggregate accepted orders until the configured window boundary and then clear them in batch. The immediate surrogate processes each accepted order against the current book as soon as it arrives.
 
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.9\linewidth,
+    height=5.5cm,
+    ybar,
+    bar width=11pt,
+    ymin=0,
+    symbolic x coords={Immediate,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
+    xtick=data,
+    xticklabel style={rotate=20,anchor=east},
+    ylabel={Throughput},
+    legend style={at={(0.5,1.15)},anchor=south,legend columns=2},
+    nodes near coords,
+    nodes near coords align={vertical},
+]
+\addplot coordinates {(Immediate,1348.2) (FBA-100,1348.2) (FBA-250,1348.3) (FBA-500,1347.8) (FBA-250-Stress,1783.4)};
+\addplot coordinates {(Immediate,813.1) (FBA-100,805.3) (FBA-250,691.9) (FBA-500,631.1) (FBA-250-Stress,907.7)};
+\legend{Orders/s,Fills/s}
+\end{axis}
+\end{tikzpicture}
+\caption{Aggregate throughput comparison across the five current benchmark scenarios.}
+\end{figure}
+
 \section{Results}
 \subsection{Aggregate Summary}
 \begin{table}[t]
@@ -180,6 +207,52 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
 \end{tabular}
 \caption{Aggregate market-quality and fairness-adjacent proxy metrics.}
 \end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.9\linewidth,
+    height=5.5cm,
+    ymin=0,
+    symbolic x coords={Immediate,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
+    xtick=data,
+    xticklabel style={rotate=20,anchor=east},
+    ylabel={Latency (ms)},
+    legend style={at={(0.5,1.15)},anchor=south,legend columns=3},
+    mark=*,
+]
+\addplot coordinates {(Immediate,10.0) (FBA-100,46.25) (FBA-250,97.5) (FBA-500,213.75) (FBA-250-Stress,97.5)};
+\addplot coordinates {(Immediate,10.0) (FBA-100,100.0) (FBA-250,300.0) (FBA-500,505.0) (FBA-250-Stress,248.75)};
+\addplot coordinates {(Immediate,10.0) (FBA-100,146.25) (FBA-250,452.5) (FBA-500,835.0) (FBA-250-Stress,373.75)};
+\legend{p50,p95,p99}
+\end{axis}
+\end{tikzpicture}
+\caption{Latency profiles show the tail cost introduced by longer batch windows.}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.9\linewidth,
+    height=5.5cm,
+    ybar,
+    bar width=10pt,
+    ymin=0,
+    symbolic x coords={Immediate,FBA-100,FBA-250,FBA-500,FBA-250-Stress},
+    xtick=data,
+    xticklabel style={rotate=20,anchor=east},
+    ylabel={Scaled proxy value},
+    legend style={at={(0.5,1.15)},anchor=south,legend columns=2},
+]
+\addplot coordinates {(Immediate,74.2) (FBA-100,57.1) (FBA-250,27.3) (FBA-500,34.1) (FBA-250-Stress,26.9)};
+\addplot coordinates {(Immediate,67.0) (FBA-100,101.6) (FBA-250,62.7) (FBA-500,82.8) (FBA-250-Stress,205.7)};
+\legend{Queue advantage x1000,Arbitrage profit / 10}
+\end{axis}
+\end{tikzpicture}
+\caption{Fairness-adjacent proxy metrics show that the $250$ms batch regime lowers queue advantage, while the stress case raises arbitrage-profit proxy.}
+\end{figure}
 
 \subsection{Observed Tradeoffs}
 Three measured observations are currently the most informative.

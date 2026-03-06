@@ -132,6 +132,12 @@ The aggregate profile uses seeds:
 
 All reported scenarios use the same simulator implementation and differ only in matching mode, batch-window size, seed, and population intensity. The current setup uses a discrete-time step duration of `10 ms`.
 
+The repository also materializes three figure assets for the current aggregate profile:
+
+- `docs/neurips_track/figures/throughput.svg`
+- `docs/neurips_track/figures/latency.svg`
+- `docs/neurips_track/figures/fairness.svg`
+
 ## 9. Current Results
 
 We report two layers of results:
@@ -159,6 +165,14 @@ The multi-seed profile uses seeds `7, 11, 19, 23, 29, 31, 37, 41` and gives a mo
 - The `500 ms` batch regime pushes mean p50 latency to `213.75 ms` and mean p99 latency to `835.00 ms`, making the latency cost explicit.
 - The stress scenario increases throughput to `1783.40 orders/s` and fill throughput to `907.70 fills/s`, but also lifts mean arbitrage-profit proxy to `2057.00`.
 - Across all `5 x 8 = 40` measured runs, the simulator reports `0` negative-balance violations and `0` conservation breaches.
+
+### 9.3 Visual Summary
+
+![Throughput comparison](figures/throughput.svg)
+
+![Latency profile](figures/latency.svg)
+
+![Fairness proxy comparison](figures/fairness.svg)
 
 ## 10. Limitations
 
