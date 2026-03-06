@@ -2,4 +2,7 @@ scenario,mode,mean_orders_per_sec,mean_fills_per_sec,mean_p99_latency_ms,mean_av
 AgentAblation-Control,batch,1343.2540,659.5238,367.5000,5.4877,0.040822,754.0000
 AgentAblation-NoArbitrageurs,batch,1276.5873,622.6190,367.5000,5.3750,-0.595823,0.0000
 AgentAblation-NoInformed,batch,1257.1429,622.6190,335.0000,5.5414,0.025983,750.2500
-AgentAblation-RetailBurst,batch,2532.9365,1427.1825,467.5000,5.7018,0.040441,821.7500
+AgentSweep-RetailBurst,batch,2532.9365,1427.1825,467.5000,5.7018,0.040441,821.7500
+AgentSweep-ArbIntensityHigh,batch,1409.9206,718.4524,302.5000,5.7993,0.031362,1730.7500
+AgentSweep-InformedIntensityHigh,batch,1426.7857,724.0079,360.0000,5.6247,0.011116,685.5000
+AgentSweep-MakersWide,batch,1343.2540,595.6349,485.0000,5.8102,0.046928,754.5000

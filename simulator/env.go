@@ -37,6 +37,8 @@ type Environment struct {
 	adaptiveWindowHistory []int
 	runtimeRiskScale      float64
 	runtimeRandomTieBreak bool
+	runtimeReleaseCadence int
+	runtimePriceAggression int64
 }
 
 type pendingOrder struct {
@@ -88,6 +90,8 @@ func (e *Environment) Reset() Observation {
 	e.currentBatchWindow = e.initialBatchWindow()
 	e.runtimeRiskScale = 1.0
 	e.runtimeRandomTieBreak = e.cfg.RandomizeBatchTieBreak
+	e.runtimeReleaseCadence = 0
+	e.runtimePriceAggression = 0
 	return e.Observe()
 }
 
@@ -105,6 +109,8 @@ func (e *Environment) Observe() Observation {
 		Mode:                   e.cfg.Mode,
 		CurrentBatchWindowStep: e.currentBatchWindow,
 		SpeedBumpSteps:         e.cfg.SpeedBumpSteps,
+		CurrentReleaseCadence:  e.runtimeReleaseCadence,
+		CurrentPriceAggression: e.runtimePriceAggression,
 		PendingOrders:          len(e.pending),
 		BuyDepth:               len(e.buys),
 		SellDepth:              len(e.sells),
@@ -141,11 +147,11 @@ func (e *Environment) Step() StepResult {
 	if e.currentStep < e.cfg.TotalSteps {
 		e.runStep(e.currentStep)
 		e.currentStep++
-		if e.cfg.Mode == ModeBatch && e.cfg.BatchWindowSteps > 0 && e.batchCycleSteps >= e.cfg.BatchWindowSteps {
+		if e.cfg.Mode == ModeBatch && e.cfg.BatchWindowSteps > 0 && e.batchCycleSteps >= e.effectiveFlushWindow(e.cfg.BatchWindowSteps) {
 			e.flushBatch(e.currentStep - 1)
 			e.batchCycleSteps = 0
 		}
-		if e.cfg.Mode == ModeAdaptiveBatch && e.currentBatchWindow > 0 && e.batchCycleSteps >= e.currentBatchWindow {
+		if e.cfg.Mode == ModeAdaptiveBatch && e.currentBatchWindow > 0 && e.batchCycleSteps >= e.effectiveFlushWindow(e.currentBatchWindow) {
 			windowUsed := e.currentBatchWindow
 			e.flushBatch(e.currentStep - 1)
 			e.batchCycleSteps = 0
@@ -219,7 +225,7 @@ func (e *Environment) runStep(step int) {
 	acceptedThisStep := 0
 	generated := make([]Order, 0, len(e.cfg.Agents)*2)
 	for _, agent := range e.cfg.Agents {
-		orders := generateOrdersForAgent(agent, step, e.fundamentals, e.rng, &e.seq, e.accounts[agent.ID])
+			orders := generateOrdersForAgent(agent, step, e.fundamentals, e.rng, &e.seq, e.accounts[agent.ID], e.runtimePriceAggression)
 		for _, order := range orders {
 			e.ordersSubmitted++
 			e.metricAcc.addSubmitted(order.Class, order.Amount)
@@ -251,10 +257,10 @@ func (e *Environment) runStep(step int) {
 				sortSellBook(&e.sells)
 			}
 		case ModeSpeedBump:
-			e.pending = append(e.pending, pendingOrder{
-				ReleaseStep: step + maxInt(1, e.cfg.SpeedBumpSteps),
-				Order:       order,
-			})
+				e.pending = append(e.pending, pendingOrder{
+					ReleaseStep: step + e.effectiveReleaseCadence(maxInt(1, e.cfg.SpeedBumpSteps)),
+					Order:       order,
+				})
 		}
 	}
 
@@ -486,6 +492,21 @@ func (e *Environment) adaptiveWindowStats() (int, int, float64) {
 	}
 	stepMs := float64(e.cfg.StepDuration.Milliseconds())
 	return int(float64(minSteps) * stepMs), int(float64(maxSteps) * stepMs), (float64(sum) / float64(len(e.adaptiveWindowHistory))) * stepMs
+}
+
+func (e *Environment) effectiveReleaseCadence(base int) int {
+	cadence := base
+	if e.runtimeReleaseCadence > cadence {
+		cadence = e.runtimeReleaseCadence
+	}
+	if cadence < 1 {
+		cadence = 1
+	}
+	return cadence
+}
+
+func (e *Environment) effectiveFlushWindow(base int) int {
+	return e.effectiveReleaseCadence(base)
 }
 
 func (e *Environment) effectiveRiskLimits() (int64, int) {

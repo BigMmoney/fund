@@ -160,9 +160,9 @@ func simulatorScenarios() []ScenarioConfig {
 			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
-			Name:                   "Policy-LearnedLinear-100-250ms",
+			Name:                   "Policy-LearnedBandit-100-250ms",
 			Mode:                   ModeAdaptiveBatch,
-			PolicyController:       PolicyLearnedLinear,
+			PolicyController:       PolicyLearnedBandit,
 			AdaptivePolicy:         AdaptiveBalanced,
 			AdaptiveMinWindowSteps: 10,
 			AdaptiveMaxWindowSteps: 25,
@@ -275,7 +275,7 @@ func agentWorkloadAblationScenarios() []ScenarioConfig {
 			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 		{
-			Name:             "AgentAblation-RetailBurst",
+			Name:             "AgentSweep-RetailBurst",
 			Mode:             ModeBatch,
 			BatchWindowSteps: 25,
 			StepDuration:     10 * time.Millisecond,
@@ -283,6 +283,36 @@ func agentWorkloadAblationScenarios() []ScenarioConfig {
 			Seed:             151,
 			Agents:           RetailBurstPopulation(),
 			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 28},
+		},
+		{
+			Name:             "AgentSweep-ArbIntensityHigh",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             151,
+			Agents:           AdjustClassBaseSize(ScaleClassIntensity(DefaultPopulation(), AgentArbitrageur, 2, 1), AgentArbitrageur, 1),
+			Risk:             RiskConfig{MaxOrderAmount: 9, MaxOrdersPerStep: 28},
+		},
+		{
+			Name:             "AgentSweep-InformedIntensityHigh",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             151,
+			Agents:           AdjustClassBaseSize(ScaleClassIntensity(DefaultPopulation(), AgentInformed, 2, 1), AgentInformed, 1),
+			Risk:             RiskConfig{MaxOrderAmount: 9, MaxOrdersPerStep: 26},
+		},
+		{
+			Name:             "AgentSweep-MakersWide",
+			Mode:             ModeBatch,
+			BatchWindowSteps: 25,
+			StepDuration:     10 * time.Millisecond,
+			TotalSteps:       125,
+			Seed:             151,
+			Agents:           AdjustClassQuoteWidth(DefaultPopulation(), AgentMarketMaker, 2),
+			Risk:             RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
 		},
 	}
 }
@@ -381,6 +411,32 @@ func TestAdapterResetAndStep(t *testing.T) {
 	if !next.Info.ActionSpec.SupportsRiskLimitScale || !next.Info.ActionSpec.SupportsTieBreakToggle {
 		t.Fatalf("expected expanded action space, got %+v", next.Info.ActionSpec)
 	}
+	if !next.Info.ActionSpec.SupportsReleaseCadence || !next.Info.ActionSpec.SupportsPriceAggressionBias {
+		t.Fatalf("expected release cadence and price aggression controls, got %+v", next.Info.ActionSpec)
+	}
+}
+
+func TestAdapterAppliesExtendedControls(t *testing.T) {
+	adapter := NewAdapter(scenarioByName(t, "Adaptive-100-250ms"))
+	adapter.Reset()
+	cadence := 18
+	bias := int64(1)
+	step := adapter.Step(ControlAction{
+		ReleaseCadenceSteps: &cadence,
+		PriceAggressionBias: &bias,
+	})
+	if step.Info.AppliedAction.ReleaseCadenceSteps == nil || *step.Info.AppliedAction.ReleaseCadenceSteps != cadence {
+		t.Fatalf("expected release cadence to be applied, got %+v", step.Info.AppliedAction)
+	}
+	if step.Info.AppliedAction.PriceAggressionBias == nil || *step.Info.AppliedAction.PriceAggressionBias != bias {
+		t.Fatalf("expected price aggression bias to be applied, got %+v", step.Info.AppliedAction)
+	}
+	if step.Info.CurrentReleaseCadenceMs != 180 {
+		t.Fatalf("expected release cadence 180ms, got %+v", step.Info)
+	}
+	if step.Info.CurrentPriceAggression != 1 {
+		t.Fatalf("expected current price aggression 1, got %+v", step.Info)
+	}
 }
 
 func TestAdapterIgnoresActionOutsideAdaptiveMode(t *testing.T) {
@@ -410,8 +466,8 @@ func TestPolicyControllerProducesNamedResult(t *testing.T) {
 }
 
 func TestLearnedPolicyControllerProducesNamedResult(t *testing.T) {
-	result := runScenario(scenarioByName(t, "Policy-LearnedLinear-100-250ms"))
-	if result.Name != "Policy-LearnedLinear-100-250ms" {
+	result := runScenario(scenarioByName(t, "Policy-LearnedBandit-100-250ms"))
+	if result.Name != "Policy-LearnedBandit-100-250ms" {
 		t.Fatalf("expected learned-policy result name, got %+v", result)
 	}
 	if result.AdaptiveWindowMeanMs <= 0 {
@@ -541,8 +597,16 @@ func TestGenerateSimulatorAgentAblationArtifacts(t *testing.T) {
 
 	control := aggregates[0]
 	noArb := aggregates[1]
+	retailBurst := aggregates[3]
+	arbHigh := aggregates[4]
 	if noArb.MeanLatencyArbitrageProfit >= control.MeanLatencyArbitrageProfit {
 		t.Fatalf("expected no-arbitrageur ablation to reduce arb profit, control=%+v noArb=%+v", control, noArb)
+	}
+	if retailBurst.MeanOrdersPerSec <= control.MeanOrdersPerSec {
+		t.Fatalf("expected retail burst sweep to raise throughput, control=%+v retail=%+v", control, retailBurst)
+	}
+	if arbHigh.MeanLatencyArbitrageProfit <= control.MeanLatencyArbitrageProfit {
+		t.Fatalf("expected arbitrage-intensity sweep to raise arb profit, control=%+v arbHigh=%+v", control, arbHigh)
 	}
 	if err := writeSimulatorAgentAblationArtifacts(aggregates, seeds); err != nil {
 		t.Fatalf("write agent/workload ablation artifacts: %v", err)

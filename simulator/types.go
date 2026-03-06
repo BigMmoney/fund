@@ -24,7 +24,7 @@ type PolicyController string
 const (
 	PolicyNone       PolicyController = ""
 	PolicyBurstAware PolicyController = "burst_aware"
-	PolicyLearnedLinear PolicyController = "learned_linear"
+	PolicyLearnedBandit PolicyController = "learned_bandit"
 )
 
 type AgentClass string
@@ -115,6 +115,8 @@ type Observation struct {
 	Mode                   MatchingMode `json:"mode"`
 	CurrentBatchWindowStep int          `json:"current_batch_window_steps"`
 	SpeedBumpSteps         int          `json:"speed_bump_steps"`
+	CurrentReleaseCadence  int          `json:"current_release_cadence_steps"`
+	CurrentPriceAggression int64        `json:"current_price_aggression_bias"`
 	PendingOrders          int          `json:"pending_orders"`
 	BuyDepth               int          `json:"buy_depth"`
 	SellDepth              int          `json:"sell_depth"`

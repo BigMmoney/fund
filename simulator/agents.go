@@ -55,7 +55,53 @@ func RetailBurstPopulation() []AgentConfig {
 	return burst
 }
 
-func generateOrdersForAgent(cfg AgentConfig, step int, fundamentals []int64, rng *rand.Rand, seq *int64, acct AccountState) []Order {
+func ScaleClassIntensity(pop []AgentConfig, class AgentClass, numerator, denominator int) []AgentConfig {
+	if denominator <= 0 {
+		denominator = 1
+	}
+	scaled := make([]AgentConfig, 0, len(pop))
+	for _, agent := range pop {
+		if agent.Class == class {
+			next := (agent.Intensity * numerator) / denominator
+			if next < 1 {
+				next = 1
+			}
+			agent.Intensity = next
+		}
+		scaled = append(scaled, agent)
+	}
+	return scaled
+}
+
+func AdjustClassQuoteWidth(pop []AgentConfig, class AgentClass, delta int64) []AgentConfig {
+	adjusted := make([]AgentConfig, 0, len(pop))
+	for _, agent := range pop {
+		if agent.Class == class {
+			agent.QuoteWidth += delta
+			if agent.QuoteWidth < 1 {
+				agent.QuoteWidth = 1
+			}
+		}
+		adjusted = append(adjusted, agent)
+	}
+	return adjusted
+}
+
+func AdjustClassBaseSize(pop []AgentConfig, class AgentClass, delta int64) []AgentConfig {
+	adjusted := make([]AgentConfig, 0, len(pop))
+	for _, agent := range pop {
+		if agent.Class == class {
+			agent.BaseSize += delta
+			if agent.BaseSize < 1 {
+				agent.BaseSize = 1
+			}
+		}
+		adjusted = append(adjusted, agent)
+	}
+	return adjusted
+}
+
+func generateOrdersForAgent(cfg AgentConfig, step int, fundamentals []int64, rng *rand.Rand, seq *int64, acct AccountState, priceAggression int64) []Order {
 	orders := make([]Order, 0, cfg.Intensity*2)
 	current := fundamentals[step]
 	next := current
@@ -67,6 +113,11 @@ func generateOrdersForAgent(cfg AgentConfig, step int, fundamentals []int64, rng
 	appendOrder := func(side Side, price int64, amount int64) {
 		if amount <= 0 {
 			return
+		}
+		if side == Buy {
+			price += priceAggression
+		} else {
+			price -= priceAggression
 		}
 		*seq = *seq + 1
 		orders = append(orders, Order{
