@@ -29,9 +29,9 @@ This paper develops a benchmark-oriented layer on top of an existing ledger-firs
 The current paper makes four concrete contributions:
 \begin{enumerate}[leftmargin=*]
   \item It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-  \item It provides a seedable multi-agent order-flow generator with four agent classes, twelve benchmark scenarios, explicit agent/workload sweeps, and a full parameter grid over arbitrage intensity and maker quote width.
+  \item It provides a seedable multi-agent order-flow generator with four agent classes, twelve benchmark scenarios, explicit agent/workload sweeps, a full parameter grid over arbitrage intensity and maker quote width, and a three-dimensional parameter cube over retail intensity, informed intensity, and maker quote width.
   \item It reports single-seed and eight-seed aggregate benchmark results over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
-  \item It exposes a step-wise \texttt{Reset/Step/Observe/Metrics} API, a gym-style adapter with five runtime control channels, two adapter-driven policy baselines, documented observation/action/metrics schemas, and ablation suites for both market-structure toggles and agent/workload perturbations.
+  \item It exposes a step-wise \texttt{Reset/Step/Observe/Metrics} API, a gym-style adapter with five runtime control channels, three adapter-driven policy baselines, documented observation/action/metrics schemas, and ablation suites for both market-structure toggles and agent/workload perturbations.
 \end{enumerate}
 
 \section{Problem Setting}
@@ -92,7 +92,7 @@ The current benchmark suite contains twelve scenarios:
   \item \texttt{FBA-250ms-Stress}
 \end{enumerate}
 
-The benchmark now includes three heuristic adaptive-window baselines and three adapter-driven policy controllers. The burst-aware controller is hand-written. The learned baselines are a contextual linear bandit and a small two-layer policy network trained with a deterministic cross-entropy-style search over the same discrete action bundle set.
+The benchmark now includes three heuristic adaptive-window baselines and three adapter-driven policy controllers. The burst-aware controller is hand-written. The learned baselines are a contextual linear bandit and a small two-layer policy network with burst-aware supervised warm-start and gradient-based policy updates over the same discrete action bundle set.
 
 \section{Metrics}
 The environment reports four groups of signals:
@@ -128,8 +128,8 @@ All reported scenarios use the same simulator implementation and differ only in 
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,1348.2) +- (0,4.0) (SpeedBump 50,1294.3) +- (0,3.8) (FBA-100,1337.1) +- (0,4.0) (FBA-250,1337.6) +- (0,3.9) (FBA-500,1338.8) +- (0,3.2) (Adaptive 100-250,1337.6) +- (0,3.9) (Adaptive OF 100-250,1337.6) +- (0,3.9) (Adaptive QL 100-250,1337.6) +- (0,3.0) (Policy BurstAware,1338.9) +- (0,3.9) (Policy LearnedLinUCB,1337.6) +- (0,3.2) (Policy LearnedTinyMLP,1340.3) +- (0,6.0) (FBA-250 Stress,1769.3)};
-\addplot coordinates {(Immediate,813.1) +- (0,18.5) (SpeedBump 50,780.6) +- (0,17.7) (FBA-100,798.7) +- (0,21.7) (FBA-250,686.4) +- (0,17.8) (FBA-500,626.9) +- (0,19.7) (Adaptive 100-250,714.3) +- (0,22.2) (Adaptive OF 100-250,671.4) +- (0,15.8) (Adaptive QL 100-250,691.6) +- (0,28.5) (Policy BurstAware,670.8) +- (0,34.2) (Policy LearnedLinUCB,745.2) +- (0,22.0) (Policy LearnedTinyMLP,846.8) +- (0,23.7) (FBA-250 Stress,900.5)};
+\addplot coordinates {(Immediate,1348.2) +- (0,4.0) (SpeedBump 50,1294.3) +- (0,3.8) (FBA-100,1337.1) +- (0,4.0) (FBA-250,1337.6) +- (0,3.9) (FBA-500,1338.8) +- (0,3.2) (Adaptive 100-250,1337.6) +- (0,3.9) (Adaptive OF 100-250,1337.6) +- (0,3.9) (Adaptive QL 100-250,1337.6) +- (0,3.0) (Policy BurstAware,1338.9) +- (0,3.9) (Policy LearnedLinUCB,1337.6) +- (0,2.6) (Policy LearnedTinyMLP,1338.4) +- (0,6.0) (FBA-250 Stress,1769.3)};
+\addplot coordinates {(Immediate,813.1) +- (0,18.5) (SpeedBump 50,780.6) +- (0,17.7) (FBA-100,798.7) +- (0,21.7) (FBA-250,686.4) +- (0,17.8) (FBA-500,626.9) +- (0,19.7) (Adaptive 100-250,714.3) +- (0,22.2) (Adaptive OF 100-250,671.4) +- (0,15.8) (Adaptive QL 100-250,691.6) +- (0,28.5) (Policy BurstAware,670.8) +- (0,34.2) (Policy LearnedLinUCB,745.2) +- (0,28.4) (Policy LearnedTinyMLP,689.8) +- (0,23.7) (FBA-250 Stress,900.5)};
 \legend{Orders/s,Fills/s}
 \end{axis}
 \end{tikzpicture}
@@ -154,7 +154,7 @@ Adaptive-OrderFlow-100-250ms & 1337.6 & 671.4 & 90.0 & 406.3 \\
 Adaptive-QueueLoad-100-250ms & 1337.6 & 691.6 & 90.0 & 386.3 \\
 Policy-BurstAware-100-250ms & 1338.9 & 670.8 & 98.8 & 400.0 \\
 Policy-LearnedLinUCB-100-250ms & 1337.6 & 745.2 & 47.5 & 158.8 \\
-Policy-LearnedTinyMLP-100-250ms & 1340.3 & 846.8 & 57.5 & 185.0 \\
+Policy-LearnedTinyMLP-100-250ms & 1338.4 & 689.8 & 58.8 & 305.0 \\
 FBA-250ms-Stress & 1769.3 & 900.5 & 97.5 & 373.8 \\
 \bottomrule
 \end{tabular}
@@ -177,7 +177,7 @@ Adaptive-OrderFlow-100-250ms & 1.00 & 5.93 & 0.0244 & 746.75 \\
 Adaptive-QueueLoad-100-250ms & 1.00 & 4.88 & 0.0375 & 624.25 \\
 Policy-BurstAware-100-250ms & 1.00 & 5.31 & 0.0305 & 621.00 \\
 Policy-LearnedLinUCB-100-250ms & 1.00 & 5.94 & 0.0447 & 959.62 \\
-Policy-LearnedTinyMLP-100-250ms & 1.00 & 4.45 & 0.0339 & 740.25 \\
+Policy-LearnedTinyMLP-100-250ms & 1.00 & 8.86 & 0.0278 & 1229.00 \\
 FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
 \bottomrule
 \end{tabular}
@@ -200,9 +200,9 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,46.25) +- (0,3.35) (FBA-250,97.5) +- (0,4.58) (FBA-500,213.75) +- (0,24.48) (Adaptive 100-250,81.25) +- (0,6.42) (Adaptive OF 100-250,90.0) +- (0,4.9) (Adaptive QL 100-250,90.0) +- (0,4.15) (Policy BurstAware,98.75) +- (0,3.00) (Policy LearnedLinUCB,47.5) +- (0,3.00) (Policy LearnedTinyMLP,57.5) +- (0,5.75) (FBA-250 Stress,97.5)};
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,100.0) +- (0,0.0) (FBA-250,300.0) +- (0,56.08) (FBA-500,505.0) +- (0,30.40) (Adaptive 100-250,236.25) +- (0,10.92) (Adaptive OF 100-250,247.5) +- (0,6.71) (Adaptive QL 100-250,261.25) +- (0,47.63) (Policy BurstAware,263.75) +- (0,2.29) (Policy LearnedLinUCB,101.25) +- (0,3.35) (Policy LearnedTinyMLP,126.25) +- (0,21.76) (FBA-250 Stress,248.75)};
-\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,146.25) +- (0,35.83) (FBA-250,452.5) +- (0,16.16) (FBA-500,835.0) +- (0,84.37) (Adaptive 100-250,360.0) +- (0,69.38) (Adaptive OF 100-250,406.25) +- (0,46.22) (Adaptive QL 100-250,386.25) +- (0,57.25) (Policy BurstAware,400.0) +- (0,15.66) (Policy LearnedLinUCB,158.75) +- (0,36.34) (Policy LearnedTinyMLP,185.0) +- (0,70.24) (FBA-250 Stress,373.75)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,46.25) +- (0,3.35) (FBA-250,97.5) +- (0,4.58) (FBA-500,213.75) +- (0,24.48) (Adaptive 100-250,81.25) +- (0,6.42) (Adaptive OF 100-250,90.0) +- (0,7.75) (Adaptive QL 100-250,90.0) +- (0,4.15) (Policy BurstAware,98.75) +- (0,3.00) (Policy LearnedLinUCB,47.5) +- (0,2.29) (Policy LearnedTinyMLP,58.75) +- (0,5.75) (FBA-250 Stress,97.5)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,100.0) +- (0,0.0) (FBA-250,300.0) +- (0,56.08) (FBA-500,505.0) +- (0,30.40) (Adaptive 100-250,236.25) +- (0,10.92) (Adaptive OF 100-250,247.5) +- (0,44.83) (Adaptive QL 100-250,261.25) +- (0,47.63) (Policy BurstAware,263.75) +- (0,2.29) (Policy LearnedLinUCB,101.25) +- (0,37.32) (Policy LearnedTinyMLP,220.0) +- (0,21.76) (FBA-250 Stress,248.75)};
+\addplot coordinates {(Immediate,10.0) +- (0,0.0) (SpeedBump 50,60.0) +- (0,0.0) (FBA-100,146.25) +- (0,35.83) (FBA-250,452.5) +- (0,16.16) (FBA-500,835.0) +- (0,84.37) (Adaptive 100-250,360.0) +- (0,69.38) (Adaptive OF 100-250,406.25) +- (0,65.09) (Adaptive QL 100-250,386.25) +- (0,57.25) (Policy BurstAware,400.0) +- (0,15.66) (Policy LearnedLinUCB,158.75) +- (0,49.00) (Policy LearnedTinyMLP,305.0) +- (0,70.24) (FBA-250 Stress,373.75)};
 \legend{p50,p95,p99}
 \end{axis}
 \end{tikzpicture}
@@ -226,12 +226,12 @@ FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
     error bars/y dir=both,
     error bars/y explicit,
 ]
-\addplot coordinates {(Immediate,74.2) +- (0,7.8) (SpeedBump 50,74.2) +- (0,7.8) (FBA-100,57.1) +- (0,21.9) (FBA-250,27.3) +- (0,18.2) (FBA-500,34.1) +- (0,19.1) (Adaptive 100-250,37.5) +- (0,16.5) (Adaptive OF 100-250,24.4) +- (0,20.9) (Adaptive QL 100-250,37.5) +- (0,21.4) (Policy BurstAware,30.5) +- (0,22.3) (Policy LearnedLinUCB,44.7) +- (0,15.4) (Policy LearnedTinyMLP,33.9) +- (0,27.2) (FBA-250 Stress,26.9)};
-\addplot coordinates {(Immediate,67.0) +- (0,3.4) (SpeedBump 50,134.6) +- (0,5.9) (FBA-100,101.6) +- (0,4.4) (FBA-250,62.7) +- (0,10.8) (FBA-500,82.8) +- (0,29.4) (Adaptive 100-250,52.2) +- (0,8.6) (Adaptive OF 100-250,74.7) +- (0,11.5) (Adaptive QL 100-250,62.4) +- (0,9.4) (Policy BurstAware,62.1) +- (0,6.4) (Policy LearnedLinUCB,96.0) +- (0,9.7) (Policy LearnedTinyMLP,74.0) +- (0,23.6) (FBA-250 Stress,205.7)};
+\addplot coordinates {(Immediate,74.2) +- (0,7.8) (SpeedBump 50,74.2) +- (0,7.8) (FBA-100,57.1) +- (0,21.9) (FBA-250,27.3) +- (0,18.2) (FBA-500,34.1) +- (0,19.1) (Adaptive 100-250,37.5) +- (0,16.5) (Adaptive OF 100-250,24.4) +- (0,20.9) (Adaptive QL 100-250,37.5) +- (0,21.4) (Policy BurstAware,30.5) +- (0,22.3) (Policy LearnedLinUCB,44.7) +- (0,21.4) (Policy LearnedTinyMLP,27.8) +- (0,27.2) (FBA-250 Stress,26.9)};
+\addplot coordinates {(Immediate,67.0) +- (0,3.4) (SpeedBump 50,134.6) +- (0,5.9) (FBA-100,101.6) +- (0,4.4) (FBA-250,62.7) +- (0,10.8) (FBA-500,82.8) +- (0,29.4) (Adaptive 100-250,52.2) +- (0,8.6) (Adaptive OF 100-250,74.7) +- (0,11.5) (Adaptive QL 100-250,62.4) +- (0,9.4) (Policy BurstAware,62.1) +- (0,6.4) (Policy LearnedLinUCB,96.0) +- (0,10.9) (Policy LearnedTinyMLP,122.9) +- (0,23.6) (FBA-250 Stress,205.7)};
 \legend{Queue advantage x1000,Arbitrage profit / 10}
 \end{axis}
 \end{tikzpicture}
-\caption{Fairness-adjacent proxy metrics with 95\% confidence intervals. The learned LinUCB controller improves latency tails and fills, but not fairness-adjacent proxy scores, relative to the burst-aware policy.}
+\caption{Fairness-adjacent proxy metrics with 95\% confidence intervals. The gradient-trained TinyMLP controller lands closer to the batch-style queue proxy than LinUCB, but at substantially higher impact and arbitrage-profit proxy.}
 \end{figure}
 
 \subsection{Observed Tradeoffs}
@@ -243,11 +243,11 @@ Second, the $50$ millisecond speed-bump baseline introduces a fixed $60$ millise
 
 Third, the $250$ millisecond batch regime lowers the queue-priority-advantage proxy to $0.0273$, below immediate execution ($0.0742$), the speed-bump baseline ($0.0742$), and the $100$ millisecond batch regime ($0.0571$). The balanced adaptive heuristic settles around a mean window of $207.14$ milliseconds and lowers the arbitrage-profit proxy to $522.00$, below both fixed $100$ and fixed $250$ millisecond batching.
 
-Fourth, the controller comparison now surfaces an internal benchmark tradeoff. The burst-aware controller saturates at a $250$ millisecond mean window and lands at lower queue-priority advantage ($0.0305$) and lower arbitrage-profit proxy ($621.00$). The learned LinUCB controller collapses to a fast $100$ millisecond control profile, improving fills to $745.24$ per second and reducing p99 to $158.75$ milliseconds, but giving back fairness-adjacent proxy scores ($0.0447$, $959.62$). The learned TinyMLP controller settles at a moderate $130$ millisecond mean window, pushes fills to $846.83$ per second, and keeps queue advantage ($0.0339$) and arbitrage-profit proxy ($740.25$) materially closer to the burst-aware controller than LinUCB. This is a stronger benchmark result: a modest policy network can improve throughput and tail behavior without paying the full fairness-adjacent penalty of the linear bandit.
+Fourth, the controller comparison now surfaces a sharper tradeoff. The burst-aware controller saturates at a $250$ millisecond mean window and lands at lower queue-priority advantage ($0.0305$) and lower arbitrage-profit proxy ($621.00$). The learned LinUCB controller collapses to a fast $100$ millisecond control profile, improving fills to $745.24$ per second and reducing p99 to $158.75$ milliseconds, but giving back fairness-adjacent proxy scores ($0.0447$, $959.62$). The gradient-trained TinyMLP controller shifts to a slower $200$ millisecond mean window. It only modestly improves fills over burst-aware ($689.78$ versus $670.83$) and cuts p99 to $305.00$ milliseconds, but it also drives impact to $8.86$ and arbitrage-profit proxy to $1229.00$. The updated result is still useful for the benchmark line because it shows that stronger controller optimization does not automatically improve impact or fairness-adjacent outcomes.
 
 The stress scenario increases throughput to $1769.25$ orders per second and $900.50$ fills per second. It also increases the arbitrage-profit proxy to $2057.00$, which shows that higher activity does not automatically imply improved fairness-adjacent outcomes.
 
-Across all $11 \times 8 = 88$ aggregate runs, the environment reports zero negative-balance violations and zero conservation breaches.
+Across all $12 \times 8 = 96$ aggregate runs, the environment reports zero negative-balance violations and zero conservation breaches.
 
 \subsection{Ablation Snapshots}
 We generate a targeted market-structure ablation suite over seeds $[13, 17, 19, 23]$ for a stressed constrained $250$ millisecond batch regime. Relaxing risk limits increases throughput from $1190.48$ to $1770.24$ orders per second and removes all risk rejections, but it also increases the arbitrage-profit proxy from $685.25$ to $2198.50$. Randomizing tie-breaks leaves throughput roughly unchanged while worsening p99 latency from $320.00$ to $402.50$ milliseconds. Disabling settlement checks does not change throughput in this setup, indicating that invariant enforcement is not the dominant bottleneck for the present benchmark scale.
@@ -256,20 +256,22 @@ We also generate an agent/workload sweep over seeds $[43, 47, 53, 59]$. Removing
 
 Finally, we expose a full $4 \times 3$ parameter grid over arbitrageur intensity multipliers $\{0,1,2,3\}$ and maker quote-width multipliers $\{1,2,3\}$, evaluated over seeds $[61,67,71,73]$. Removing arbitrageurs collapses the arbitrage-profit proxy to zero across the entire first row and flips queue advantage strongly negative. Increasing arbitrage intensity raises throughput and arbitrage-profit proxy, reaching $2151.00$ in the $(3,3)$ cell. Wider maker quotes increase p99 tails and suppress fills, especially once arbitrage pressure is elevated.
 
+We additionally expose a full $3 \times 3 \times 3$ parameter cube over retail-intensity multipliers $\{1,2,3\}$, informed-intensity multipliers $\{1,2,3\}$, and maker quote-width multipliers $\{1,2,3\}$, evaluated over seeds $[79,83,89,97]$. Retail intensity is the dominant throughput lever in this cube, lifting orders per second from $1339.68$ in the $(1,1,1)$ cell to $2132.54$ in $(3,1,1)$. Informed intensity adds fills on top of that retail pressure, reaching $2292.86$ orders per second and $1159.92$ fills per second in $(3,3,1)$. Wider maker quotes suppress fills throughout the cube; for example, under $(3,3,\cdot)$, fills fall from $1159.92$ at maker width $1$ to $956.75$ at maker width $3$. The cube keeps arbitrage-profit proxy in a much tighter band than the arbitrage-specific grid, which helps separate throughput stress from latency-arbitrage stress.
+
 \section{Limitations}
 The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
 \begin{itemize}[leftmargin=*]
   \item proxy fairness metrics rather than richer behavioral or welfare metrics
   \item the adapter action space is still narrow compared with a full exchange-control environment
-  \item the strongest learned controller is still a small policy network trained with deterministic search rather than a richer gradient-based or offline-RL setup
-  \item the current grids cover arbitrage intensity and maker quote width, but not yet full parameter grids over retail or informed-flow regimes
+  \item the strongest learned controller is still a small gradient-trained policy network rather than a richer offline-RL or larger policy-learning setup
+  \item the current benchmark separates arbitrage-intensity sweeps from the retail / informed / maker cube instead of exposing a unified higher-dimensional stress surface
 \end{itemize}
 
 \section{Related Work}
 The benchmark is motivated directly by frequent-batch-auction market design \cite{budish2015fba}. Its benchmark-oriented framing is also aligned with the broader machine-learning practice of exposing reusable environments rather than only single-task scripts \cite{brockman2016gym}. The present contribution sits between those two traditions: it is neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware environment that aims to make later learning or control work more credible.
 
 \section{Conclusion}
-This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, adapter-driven policy, and batch matching regimes, while preserving executable settlement invariants. With the addition of a small learned policy network and a full arbitrage-intensity / maker-width parameter grid, the benchmark now supports stronger controller comparisons and richer appendix-level sensitivity analysis. The next stage is to replace the current TinyMLP baseline with a stronger learned controller, broaden the action surface further, and extend the parameter grids into retail and informed-flow regimes.
+This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate, speed-bump, adaptive, adapter-driven policy, and batch matching regimes, while preserving executable settlement invariants. With the addition of a gradient-trained policy network, a full arbitrage-intensity / maker-width parameter grid, and a three-dimensional retail / informed / maker cube, the benchmark now supports stronger controller comparisons and richer appendix-level sensitivity analysis. The next stage is to replace the current TinyMLP baseline with a stronger learned controller, broaden the action surface further, and merge the separate stress surfaces into a unified higher-dimensional sweep.
 
 \appendix
 \section{Appendix Tables}
@@ -319,6 +321,21 @@ Arb Mult. & Maker Width & Orders/s & p99 (ms) & Arb Profit \\
 \bottomrule
 \end{tabular}
 \caption{Selected cells from the arbitrage-intensity / maker-width parameter grid.}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrrrr}
+\toprule
+Retail & Informed & Maker Width & Orders/s & Fills/s & Arb Profit \\
+\midrule
+1 & 1 & 1 & 1339.68 & 650.60 & 508.50 \\
+1 & 3 & 1 & 1502.18 & 742.66 & 445.75 \\
+3 & 1 & 1 & 2132.54 & 1049.40 & 549.25 \\
+3 & 3 & 3 & 2292.86 & 956.75 & 461.75 \\
+\bottomrule
+\end{tabular}
+\caption{Selected cells from the retail / informed / maker parameter cube. Full slice figures are provided in the repository appendix.}
 \end{table}
 
 \bibliographystyle{plain}

@@ -136,6 +136,6 @@ The current observation features used by the learned controllers are:
 
 `Policy-LearnedLinUCB-100-250ms` uses a contextual linear bandit over discrete action bundles.
 
-`Policy-LearnedTinyMLP-100-250ms` uses a small two-layer policy network trained with a deterministic cross-entropy-style search procedure over the same discrete action set.
+`Policy-LearnedTinyMLP-100-250ms` uses a small two-layer policy network with a burst-aware supervised warm-start and gradient-based policy updates over the same discrete action set.
 
 These are still lightweight learned baselines. They are intended as benchmark-control references, not as claims of state-of-the-art policy learning.

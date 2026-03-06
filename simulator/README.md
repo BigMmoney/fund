@@ -17,6 +17,9 @@ Scope:
 - schema documentation in `docs/neurips_track/ENVIRONMENT_SCHEMA.md`
 - mechanism ablations and agent/workload ablations
 - parameter-grid sweeps over arbitrage intensity and maker quote width
+- parameter-cube sweeps over retail intensity, informed intensity, and maker quote width
+
+The current TinyMLP controller is no longer search-only. It uses a burst-aware supervised warm-start followed by gradient-based policy updates over the discrete adapter action bundle.
 
 Key outputs:
 
@@ -27,6 +30,7 @@ Key outputs:
 - `docs/benchmarks/simulator_ablation_profile.*`
 - `docs/benchmarks/simulator_agent_ablation_profile.*`
 - `docs/benchmarks/simulator_parameter_grid_profile.*`
+- `docs/benchmarks/simulator_parameter_cube_profile.*`
 
 To generate artifacts:
 
@@ -45,4 +49,9 @@ go test ./simulator -run TestGenerateSimulatorAgentAblationArtifacts -v
 
 $env:RUN_SIM_GRID="1"
 go test ./simulator -run TestGenerateSimulatorParameterGridArtifacts -v
+
+$env:RUN_SIM_CUBE="1"
+go test ./simulator -run TestGenerateSimulatorParameterCubeArtifacts -v
+
+python scripts/generate_neurips_figures.py
 ```

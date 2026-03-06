@@ -127,16 +127,16 @@
 <line class="err" x1="765.4" y1="317.4" x2="779.4" y2="317.4"/>
 <text class="value" x="772.4" y="288.6" text-anchor="middle">96.0</text>
 <text class="label" x="762.9" y="478" text-anchor="middle">Policy-LearnedLinUCB-100-250ms</text>
-<rect x="810.1" y="399.8" width="18.9" height="50.2" fill="#a78bfa" rx="8"/>
-<line class="err" x1="819.6" y1="377.0" x2="819.6" y2="422.7"/>
-<line class="err" x1="812.6" y1="377.0" x2="826.6" y2="377.0"/>
-<line class="err" x1="812.6" y1="422.7" x2="826.6" y2="422.7"/>
-<text class="value" x="819.6" y="367.0" text-anchor="middle">33.9</text>
-<rect x="833.7" y="340.5" width="18.9" height="109.5" fill="#f472b6" rx="8"/>
-<line class="err" x1="843.2" y1="326.2" x2="843.2" y2="354.7"/>
-<line class="err" x1="836.2" y1="326.2" x2="850.2" y2="326.2"/>
-<line class="err" x1="836.2" y1="354.7" x2="850.2" y2="354.7"/>
-<text class="value" x="843.2" y="316.2" text-anchor="middle">74.0</text>
+<rect x="810.1" y="408.9" width="18.9" height="41.1" fill="#a78bfa" rx="8"/>
+<line class="err" x1="819.6" y1="377.2" x2="819.6" y2="440.6"/>
+<line class="err" x1="812.6" y1="377.2" x2="826.6" y2="377.2"/>
+<line class="err" x1="812.6" y1="440.6" x2="826.6" y2="440.6"/>
+<text class="value" x="819.6" y="367.2" text-anchor="middle">27.8</text>
+<rect x="833.7" y="268.1" width="18.9" height="181.9" fill="#f472b6" rx="8"/>
+<line class="err" x1="843.2" y1="252.0" x2="843.2" y2="284.2"/>
+<line class="err" x1="836.2" y1="252.0" x2="850.2" y2="252.0"/>
+<line class="err" x1="836.2" y1="284.2" x2="850.2" y2="284.2"/>
+<text class="value" x="843.2" y="242.0" text-anchor="middle">122.9</text>
 <text class="label" x="833.7" y="478" text-anchor="middle">Policy-LearnedTinyMLP-100-250ms</text>
 <rect x="881.0" y="410.1" width="18.9" height="39.9" fill="#a78bfa" rx="8"/>
 <line class="err" x1="890.4" y1="369.8" x2="890.4" y2="450.0"/>

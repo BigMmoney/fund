@@ -109,6 +109,14 @@ type tinyMLPModel struct {
 	TrainScore float64
 }
 
+type policyStepSample struct {
+	features []float64
+	hidden   []float64
+	probs    []float64
+	action   int
+	reward   float64
+}
+
 var learnedPolicyCache = struct {
 	sync.Mutex
 	linucb map[string]learnedLinUCBPolicy
@@ -450,69 +458,17 @@ func cachedTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
 }
 
 func trainTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
-	trainingSeeds := []int64{101, 103, 107, 109}
+	trainingSeeds := []int64{101, 103, 107, 109, 113, 127}
 	spec := NewAdapter(cfg).ActionSpec()
 	actions := candidateBanditActions(spec)
 	inputDim := len(observationFeatures(Observation{}))
 	hiddenDim := 8
-	paramCount := inputDim*hiddenDim + hiddenDim + hiddenDim*len(actions) + len(actions)
-	mean := make([]float64, paramCount)
-	std := make([]float64, paramCount)
-	for idx := range std {
-		std[idx] = 0.35
-	}
 	rng := rand.New(rand.NewSource(trainingRandomSeed(cfg)))
-	type candidate struct {
-		params []float64
-		score  float64
-	}
-	bestScore := math.Inf(-1)
-	bestParams := append([]float64(nil), mean...)
-	const (
-		population = 18
-		elites     = 5
-		iterations = 5
-	)
-	for iter := 0; iter < iterations; iter++ {
-		candidates := make([]candidate, 0, population)
-		for sample := 0; sample < population; sample++ {
-			params := make([]float64, paramCount)
-			for idx := range params {
-				params[idx] = mean[idx] + std[idx]*rng.NormFloat64()
-			}
-			score := evaluateTinyMLPParams(cfg, actions, inputDim, hiddenDim, params, trainingSeeds)
-			candidates = append(candidates, candidate{params: params, score: score})
-			if score > bestScore {
-				bestScore = score
-				bestParams = append([]float64(nil), params...)
-			}
-		}
-		sort.Slice(candidates, func(i, j int) bool {
-			return candidates[i].score > candidates[j].score
-		})
-		for idx := range mean {
-			mean[idx] = 0
-		}
-		for _, elite := range candidates[:elites] {
-			for idx := range mean {
-				mean[idx] += elite.params[idx]
-			}
-		}
-		for idx := range mean {
-			mean[idx] /= float64(elites)
-		}
-		for idx := range std {
-			variance := 0.0
-			for _, elite := range candidates[:elites] {
-				delta := elite.params[idx] - mean[idx]
-				variance += delta * delta
-			}
-			variance /= float64(elites)
-			std[idx] = math.Max(0.05, math.Sqrt(variance))
-		}
-	}
-	model := decodeTinyMLP(bestParams, inputDim, hiddenDim, actions)
-	model.TrainScore = bestScore
+	model := initTinyMLPModel(actions, inputDim, hiddenDim, rng)
+	supervisedFeatures, supervisedLabels := collectBurstAwareDataset(cfg, actions, trainingSeeds)
+	trainTinyMLPSupervised(&model, supervisedFeatures, supervisedLabels, 24, 0.035, 1e-4)
+	trainTinyMLPPolicyGradient(cfg, &model, trainingSeeds, rng, 36, 0.012, 0.97, 0.001)
+	model.TrainScore = evaluateTinyMLPModel(cfg, model, trainingSeeds)
 	return model
 }
 
@@ -587,8 +543,7 @@ func candidateBanditActions(spec ActionSpec) []learnedActionCandidate {
 	}
 }
 
-func evaluateTinyMLPParams(cfg ScenarioConfig, actions []learnedActionCandidate, inputDim, hiddenDim int, params []float64, seeds []int64) float64 {
-	model := decodeTinyMLP(params, inputDim, hiddenDim, actions)
+func evaluateTinyMLPModel(cfg ScenarioConfig, model tinyMLPModel, seeds []int64) float64 {
 	score := 0.0
 	for _, seed := range seeds {
 		trainingCfg := cfg
@@ -604,22 +559,24 @@ func evaluateTinyMLPParams(cfg ScenarioConfig, actions []learnedActionCandidate,
 	return score / float64(len(seeds))
 }
 
-func decodeTinyMLP(params []float64, inputDim, hiddenDim int, actions []learnedActionCandidate) tinyMLPModel {
-	offset := 0
+func initTinyMLPModel(actions []learnedActionCandidate, inputDim, hiddenDim int, rng *rand.Rand) tinyMLPModel {
 	w1 := make([][]float64, hiddenDim)
 	for h := 0; h < hiddenDim; h++ {
-		w1[h] = append([]float64(nil), params[offset:offset+inputDim]...)
-		offset += inputDim
+		w1[h] = make([]float64, inputDim)
+		for i := 0; i < inputDim; i++ {
+			w1[h][i] = rng.NormFloat64() * 0.08
+		}
 	}
-	b1 := append([]float64(nil), params[offset:offset+hiddenDim]...)
-	offset += hiddenDim
+	b1 := make([]float64, hiddenDim)
 	outputDim := len(actions)
 	w2 := make([][]float64, outputDim)
 	for out := 0; out < outputDim; out++ {
-		w2[out] = append([]float64(nil), params[offset:offset+hiddenDim]...)
-		offset += hiddenDim
+		w2[out] = make([]float64, hiddenDim)
+		for h := 0; h < hiddenDim; h++ {
+			w2[out][h] = rng.NormFloat64() * 0.08
+		}
 	}
-	b2 := append([]float64(nil), params[offset:offset+outputDim]...)
+	b2 := make([]float64, outputDim)
 	return tinyMLPModel{
 		Actions:   append([]learnedActionCandidate(nil), actions...),
 		InputDim:  inputDim,
@@ -629,6 +586,235 @@ func decodeTinyMLP(params []float64, inputDim, hiddenDim int, actions []learnedA
 		W2:        w2,
 		B2:        b2,
 	}
+}
+
+func collectBurstAwareDataset(cfg ScenarioConfig, actions []learnedActionCandidate, seeds []int64) ([][]float64, []int) {
+	features := make([][]float64, 0, len(seeds)*cfg.TotalSteps)
+	labels := make([]int, 0, len(seeds)*cfg.TotalSteps)
+	for _, seed := range seeds {
+		trainingCfg := cfg
+		trainingCfg.Seed = seed
+		adapter := NewAdapter(trainingCfg)
+		timestep := adapter.Reset()
+		spec := adapter.ActionSpec()
+		for !timestep.Done {
+			target := burstAwareAction(spec, timestep.Observation)
+			features = append(features, observationFeatures(timestep.Observation))
+			labels = append(labels, nearestCandidateIndex(spec, target, actions))
+			timestep = adapter.Step(target)
+		}
+	}
+	return features, labels
+}
+
+func trainTinyMLPSupervised(model *tinyMLPModel, features [][]float64, labels []int, epochs int, lr, l2 float64) {
+	for epoch := 0; epoch < epochs; epoch++ {
+		for idx, feature := range features {
+			hidden, logits, probs := forwardTinyMLP(*model, feature)
+			_ = logits
+			target := labels[idx]
+			dlogits := make([]float64, len(probs))
+			for out := range probs {
+				dlogits[out] = -probs[out]
+			}
+			dlogits[target] += 1.0
+			applyTinyMLPGradients(model, feature, hidden, dlogits, lr, l2)
+		}
+	}
+}
+
+func trainTinyMLPPolicyGradient(cfg ScenarioConfig, model *tinyMLPModel, seeds []int64, rng *rand.Rand, episodes int, lr, gamma, l2 float64) {
+	for episode := 0; episode < episodes; episode++ {
+		trainingCfg := cfg
+		trainingCfg.Seed = seeds[episode%len(seeds)]
+		adapter := NewAdapter(trainingCfg)
+		timestep := adapter.Reset()
+		trajectory := make([]policyStepSample, 0, trainingCfg.TotalSteps)
+		for !timestep.Done {
+			features := observationFeatures(timestep.Observation)
+			hidden, _, probs := forwardTinyMLP(*model, features)
+			actionIdx := sampleCategorical(probs, rng)
+			timestep = adapter.Step(model.Actions[actionIdx].Action)
+			trajectory = append(trajectory, policyStepSample{
+				features: append([]float64(nil), features...),
+				hidden:   append([]float64(nil), hidden...),
+				probs:    append([]float64(nil), probs...),
+				action:   actionIdx,
+				reward:   timestep.Reward,
+			})
+		}
+		returns := discountedReturns(trajectory, gamma)
+		mean, std := meanStd(returns)
+		for idx, sample := range trajectory {
+			advantage := returns[idx] - mean
+			if std > 1e-9 {
+				advantage /= std
+			}
+			if advantage > 4 {
+				advantage = 4
+			}
+			if advantage < -4 {
+				advantage = -4
+			}
+			dlogits := make([]float64, len(sample.probs))
+			for out := range sample.probs {
+				dlogits[out] = -sample.probs[out] * advantage
+			}
+			dlogits[sample.action] += advantage
+			applyTinyMLPGradients(model, sample.features, sample.hidden, dlogits, lr, l2)
+		}
+	}
+}
+
+func discountedReturns(trajectory []policyStepSample, gamma float64) []float64 {
+	returns := make([]float64, len(trajectory))
+	running := 0.0
+	for idx := len(trajectory) - 1; idx >= 0; idx-- {
+		running = trajectory[idx].reward + gamma*running
+		returns[idx] = running
+	}
+	return returns
+}
+
+func nearestCandidateIndex(spec ActionSpec, target ControlAction, actions []learnedActionCandidate) int {
+	bestIdx := 0
+	bestDistance := math.Inf(1)
+	for idx, candidate := range actions {
+		distance := actionDistance(spec, target, candidate.Action)
+		if distance < bestDistance {
+			bestDistance = distance
+			bestIdx = idx
+		}
+	}
+	return bestIdx
+}
+
+func actionDistance(spec ActionSpec, left, right ControlAction) float64 {
+	distance := 0.0
+	if spec.SupportsBatchWindowControl {
+		distance += math.Pow(float64(readIntAction(left.TargetBatchWindowSteps, spec.MinBatchWindowSteps)-readIntAction(right.TargetBatchWindowSteps, spec.MinBatchWindowSteps))/float64(maxInt(1, spec.MaxBatchWindowSteps)), 2)
+	}
+	if spec.SupportsRiskLimitScale {
+		distance += math.Pow(readFloatAction(left.RiskLimitScale, 1.0)-readFloatAction(right.RiskLimitScale, 1.0), 2)
+	}
+	if spec.SupportsTieBreakToggle && readBoolAction(left.RandomizeTieBreak) != readBoolAction(right.RandomizeTieBreak) {
+		distance += 1.0
+	}
+	if spec.SupportsReleaseCadence {
+		distance += math.Pow(float64(readIntAction(left.ReleaseCadenceSteps, 0)-readIntAction(right.ReleaseCadenceSteps, 0))/float64(maxInt(1, spec.MaxReleaseCadenceSteps)), 2)
+	}
+	if spec.SupportsPriceAggressionBias {
+		distance += math.Pow(float64(readInt64Action(left.PriceAggressionBias, 0)-readInt64Action(right.PriceAggressionBias, 0))/float64(maxInt64(1, absInt64(spec.MaxPriceAggressionBias))), 2)
+	}
+	return distance
+}
+
+func readIntAction(value *int, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func readFloatAction(value *float64, fallback float64) float64 {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func readBoolAction(value *bool) bool {
+	if value == nil {
+		return false
+	}
+	return *value
+}
+
+func readInt64Action(value *int64, fallback int64) int64 {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func forwardTinyMLP(model tinyMLPModel, features []float64) ([]float64, []float64, []float64) {
+	hidden := make([]float64, model.HiddenDim)
+	for h := 0; h < model.HiddenDim; h++ {
+		sum := model.B1[h]
+		for i := 0; i < model.InputDim; i++ {
+			sum += model.W1[h][i] * features[i]
+		}
+		hidden[h] = math.Tanh(sum)
+	}
+	logits := make([]float64, len(model.Actions))
+	for out := range model.Actions {
+		score := model.B2[out]
+		for h := 0; h < model.HiddenDim; h++ {
+			score += model.W2[out][h] * hidden[h]
+		}
+		logits[out] = score
+	}
+	return hidden, logits, softmax(logits)
+}
+
+func applyTinyMLPGradients(model *tinyMLPModel, features, hidden, dlogits []float64, lr, l2 float64) {
+	hiddenGrad := make([]float64, model.HiddenDim)
+	for h := 0; h < model.HiddenDim; h++ {
+		acc := 0.0
+		for out := range model.Actions {
+			acc += model.W2[out][h] * dlogits[out]
+		}
+		hiddenGrad[h] = (1 - hidden[h]*hidden[h]) * acc
+	}
+	for out := range model.Actions {
+		for h := 0; h < model.HiddenDim; h++ {
+			model.W2[out][h] = model.W2[out][h]*(1-lr*l2) + lr*dlogits[out]*hidden[h]
+		}
+		model.B2[out] += lr * dlogits[out]
+	}
+	for h := 0; h < model.HiddenDim; h++ {
+		for i := 0; i < model.InputDim; i++ {
+			model.W1[h][i] = model.W1[h][i]*(1-lr*l2) + lr*hiddenGrad[h]*features[i]
+		}
+		model.B1[h] += lr * hiddenGrad[h]
+	}
+}
+
+func softmax(logits []float64) []float64 {
+	maxLogit := logits[0]
+	for _, value := range logits[1:] {
+		if value > maxLogit {
+			maxLogit = value
+		}
+	}
+	probs := make([]float64, len(logits))
+	sum := 0.0
+	for idx, value := range logits {
+		probs[idx] = math.Exp(value - maxLogit)
+		sum += probs[idx]
+	}
+	if sum <= 0 {
+		for idx := range probs {
+			probs[idx] = 1.0 / float64(len(probs))
+		}
+		return probs
+	}
+	for idx := range probs {
+		probs[idx] /= sum
+	}
+	return probs
+}
+
+func sampleCategorical(probs []float64, rng *rand.Rand) int {
+	target := rng.Float64()
+	cumulative := 0.0
+	for idx, prob := range probs {
+		cumulative += prob
+		if target <= cumulative {
+			return idx
+		}
+	}
+	return len(probs) - 1
 }
 
 func makeAction(window *int, risk *float64, tie *bool, cadence *int, price *int64) ControlAction {
@@ -666,22 +852,10 @@ func fallbackBanditAction(spec ActionSpec) ControlAction {
 }
 
 func chooseTinyMLPAction(spec ActionSpec, observation Observation, model tinyMLPModel) ControlAction {
-	features := observationFeatures(observation)
-	hidden := make([]float64, model.HiddenDim)
-	for h := 0; h < model.HiddenDim; h++ {
-		sum := model.B1[h]
-		for i := 0; i < model.InputDim; i++ {
-			sum += model.W1[h][i] * features[i]
-		}
-		hidden[h] = math.Tanh(sum)
-	}
+	_, logits, _ := forwardTinyMLP(model, observationFeatures(observation))
 	bestIdx := 0
 	bestScore := math.Inf(-1)
-	for out := range model.Actions {
-		score := model.B2[out]
-		for h := 0; h < model.HiddenDim; h++ {
-			score += model.W2[out][h] * hidden[h]
-		}
+	for out, score := range logits {
 		if score > bestScore {
 			bestScore = score
 			bestIdx = out
@@ -762,6 +936,20 @@ func clampActionInt64(v, minV, maxV int64) int64 {
 	}
 	if v > maxV {
 		return maxV
+	}
+	return v
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func absInt64(v int64) int64 {
+	if v < 0 {
+		return -v
 	}
 	return v
 }

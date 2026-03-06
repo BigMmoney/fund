@@ -9,6 +9,7 @@ DATA_PATH = ROOT / "docs" / "benchmarks" / "simulator_multiseed_profile.json"
 ABLATION_PATH = ROOT / "docs" / "benchmarks" / "simulator_ablation_profile.json"
 AGENT_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_agent_ablation_profile.json"
 GRID_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_grid_profile.json"
+CUBE_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_cube_profile.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
 
 
@@ -203,6 +204,7 @@ def generate() -> None:
     ablations = load_named_results(ABLATION_PATH)
     agent_sweeps = load_named_results(AGENT_SWEEP_PATH)
     grid_sweep = load_named_results(GRID_SWEEP_PATH)
+    cube_sweep = load_named_results(CUBE_SWEEP_PATH)
     categories = []
     for r in results:
         label = r["name"].replace("Immediate-Surrogate", "Immediate")
@@ -337,6 +339,42 @@ def generate() -> None:
         FIG_DIR / "grid_arb_heatmap.svg",
         "Rows: arbitrageur intensity, columns: maker quote width",
     )
+
+    retail_levels = sorted({r["retail_intensity_multiplier"] for r in cube_sweep})
+    informed_levels = sorted({r["informed_intensity_multiplier"] for r in cube_sweep})
+    maker_levels = sorted({r["maker_quote_width_multiplier"] for r in cube_sweep})
+    for retail in retail_levels:
+        cube_slice = [r for r in cube_sweep if r["retail_intensity_multiplier"] == retail]
+        cube_p99 = {
+            (r["informed_intensity_multiplier"], r["maker_quote_width_multiplier"]): (
+                r["mean_p99_latency_ms"],
+                r["ci95_p99_latency_ms"],
+            )
+            for r in cube_slice
+        }
+        cube_arb = {
+            (r["informed_intensity_multiplier"], r["maker_quote_width_multiplier"]): (
+                r["mean_latency_arbitrage_profit"],
+                r["ci95_latency_arbitrage_profit"],
+            )
+            for r in cube_slice
+        }
+        heatmap_chart(
+            f"Parameter Cube: p99 Heatmap (Retail x{retail})",
+            cube_p99,
+            maker_levels,
+            informed_levels,
+            FIG_DIR / f"cube_p99_retail{retail}.svg",
+            "Rows: informed-flow intensity, columns: maker quote width",
+        )
+        heatmap_chart(
+            f"Parameter Cube: Arbitrage Heatmap (Retail x{retail})",
+            cube_arb,
+            maker_levels,
+            informed_levels,
+            FIG_DIR / f"cube_arb_retail{retail}.svg",
+            "Rows: informed-flow intensity, columns: maker quote width",
+        )
 
 
 if __name__ == "__main__":

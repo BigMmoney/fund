@@ -87,6 +87,24 @@ func AdjustClassQuoteWidth(pop []AgentConfig, class AgentClass, delta int64) []A
 	return adjusted
 }
 
+func ScaleClassQuoteWidth(pop []AgentConfig, class AgentClass, numerator, denominator int) []AgentConfig {
+	if denominator <= 0 {
+		denominator = 1
+	}
+	scaled := make([]AgentConfig, 0, len(pop))
+	for _, agent := range pop {
+		if agent.Class == class {
+			next := int64((int(agent.QuoteWidth) * numerator) / denominator)
+			if next < 1 {
+				next = 1
+			}
+			agent.QuoteWidth = next
+		}
+		scaled = append(scaled, agent)
+	}
+	return scaled
+}
+
 func AdjustClassBaseSize(pop []AgentConfig, class AgentClass, delta int64) []AgentConfig {
 	adjusted := make([]AgentConfig, 0, len(pop))
 	for _, agent := range pop {
