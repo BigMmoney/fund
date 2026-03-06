@@ -6,6 +6,7 @@
 \usepackage{hyperref}
 \usepackage{booktabs}
 \usepackage{enumitem}
+\usepackage{amsmath}
 
 \title{A Ledger-Aware Benchmark for Market Infrastructure under Frequent Batch Auctions}
 \author{Author Name \\ Institution \\ \texttt{email@example.com}}
@@ -15,35 +16,140 @@
 \maketitle
 
 \begin{abstract}
-We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs.
+We present a benchmark-oriented extension of a ledger-first market infrastructure prototype for studying market-design and execution behavior under settlement and risk constraints. The environment combines seedable agent-based order flow, configurable immediate and frequent-batch-auction matching regimes, double-entry style account state transitions, and deterministic safety checks for conservation and non-negativity. We expose reproducible benchmark tasks that compare latency, throughput, spread, price impact, queue-priority advantage, and latency-arbitrage profit across market designs. In the current implementation, all generated scenarios preserve settlement invariants, while batch-window changes induce clear latency and market-quality tradeoffs. The result is a benchmark draft for market-infrastructure research that is separate from the original systems-paper line and is intended as a foundation for stronger benchmark-style evaluation.
 \end{abstract}
 
 \section{Introduction}
-This paper is a parallel NeurIPS-track benchmark line built on top of an existing market-infrastructure systems prototype. The objective is not to replace the original systems paper, but to provide a reusable evaluation environment for market-design and execution-policy studies under ledger-aware settlement constraints. The benchmark is motivated by frequent-batch-auction market-design work that frames batching as a response to latency-driven market distortions \cite{budish2015fba}.
+Electronic markets are shaped jointly by matching rules, latency structure, and settlement semantics. Market-design work on frequent batch auctions argues that short batching windows can reduce some latency-driven distortions in continuous markets \cite{budish2015fba}. In practice, however, many evaluation artifacts study matching rules in isolation and do not model the settlement layer, replay behavior, or safety checks that an actual market stack must satisfy. That omission matters because execution quality can improve in a simulator while the corresponding state transitions still violate conservation or allow invalid account evolution.
 
-\section{Research Questions}
-We focus on three questions:
+This paper develops a benchmark-oriented layer on top of an existing ledger-first market-infrastructure prototype. The benchmark is not a replacement for the original systems paper. Instead, it is a separate evaluation track that asks a narrower question: can we measure market-design tradeoffs inside an environment that preserves explicit settlement invariants? Our current artifact implements seedable heterogeneous agents, immediate and fixed-window batch matching, deterministic account updates, and generated benchmark outputs that can be reproduced from the repository.
+
+The benchmark is motivated by a research gap between market-design arguments and reproducible infrastructure-aware evaluation. It is also informed by the broader benchmark culture in machine learning, where a reusable environment and a clear task interface often matter as much as a single model contribution \cite{brockman2016gym}. Our present contribution is not a new learning algorithm. It is a benchmark scaffold that exposes the right constraints for later policy-learning, control, or mechanism-comparison work.
+
+The current paper makes four concrete contributions:
 \begin{enumerate}[leftmargin=*]
-  \item How do immediate and frequent-batch-auction regimes differ in latency and fill behavior?
-  \item Can fairness-adjacent signals such as queue-priority advantage and latency-arbitrage profit be measured reproducibly?
-  \item Do settlement invariants hold under heterogeneous agent populations and stress scenarios?
+  \item It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
+  \item It provides a seedable multi-agent order-flow generator with four agent classes and five benchmark scenarios.
+  \item It reports single-seed and eight-seed aggregate benchmark results over throughput, latency, spread, price impact, queue-priority advantage, and arbitrage-profit proxies.
+  \item It documents current limitations and a direct upgrade path toward a stronger benchmark-paper submission.
 \end{enumerate}
 
-\section{Environment}
-The benchmark environment consists of seedable agent models, configurable matching modes, deterministic settlement application, and generated benchmark artifacts. The current implementation covers immediate execution, fixed batch windows, and a stress scenario.
+\section{Problem Setting}
+We study a discrete-time environment in which a market state is advanced one simulator step at a time. At step $t$, the state is represented as
+\[
+s_t = (B_t, S_t, X_t, f_t),
+\]
+where $B_t$ and $S_t$ denote the current buy and sell books, $X_t$ is the vector of account states, and $f_t$ is the latent fundamental used by the synthetic order-flow generator. A scenario additionally fixes a matching mode, a batch-window size, risk thresholds, and a population of agents.
 
-\section{Metrics}
-We report:
+The benchmark focuses on the following research questions:
+\begin{enumerate}[leftmargin=*]
+  \item How do immediate execution and frequent-batch-auction execution differ in latency and fill behavior?
+  \item Can fairness-adjacent signals such as queue-priority advantage and latency-arbitrage profit be measured reproducibly under deterministic settlement semantics?
+  \item Do settlement invariants hold under heterogeneous agents and stress scenarios?
+\end{enumerate}
+
+The benchmark output is not a reward signal for a trained policy. Instead, it is a structured set of metrics that later work can use either as direct benchmark targets or as components in a downstream objective. This is deliberate: the current stage of the project aims to establish a stable evaluation layer before introducing adaptive control or learned market policies.
+
+\section{Benchmark Environment}
+\subsection{Core Components}
+The benchmark environment lives in the repository's \texttt{simulator/} package. It consists of:
 \begin{itemize}[leftmargin=*]
-  \item orders/s and fills/s
-  \item p50/p95/p99 latency
-  \item average spread and price impact
-  \item queue-priority advantage, execution dispersion, and arbitrage profit
-  \item settlement safety violations
+  \item scenario, order, fill, and result schemas
+  \item heterogeneous agent order generation
+  \item immediate and batch-clearing matching paths
+  \item deterministic settlement application
+  \item metric accumulation and artifact generation
 \end{itemize}
 
-\section{Current Results}
-\begin{table}[h]
+The environment is designed so that matching and settlement are not independent stages. Every fill is immediately translated into account updates, and every run is checked for safety conditions before benchmark artifacts are accepted. This design choice is the main difference between the present artifact and a lightweight matching-only simulator.
+
+\subsection{Determinism and Invariants}
+Each scenario is seeded. Given the same scenario configuration and seed, the environment is expected to produce the same accepted order counts, fill counts, and proxy metrics. The test suite includes a determinism regression for this requirement.
+
+The benchmark currently enforces three operational invariants:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Conservation}: total cash and total inventory across accounts remain constant over time.
+  \item \textbf{Non-negativity}: no account is allowed to end a fill application with negative cash or negative units.
+  \item \textbf{Deterministic replay}: seeded runs produce stable outputs for the same configuration.
+\end{enumerate}
+
+These are not theorem-level guarantees for every possible extension of the environment. They are executable safety properties of the current artifact, and they are checked as part of benchmark generation.
+
+\section{Agent Models}
+The present environment includes four agent classes:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Market makers}: quote on both sides around the current fundamental with configurable width and intensity.
+  \item \textbf{Latency arbitrageurs}: react to stale price information and attempt to exploit short-horizon dislocations.
+  \item \textbf{Retail traders}: submit noisier buy or sell orders with wider dispersion around the current reference level.
+  \item \textbf{Informed traders}: trade in the direction of the next-step fundamental when the generator exposes a directional signal.
+\end{itemize}
+
+These agents are intentionally simple. They are not meant to be realistic economic models of all order flow. Their purpose is to generate heterogeneous but controlled activity so that matching rules can be compared under a repeatable workload. The stress scenario extends the default population with additional retail and arbitrage activity to increase order intensity.
+
+\section{Tasks and Baselines}
+The current benchmark suite contains five scenarios:
+\begin{enumerate}[leftmargin=*]
+  \item \texttt{Immediate-Surrogate}
+  \item \texttt{FBA-100ms}
+  \item \texttt{FBA-250ms}
+  \item \texttt{FBA-500ms}
+  \item \texttt{FBA-250ms-Stress}
+\end{enumerate}
+
+The first scenario acts as a continuous-style surrogate. The next three fix batch windows at $100$, $250$, and $500$ milliseconds. The final scenario keeps the $250$ millisecond window while increasing the order-flow intensity. These scenarios are modest compared with a mature benchmark suite, but they are enough to expose first-order tradeoffs between latency, fill throughput, and fairness-adjacent proxy metrics.
+
+The benchmark still lacks two baselines that would materially strengthen the NeurIPS-track story:
+\begin{itemize}[leftmargin=*]
+  \item a speed-bump style baseline
+  \item an adaptive-window heuristic baseline
+\end{itemize}
+Those are the most important next additions for future work.
+
+\section{Metrics}
+The environment reports four groups of signals.
+
+\subsection{Systems Metrics}
+These metrics capture operational behavior:
+\begin{itemize}[leftmargin=*]
+  \item orders per second
+  \item fills per second
+  \item p50, p95, and p99 latency
+\end{itemize}
+
+\subsection{Market-Quality Metrics}
+The current artifact also measures:
+\begin{itemize}[leftmargin=*]
+  \item average spread
+  \item average price impact relative to the latent fundamental
+\end{itemize}
+
+\subsection{Fairness-Adjacent Proxies}
+The benchmark is not yet a full fairness-study environment, but it does expose:
+\begin{itemize}[leftmargin=*]
+  \item queue-priority advantage
+  \item latency-arbitrage profit
+  \item execution dispersion across agent classes
+\end{itemize}
+
+\subsection{Safety Metrics}
+Finally, the environment reports explicit safety failures:
+\begin{itemize}[leftmargin=*]
+  \item negative-balance violations
+  \item conservation breaches
+  \item risk rejections
+\end{itemize}
+
+\section{Experimental Setup}
+We report two result layers. The first is a single-seed reproducibility snapshot. The second is an eight-seed aggregate profile that is more appropriate for paper-facing discussion. The aggregate profile uses seeds
+\[
+[7, 11, 19, 23, 29, 31, 37, 41].
+\]
+
+All reported scenarios use the same simulator implementation and differ only in matching mode, batch-window size, seed, and population intensity. The current setup uses a discrete-time step duration of $10$ milliseconds. Fixed-window batch scenarios aggregate accepted orders until the configured window boundary and then clear them in batch. The immediate surrogate processes each accepted order against the current book as soon as it arrives.
+
+\section{Results}
+\subsection{Aggregate Summary}
+\begin{table}[t]
 \centering
 \begin{tabular}{lrrrr}
 \toprule
@@ -56,16 +162,53 @@ FBA-500ms & 1347.8 & 631.1 & 213.8 & 835.0 \\
 FBA-250ms-Stress & 1783.4 & 907.7 & 97.5 & 373.8 \\
 \bottomrule
 \end{tabular}
-\caption{Eight-seed aggregate simulator benchmark snapshot. All scenarios report zero conservation breaches and zero negative-balance violations.}
+\caption{Eight-seed aggregate summary. All runs report zero conservation breaches and zero negative-balance violations.}
 \end{table}
 
-The aggregate profile is generated from seeds $[7, 11, 19, 23, 29, 31, 37, 41]$. Under the current simulator, immediate execution retains the lowest latency profile, while longer batch windows produce materially worse tail latency. The $250\,ms$ batch regime reduces the queue-priority-advantage proxy relative to both immediate execution and the $100\,ms$ batch regime, while the stress scenario raises throughput and arbitrage-profit proxy simultaneously.
+\begin{table}[t]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Scenario & Spread & Impact & Queue Adv. & Arb Profit \\
+\midrule
+Immediate-Surrogate & 1.98 & 3.38 & 0.0742 & 669.62 \\
+FBA-100ms & 1.00 & 5.96 & 0.0571 & 1015.75 \\
+FBA-250ms & 1.00 & 5.36 & 0.0273 & 627.25 \\
+FBA-500ms & 1.00 & 5.08 & 0.0341 & 827.62 \\
+FBA-250ms-Stress & 1.00 & 5.35 & 0.0269 & 2057.00 \\
+\bottomrule
+\end{tabular}
+\caption{Aggregate market-quality and fairness-adjacent proxy metrics.}
+\end{table}
+
+\subsection{Observed Tradeoffs}
+Three measured observations are currently the most informative.
+
+First, immediate execution retains the lowest latency profile, with mean p50, p95, and p99 all equal to $10$ milliseconds under the present discrete-time environment. This is expected because the immediate surrogate does not accumulate orders across a multi-step batch horizon.
+
+Second, moving from immediate execution to fixed batch windows creates a clear latency tradeoff without materially changing mean order throughput in the non-stress scenarios. The $100$ millisecond batch already raises mean p99 latency to $146.25$ milliseconds, while the $500$ millisecond batch pushes mean p99 latency to $835.00$ milliseconds.
+
+Third, the $250$ millisecond batch regime lowers the queue-priority-advantage proxy to $0.0273$, below both immediate execution ($0.0742$) and the $100$ millisecond batch regime ($0.0571$). This does not prove fairness in a strong economic sense, but it does suggest that the benchmark is sensitive to mechanism-dependent priority effects.
+
+The stress scenario increases throughput to $1783.40$ orders per second and $907.70$ fills per second. It also increases the arbitrage-profit proxy to $2057.00$, which shows that higher activity does not automatically imply improved fairness-adjacent outcomes.
+
+Across all $5 \times 8 = 40$ aggregate runs, the environment reports zero negative-balance violations and zero conservation breaches. This is the most important infrastructure-facing result at the current stage: benchmark comparisons are being made without giving up basic settlement safety.
 
 \section{Limitations}
-The benchmark currently uses fixed policies and proxy fairness metrics. It now provides multi-seed aggregate reporting, but it does not yet provide adaptive execution baselines, confidence intervals, or richer market-impact simulation.
+The current artifact is still short of a strong top-tier benchmark submission. The most important limitations are:
+\begin{itemize}[leftmargin=*]
+  \item fixed policies only, with no learned or adaptive baselines
+  \item no confidence intervals or error-bar figures yet
+  \item proxy fairness metrics rather than richer behavioral or welfare metrics
+  \item no standardized \texttt{reset/step/observe/metrics} API for downstream learning agents
+  \item no ablation study on tie-breaking, risk thresholds, or settlement checks
+\end{itemize}
+
+\section{Related Work}
+The benchmark is motivated directly by frequent-batch-auction market design \cite{budish2015fba}. Its benchmark-oriented framing is also aligned with the broader machine-learning practice of exposing reusable environments rather than only single-task scripts \cite{brockman2016gym}. The present contribution sits between those two traditions: it is neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware environment that aims to make later learning or control work more credible.
 
 \section{Conclusion}
-This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line.
+This NeurIPS-track benchmark line establishes a reproducible, ledger-aware evaluation environment for market-design experiments without overwriting the original systems-paper line. The current results already show measurable latency and market-quality tradeoffs across immediate and batch matching regimes, while preserving executable settlement invariants. The next stage is clear: add stronger baselines, add confidence-interval and figure support, and expose a cleaner benchmark API so that the environment can support more serious benchmark or learning-oriented submissions.
 
 \bibliographystyle{plain}
 \bibliography{references}
