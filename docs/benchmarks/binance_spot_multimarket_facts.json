@@ -1,0 +1,621 @@
+{
+  "profile_name": "multimarket",
+  "summary": {
+    "symbol_count": 8,
+    "trade_count_total": 402755,
+    "spread_mean_range": [
+      9.999999999996123e-06,
+      0.010000000000090381
+    ],
+    "order_sign_lag1_range": [
+      0.2830934602500368,
+      0.8056482795151894
+    ],
+    "inter_arrival_mean_ms_range": [
+      125.88465506087503,
+      7808.869297610428
+    ],
+    "volatility_abs_lag1_range": [
+      0.05218148920046467,
+      0.3891675246194802
+    ],
+    "top_bucket_mean_impact_range": [
+      -0.0007538461538461842,
+      0.9717889187163845
+    ]
+  },
+  "symbols": [
+    {
+      "symbol": "ADAUSDT",
+      "trade_count": 5728,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 9.999999999998899e-05,
+        "median": 9.999999999998899e-05,
+        "p90": 9.999999999998899e-05
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 57150.762500000004,
+          "mean_ask_qty": 81728.0625
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 96929.78749999999,
+          "mean_ask_qty": 176668.775
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 166767.72499999998,
+          "mean_ask_qty": 194653.925
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 176792.92500000002,
+          "mean_ask_qty": 179805.8875
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 367289.13749999995,
+          "mean_ask_qty": 147066.525
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.2830934602500368,
+        "lag_5": 0.09995333165280652,
+        "lag_10": 0.08987691001697795
+      },
+      "inter_arrival_ms": {
+        "mean": 3771.606425702811,
+        "median": 1018.0,
+        "p90": 11185.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.3080732622190964,
+        "sq_return_lag_1": 0.1871963747289045
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": -2.359943977591029e-05,
+          "p90_signed_impact": 0.0001000000000000445
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": -1.3189113747383674e-05,
+          "p90_signed_impact": 0.0001000000000000445
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": 9.097270818754537e-07,
+          "p90_signed_impact": 0.00019999999999997797
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": 1.5826330532212813e-05,
+          "p90_signed_impact": 0.00019999999999997797
+        }
+      ]
+    },
+    {
+      "symbol": "AVAXUSDT",
+      "trade_count": 2763,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 0.009999999999999787,
+        "median": 0.009999999999999787,
+        "p90": 0.009999999999999787
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 4419.33375,
+          "mean_ask_qty": 5825.26125
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 19867.033750000002,
+          "mean_ask_qty": 9532.547499999999
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 27098.12,
+          "mean_ask_qty": 11304.729999999998
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 17154.19,
+          "mean_ask_qty": 30048.94
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 10835.51,
+          "mean_ask_qty": 8215.24
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.42756240870718654,
+        "lag_5": 0.1691840917884409,
+        "lag_10": 0.11024628139882515
+      },
+      "inter_arrival_ms": {
+        "mean": 7808.869297610428,
+        "median": 686.5,
+        "p90": 25000.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.05218148920046467,
+        "sq_return_lag_1": 0.011352332399284437
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": -0.0034014598540146063,
+          "p90_signed_impact": 0.0
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": -0.0012059238363892888,
+          "p90_signed_impact": 0.009999999999999787
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": 0.0,
+          "p90_signed_impact": 0.0
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": -0.0007538461538461842,
+          "p90_signed_impact": 0.009999999999999787
+        }
+      ]
+    },
+    {
+      "symbol": "BNBUSDT",
+      "trade_count": 38882,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 0.010000000000090381,
+        "median": 0.010000000000104592,
+        "p90": 0.010000000000104592
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 0.6779999999999998,
+          "mean_ask_qty": 30.053874999999998
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 0.058750000000000024,
+          "mean_ask_qty": 2.9386250000000005
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 0.72725,
+          "mean_ask_qty": 4.961375
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 2.9398750000000002,
+          "mean_ask_qty": 4.6385000000000005
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 0.035875,
+          "mean_ask_qty": 8.838750000000003
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.5693008256113151,
+        "lag_5": 0.4131375335006737,
+        "lag_10": 0.3082940151841223
+      },
+      "inter_arrival_ms": {
+        "mean": 555.5098891489416,
+        "median": 28.0,
+        "p90": 1777.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.29136128691624663,
+        "sq_return_lag_1": 0.19406413558744404
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": 0.016587969616095728,
+          "p90_signed_impact": 0.07999999999992724
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": 0.021322026971802677,
+          "p90_signed_impact": 0.07999999999992724
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": 0.01825246753246702,
+          "p90_signed_impact": 0.07000000000005002
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": 0.020329319748893734,
+          "p90_signed_impact": 0.08000000000004093
+        }
+      ]
+    },
+    {
+      "symbol": "BTCUSDT",
+      "trade_count": 171582,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 0.0099999999965803,
+        "median": 0.00999999999476131,
+        "p90": 0.00999999999476131
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 2.5596550000000002,
+          "mean_ask_qty": 0.14326
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 0.01000125,
+          "mean_ask_qty": 0.00053
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 0.0063187500000000014,
+          "mean_ask_qty": 0.00213375
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 0.12275375,
+          "mean_ask_qty": 0.00014000000000000001
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 0.11065625,
+          "mean_ask_qty": 0.00669625
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.6943970837528021,
+        "lag_5": 0.6014385804427627,
+        "lag_10": 0.5238506120237933
+      },
+      "inter_arrival_ms": {
+        "mean": 125.88465506087503,
+        "median": 0.0,
+        "p90": 427.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.2605113145123553,
+        "sq_return_lag_1": 0.12947797297864846
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": 1.553366738050198,
+          "p90_signed_impact": 3.400000000008731
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": 1.1643648852578772,
+          "p90_signed_impact": 3.179999999993015
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": 1.017065595532447,
+          "p90_signed_impact": 2.900000000008731
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": 0.9717889187163845,
+          "p90_signed_impact": 2.900000000008731
+        }
+      ]
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "trade_count": 13730,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 9.999999999996123e-06,
+        "median": 9.999999999996123e-06,
+        "p90": 9.999999999996123e-06
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 28053.125,
+          "mean_ask_qty": 152404.25
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 123095.375,
+          "mean_ask_qty": 176383.0
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 323930.125,
+          "mean_ask_qty": 319762.25
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 325725.625,
+          "mean_ask_qty": 585395.0
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 807546.875,
+          "mean_ask_qty": 351568.0
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.366890824475301,
+        "lag_5": 0.11250005744986924,
+        "lag_10": 0.056534383141505065
+      },
+      "inter_arrival_ms": {
+        "mean": 1572.9747978731152,
+        "median": 305.0,
+        "p90": 4686.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.3891675246194802,
+        "sq_return_lag_1": 0.16330400547177867
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": 6.45905420992128e-07,
+          "p90_signed_impact": 3.0000000000002247e-05
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": 1.2061338838100805e-06,
+          "p90_signed_impact": 3.0000000000002247e-05
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": 2.655976676384619e-06,
+          "p90_signed_impact": 3.0000000000002247e-05
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": 5.8321189157680545e-06,
+          "p90_signed_impact": 3.0000000000002247e-05
+        }
+      ]
+    },
+    {
+      "symbol": "ETHUSDT",
+      "trade_count": 117841,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 0.009999999999990905,
+        "median": 0.009999999999990905,
+        "p90": 0.009999999999990905
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 6.370799999999999,
+          "mean_ask_qty": 19.664137500000006
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 0.021325000000000004,
+          "mean_ask_qty": 0.3598375
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 0.35600000000000004,
+          "mean_ask_qty": 0.6660750000000001
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 0.6533,
+          "mean_ask_qty": 2.341425
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 0.0190125,
+          "mean_ask_qty": 0.0073
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.8056482795151894,
+        "lag_5": 0.6907073286543859,
+        "lag_10": 0.5895727146740821
+      },
+      "inter_arrival_ms": {
+        "mean": 183.24198065173115,
+        "median": 0.0,
+        "p90": 513.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.23654660218168386,
+        "sq_return_lag_1": 0.09100701468113895
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": 0.0635523106111945,
+          "p90_signed_impact": 0.11999999999989086
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": 0.06351809031556109,
+          "p90_signed_impact": 0.11000000000012733
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": 0.049474541198819215,
+          "p90_signed_impact": 0.10999999999989996
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": 0.047006252548591934,
+          "p90_signed_impact": 0.11000000000012733
+        }
+      ]
+    },
+    {
+      "symbol": "SOLUSDT",
+      "trade_count": 30387,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 0.009999999999990905,
+        "median": 0.009999999999990905,
+        "p90": 0.009999999999990905
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 404.31962500000003,
+          "mean_ask_qty": 331.23875000000004
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 581.6697499999999,
+          "mean_ask_qty": 683.3949999999999
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 688.7819999999999,
+          "mean_ask_qty": 1184.9641249999997
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 978.3604999999999,
+          "mean_ask_qty": 1260.38225
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 1563.383,
+          "mean_ask_qty": 1335.11475
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.3073248916914373,
+        "lag_5": 0.13784107969425535,
+        "lag_10": 0.07699623112384309
+      },
+      "inter_arrival_ms": {
+        "mean": 710.8383466069901,
+        "median": 280.5,
+        "p90": 2002.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.25652209378376056,
+        "sq_return_lag_1": 0.2023457477962423
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": -0.003372337628188202,
+          "p90_signed_impact": 0.010000000000005116
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": -0.001301080938570897,
+          "p90_signed_impact": 0.01999999999999602
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": -0.0010040848596651465,
+          "p90_signed_impact": 0.01999999999999602
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": 0.0052238020010532335,
+          "p90_signed_impact": 0.030000000000001137
+        }
+      ]
+    },
+    {
+      "symbol": "XRPUSDT",
+      "trade_count": 21842,
+      "kline_count": 360,
+      "depth_snapshot_count": 8,
+      "spread_distribution": {
+        "mean": 9.999999999998899e-05,
+        "median": 9.999999999998899e-05,
+        "p90": 9.999999999998899e-05
+      },
+      "depth_profile": [
+        {
+          "level": 1,
+          "mean_bid_qty": 6358.7625,
+          "mean_ask_qty": 42997.6375
+        },
+        {
+          "level": 2,
+          "mean_bid_qty": 7718.462499999999,
+          "mean_ask_qty": 33654.375
+        },
+        {
+          "level": 3,
+          "mean_bid_qty": 2608.2875000000004,
+          "mean_ask_qty": 45241.34999999999
+        },
+        {
+          "level": 4,
+          "mean_bid_qty": 44500.6125,
+          "mean_ask_qty": 69476.8
+        },
+        {
+          "level": 5,
+          "mean_bid_qty": 50246.987499999996,
+          "mean_ask_qty": 52057.9375
+        }
+      ],
+      "order_sign_autocorrelation": {
+        "lag_1": 0.3341410888571978,
+        "lag_5": 0.17722233416616262,
+        "lag_10": 0.1206916410193947
+      },
+      "inter_arrival_ms": {
+        "mean": 988.807655327137,
+        "median": 370.0,
+        "p90": 2903.0
+      },
+      "volatility_clustering": {
+        "abs_return_lag_1": 0.3392714674570579,
+        "sq_return_lag_1": 0.21268843826123765
+      },
+      "impact_curve": [
+        {
+          "bucket": "q1",
+          "mean_signed_impact": -2.672760511882777e-05,
+          "p90_signed_impact": 0.00019999999999997797
+        },
+        {
+          "bucket": "q2",
+          "mean_signed_impact": 1.5489080565240233e-05,
+          "p90_signed_impact": 0.00029999999999996696
+        },
+        {
+          "bucket": "q3",
+          "mean_signed_impact": 3.1829849651632596e-05,
+          "p90_signed_impact": 0.00029999999999996696
+        },
+        {
+          "bucket": "q4",
+          "mean_signed_impact": 8.37332844843389e-05,
+          "p90_signed_impact": 0.000300000000000189
+        }
+      ]
+    }
+  ]
+}

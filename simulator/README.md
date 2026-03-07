@@ -63,6 +63,8 @@ Key outputs:
 - `docs/benchmarks/simulator_double_dqn_training_curve.*`
 - `docs/benchmarks/simulator_controller_pareto.*`
 - `docs/benchmarks/simulator_strategic_agent_profile.*`
+- `docs/benchmarks/binance_spot_smoke_facts.*`
+- `docs/benchmarks/binance_spot_multimarket_facts.*`
 
 To generate artifacts:
 
@@ -105,3 +107,15 @@ go test ./simulator -run TestGenerateSimulatorStrategicAgentArtifacts -v
 
 python scripts/generate_neurips_figures.py
 ```
+
+Real-data calibration pipeline:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_calibration_pipeline.ps1 -ConfigPath configs/calibration/binance_spot_smoke.json
+powershell -ExecutionPolicy Bypass -File scripts/run_calibration_pipeline.ps1 -ConfigPath configs/calibration/binance_spot_multimarket.json
+```
+
+Calibration protocol and backlog live in:
+
+- `docs/neurips_track/CALIBRATION_PROTOCOL.md`
+- `docs/neurips_track/ROADMAP_TODO.md`

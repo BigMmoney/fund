@@ -19,6 +19,7 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - ledger-aware settlement semantics and explicit invariant checks
 - reproducible benchmark artifacts, sweeps, and appendix figures
 - a paper-facing welfare decomposition built around `retail_surplus_per_unit`, `retail_adverse_selection_rate`, and `surplus_transfer_gap`
+- a real-data calibration pipeline with smoke and multi-symbol Binance Spot stylized-fact artifacts
 
 ## Key Components
 
@@ -40,8 +41,12 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_fittedq_learning_curve.*`: fitted-Q training snapshots evaluated on held-out regimes
 - `docs/benchmarks/simulator_runtime_profile.*`: reference-machine throughput measurement for the unified hypercube
 - `docs/benchmarks/simulator_strategic_agent_profile.*`: richer strategic-agent robustness profile
+- `docs/benchmarks/binance_spot_smoke_facts.*`: first end-to-end real-data smoke artifact
+- `docs/benchmarks/binance_spot_multimarket_facts.*`: first cross-symbol calibration envelope
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
+- `CALIBRATION_PROTOCOL.md`: realism-upgrade protocol and target envelope
+- `ROADMAP_TODO.md`: durable backlog for P0/P1/P2 benchmark upgrades
 - `APPENDIX_TABLES.md`: appendix-ready controller, ablation, and sweep tables
 - `APPENDIX_FIGURES.md`: repository-hosted figure set
 - `arxiv/`: isolated LaTeX source and compiled PDF for this paper line
@@ -238,6 +243,36 @@ Strategic-agent robustness in `docs/benchmarks/simulator_strategic_agent_profile
 - `Strategic-HighArb`: `1995.63 +/- 18.23 orders/s`, welfare gap `1.4123 +/- 0.1500`
 - `Strategic-RetailBurst`: `2693.85 +/- 8.77 orders/s`, welfare gap `1.4467 +/- 0.3559`
 - the richer, state-dependent population preserves the same qualitative claim: more arbitrage pressure worsens retail outcome, while retail burst mainly raises throughput
+
+## Real-Data Calibration
+
+The benchmark now has a versioned calibration path instead of only a synthetic generator.
+
+Published artifacts:
+
+- `docs/benchmarks/binance_spot_smoke_facts.*`
+  - 60-minute BTC/ETH validation slice
+- `docs/benchmarks/binance_spot_multimarket_facts.*`
+  - 6-hour 8-symbol cross-section used as the first calibration envelope
+
+Current cross-symbol envelope from `binance_spot_multimarket_facts.json`:
+
+- symbols: `8`
+- total trades: `402755`
+- spread-mean range: `0.000010 -> 0.010000`
+- order-sign lag1 range: `0.2831 -> 0.8056`
+- inter-arrival mean range ms: `125.88 -> 7808.87`
+- volatility abs-return lag1 range: `0.0522 -> 0.3892`
+- top impact-bucket mean range: `-0.00075385 -> 0.97178892`
+
+Execution entry points:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_calibration_pipeline.ps1 -ConfigPath configs/calibration/binance_spot_smoke.json
+powershell -ExecutionPolicy Bypass -File scripts/run_calibration_pipeline.ps1 -ConfigPath configs/calibration/binance_spot_multimarket.json
+```
+
+This does not yet claim a fully retuned synthetic generator. It does establish the realism-upgrade pipeline, publish the first empirical envelope, and preserve the next calibration steps in `ROADMAP_TODO.md`.
 
 For reference, selected raw hypercube cells remain in `docs/benchmarks/simulator_parameter_hypercube_profile.json`:
 

@@ -1,0 +1,26 @@
+{
+  "profile_name": "multimarket",
+  "venue": "binance_spot",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "DOGEUSDT",
+    "AVAXUSDT"
+  ],
+  "base_urls": [
+    "https://data-api.binance.vision",
+    "https://api1.binance.com",
+    "https://api2.binance.com"
+  ],
+  "lookback_minutes": 360,
+  "kline_interval": "1m",
+  "agg_trade_page_limit": 1000,
+  "depth_limit": 100,
+  "depth_snapshots": 8,
+  "depth_snapshot_interval_sec": 1,
+  "output_dir": "data/market_calibration/binance_spot/multimarket"
+}
