@@ -107,6 +107,8 @@ The environment includes four agent classes:
 
 These agents are intentionally simple. They are not intended as a full behavioral model of real markets. Their role is to create heterogeneous but reproducible workloads that expose mechanism-controller tradeoffs under controlled stress. Richer strategic agents are a natural extension, but they are not required for the benchmark objective in its current form.
 
+To test whether the paper's conclusions survive richer, state-dependent behavior, the artifact layer now also includes a strategic population with inventory-aware market makers, trend-reactive retail flow, signal-scaled informed traders, and dislocation-sensitive arbitrageurs. These strategic variants are used as a robustness layer rather than as a replacement for the paper-facing base population.
+
 ## 6. Tasks and Baselines
 
 The current benchmark suite exposes fifteen scenarios:
@@ -145,6 +147,8 @@ The discrete action bundle shared by the learned controllers includes:
 - tie-break mode
 - release cadence
 - price aggression
+
+Beyond the paper-facing baseline suite, the artifact layer now adds a prioritized Double-DQN style online controller. It is reported as a learning-curve extension rather than folded into the main multiseed table because the purpose is to test whether a stronger online-RL recipe changes the core latency-welfare tradeoff, not to claim a new best policy.
 
 ## 7. Metrics
 
@@ -237,6 +241,7 @@ The main learning-specific hyperparameters used in the paper are:
 | --- | --- | --- | --- | --- |
 | `Policy-LearnedFittedQ-100-250ms` | per-action linear value models | offline logged trajectories from burst-aware, LinUCB, TinyMLP, offline contextual, and random policies on 6 training seeds | `gamma=0.97`, `8` Bellman iterations, linear least-squares refit each iteration, target clamp `[-25, 25]` | all 9 snapshots (`0..8`) evaluated on held-out regimes; iteration `8` is the reported policy |
 | `Policy-LearnedOnlineDQN-100-250ms` | TinyMLP Q-network, hidden dim `10` | online interaction on 6 training seeds with replay memory | `gamma=0.97`, `160` episodes, epsilon decays `0.25 -> 0.03`, replay cap `6000`, updates begin after `48` samples, `4` SGD-style Q-updates per step, learning rate `0.0035`, `L2=1e-4`, target refresh every `250` env steps | checkpoints every `20` episodes; episode `160` is the reported policy |
+| `Policy-LearnedDoubleDQN-100-250ms` | TinyMLP Q-network, hidden dim `14` | online interaction on 6 training seeds with prioritized replay | `gamma=0.97`, `200` episodes, epsilon decays `0.20 -> 0.02`, replay cap `8000`, updates begin after `64` samples, `6` Double-DQN updates per step, learning rate `0.0030`, `L2=1e-4`, Polyak target mix `tau=0.08` | checkpoints every `20` episodes evaluated on held-out regimes; curve reported separately |
 
 These settings are intentionally lightweight. The benchmark claim is not that these are state-of-the-art learning algorithms; it is that the environment makes their latency-welfare tradeoffs measurable under the same infrastructure constraints.
 
@@ -310,7 +315,21 @@ The online DQN-style controller now adds a second, explicitly online training st
 
 ![Online DQN learning curve](figures/online_dqn_learning_curve.svg)
 
-### 9.6 Reward Sensitivity
+### 9.6 Prioritized Double-DQN Extension
+
+The stronger online-RL artifact in `docs/benchmarks/simulator_double_dqn_training_curve.*` uses prioritized replay, Double-DQN targets, and Polyak target-network mixing. It does not change the benchmark question, but it does add a materially stronger online-learning recipe than the plain DQN baseline.
+
+Three checkpoints summarize the resulting trajectory:
+
+- `episode 0`: `875.55 +/- 145.75 fills/s`, `p99 336.25 +/- 37.31 ms`, welfare gap `3.2567 +/- 0.6388`
+- `episode 80`: `1079.32 +/- 183.72 fills/s`, `p99 177.50 +/- 21.88 ms`, welfare gap `1.6813 +/- 0.4221`
+- `episode 200`: `933.68 +/- 178.96 fills/s`, `p99 161.88 +/- 14.82 ms`, welfare gap `2.5926 +/- 0.5294`
+
+The important result is not that Double-DQN dominates the simpler online baseline. It does not. The important result is that the stronger online learner exposes a sharper checkpoint-selection tradeoff: prioritized replay and Double-DQN targets can move the policy toward much higher fill throughput and better welfare-transfer behavior at intermediate checkpoints, but later optimization steps pull the controller back toward a latency-favoring regime. That makes the learning contribution less about one final policy and more about showing that infrastructure-constrained learning itself has a nontrivial optimization path.
+
+![Prioritized Double-DQN learning curve](figures/double_dqn_learning_curve.svg)
+
+### 9.7 Reward Sensitivity
 
 `docs/benchmarks/simulator_online_dqn_reward_sensitivity.*` retrains the online DQN controller under three deliberately separated reward profiles: the paper default, a latency-heavy profile, and a welfare-heavy profile. Even under these large coefficient shifts, the final held-out operating point stays on the same plateau:
 
@@ -322,7 +341,7 @@ The training reward scale changes substantially across profiles, but the held-ou
 
 ![Online DQN reward sensitivity](figures/reward_sensitivity.svg)
 
-### 9.7 Pareto Frontier
+### 9.8 Pareto Frontier
 
 The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controller_pareto.*` uses `p99 latency` and `surplus-transfer gap` as the two minimized axes, with `fills/s` kept as a third interpretation axis.
 
@@ -332,7 +351,7 @@ The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controlle
 
 ![Controller Pareto frontier](figures/pareto.svg)
 
-### 9.8 Visual Summary
+### 9.9 Visual Summary
 
 ![Throughput comparison](figures/throughput.svg)
 
@@ -352,7 +371,7 @@ The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controlle
 
 The full appendix figure set, including cube and hypercube slices, is collected in `APPENDIX_FIGURES.md`.
 
-### 9.6 Mechanism Ablation Snapshot
+### 9.10 Mechanism Ablation Snapshot
 
 From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]`:
 
@@ -365,7 +384,7 @@ From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]
 
 These ablations show that relaxing risk limits is not a free lunch: it raises throughput, but also sharply increases arbitrage capture.
 
-### 9.7 Agent and Workload Sweep Snapshot
+### 9.11 Agent and Workload Sweep Snapshot
 
 From `docs/benchmarks/simulator_agent_ablation_profile.*` over seeds `[43, 47, 53, 59]`:
 
@@ -381,7 +400,21 @@ From `docs/benchmarks/simulator_agent_ablation_profile.*` over seeds `[43, 47, 5
 
 The sweeps make clear that the benchmark is sensitive to population composition and workload intensity, not only to the matching rule.
 
-### 9.8 Parameter Grid, Cube, and Unified Hypercube
+### 9.12 Strategic-Agent Robustness
+
+The new strategic-agent artifact in `docs/benchmarks/simulator_strategic_agent_profile.*` keeps the same matching and settlement machinery but swaps in richer, state-dependent agent behaviors: inventory-aware market makers, trend-reactive retail flow, signal-scaled informed traders, and dislocation-sensitive arbitrageurs.
+
+| Scenario | Orders/s | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |
+|---|---:|---:|---:|---:|---:|---:|
+| Strategic-Control | 1761.11 +/- 12.09 | 1040.67 +/- 35.03 | 392.50 +/- 91.77 | -0.2623 +/- 0.2991 | 0.4805 +/- 0.0311 | 1.2515 +/- 0.6668 |
+| Strategic-HighArb | 1995.63 +/- 18.23 | 1193.45 +/- 37.64 | 430.00 +/- 110.22 | -0.5348 +/- 0.1569 | 0.5145 +/- 0.0533 | 1.4123 +/- 0.1500 |
+| Strategic-RetailBurst | 2693.85 +/- 8.77 | 1608.73 +/- 110.35 | 427.50 +/- 90.98 | -0.2243 +/- 0.1652 | 0.5076 +/- 0.0181 | 1.4467 +/- 0.3559 |
+
+These results matter for two reasons. First, the richer strategic population preserves the same directional pattern as the simpler agent mix: more arbitrage pressure worsens retail outcome, and retail burst raises throughput without neutralizing welfare transfer. Second, the artifact shows that the main claim is not tied to one stylized base population. The stronger agent model does not invalidate the latency-welfare tradeoff; it reproduces it under substantially heavier flow and more stateful behavior.
+
+![Strategic-agent robustness](figures/strategic_agents.svg)
+
+### 9.13 Parameter Grid, Cube, and Unified Hypercube
 
 The benchmark now exposes three sensitivity surfaces:
 
@@ -417,7 +450,7 @@ The new response-surface fit in `docs/benchmarks/simulator_parameter_hypercube_r
 
 ![Response-surface welfare effects](figures/response_surface_effects.svg)
 
-### 9.9 Robustness to Agent Assumptions
+### 9.14 Robustness to Agent Assumptions
 
 The benchmark does not claim that its agents are complete models of strategic market behavior. The narrower question is whether the main tradeoffs survive changes in population mix and workload composition. In the current artifact, they do.
 
@@ -425,6 +458,7 @@ The benchmark does not claim that its agents are complete models of strategic ma
 - Raising arbitrage intensity in the agent sweep lifts arbitrage-profit proxy to `1730.75`, while the hypercube summary shows welfare-gap expansion of about `+1.2` when arbitrage intensity moves from `0` to `3`.
 - Retail burst nearly doubles throughput to `2532.94 orders/s`, but does not neutralize transfer-to-arbitrageur in the high-arbitrage slices.
 - Wider maker quotes worsen retail outcome and p99 latency without meaningfully increasing aggregate activity.
+- Under the richer strategic population, the same pattern persists: `Strategic-HighArb` widens retail damage relative to `Strategic-Control`, while `Strategic-RetailBurst` mainly loads throughput and fills rather than closing the welfare gap.
 
 These checks do not make the agents realistic in a behavioral-economics sense. They do show that the paper's central finding is not an artifact of one frozen population mix.
 

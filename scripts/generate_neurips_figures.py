@@ -13,9 +13,11 @@ CUBE_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_cube_profi
 HYPER_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_profile.json"
 FITTEDQ_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_fittedq_learning_curve.json"
 ONLINE_DQN_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_online_dqn_training_curve.json"
+DOUBLE_DQN_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_double_dqn_training_curve.json"
 REWARD_SENSITIVITY_PATH = ROOT / "docs" / "benchmarks" / "simulator_online_dqn_reward_sensitivity.json"
 PARETO_PATH = ROOT / "docs" / "benchmarks" / "simulator_controller_pareto.json"
 RESPONSE_SURFACE_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_response_surface.json"
+STRATEGIC_AGENT_PATH = ROOT / "docs" / "benchmarks" / "simulator_strategic_agent_profile.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
 
 
@@ -286,9 +288,11 @@ def generate() -> None:
     hyper_sweep = load_named_results(HYPER_SWEEP_PATH)
     fittedq_curve = load_named_results(FITTEDQ_CURVE_PATH)
     online_dqn_curve = load_named_results(ONLINE_DQN_CURVE_PATH)
+    double_dqn_curve = load_named_results(DOUBLE_DQN_CURVE_PATH)
     reward_sensitivity = load_named_results(REWARD_SENSITIVITY_PATH)
     pareto_points = load_named_results(PARETO_PATH)
     response_surface = json.loads(RESPONSE_SURFACE_PATH.read_text(encoding="utf-8"))["fits"]
+    strategic_agents = load_named_results(STRATEGIC_AGENT_PATH)
     label_map = {
         "Immediate-Surrogate": "Immediate",
         "SpeedBump-50ms": "SpeedBump 50",
@@ -411,6 +415,27 @@ def generate() -> None:
         "Held-out welfare gap / scaled p99",
     )
 
+    line_chart_with_ci(
+        "Prioritized Double-DQN Held-Out Learning Curve",
+        [
+            (
+                "Held-out Welfare Gap",
+                "#f472b6",
+                [r["mean_surplus_transfer_gap"] for r in double_dqn_curve],
+                [r["ci95_surplus_transfer_gap"] for r in double_dqn_curve],
+            ),
+            (
+                "Held-out p99 / 100",
+                "#34d399",
+                [r["mean_p99_latency_ms"] / 100 for r in double_dqn_curve],
+                [r["ci95_p99_latency_ms"] / 100 for r in double_dqn_curve],
+            ),
+        ],
+        [f"Ep {r['episode']}" for r in double_dqn_curve],
+        FIG_DIR / "double_dqn_learning_curve.svg",
+        "Held-out welfare gap / scaled p99",
+    )
+
     bar_chart_with_ci(
         "Online DQN Reward Sensitivity",
         [
@@ -496,6 +521,27 @@ def generate() -> None:
         ],
         FIG_DIR / "agent_sweeps.svg",
         "Orders/s and scaled p99 latency",
+    )
+
+    bar_chart_with_ci(
+        "Strategic-Agent Robustness Snapshot",
+        [
+            (
+                "Retail Surplus / unit",
+                "#34d399",
+                [r["mean_retail_surplus_per_unit"] for r in strategic_agents],
+                [r["ci95_retail_surplus_per_unit"] for r in strategic_agents],
+            ),
+            (
+                "Welfare Gap",
+                "#f59e0b",
+                [r["mean_surplus_transfer_gap"] for r in strategic_agents],
+                [r["ci95_surplus_transfer_gap"] for r in strategic_agents],
+            ),
+        ],
+        [r["name"].replace("Strategic-", "") for r in strategic_agents],
+        FIG_DIR / "strategic_agents.svg",
+        "Retail surplus per unit and welfare gap",
     )
 
     grid_p99 = {

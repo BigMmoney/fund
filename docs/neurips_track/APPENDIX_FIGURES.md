@@ -16,6 +16,8 @@ This appendix collects the repository-hosted figure set that supplements the Neu
 
 ![Online DQN learning curve](figures/online_dqn_learning_curve.svg)
 
+![Prioritized Double-DQN learning curve](figures/double_dqn_learning_curve.svg)
+
 ![Controller Pareto frontier](figures/pareto.svg)
 
 ![Response-surface welfare effects](figures/response_surface_effects.svg)
@@ -23,6 +25,8 @@ This appendix collects the repository-hosted figure set that supplements the Neu
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
 ![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
+
+![Strategic-agent robustness](figures/strategic_agents.svg)
 
 ![Parameter grid p99 heatmap](figures/grid_p99_heatmap.svg)
 
@@ -84,8 +88,10 @@ Each hypercube slice fixes informed intensity at `x2` and renders retail intensi
 - `welfare.svg` adds direct welfare/behavior signals: retail surplus per traded unit and retail adverse-selection rate
 - `fittedq_learning_curve.svg` shows the held-out welfare-gap trajectory across fitted-Q Bellman updates
 - `online_dqn_learning_curve.svg` shows the held-out online DQN trajectory across training episodes
+- `double_dqn_learning_curve.svg` shows the held-out prioritized Double-DQN trajectory and its checkpoint-selection tradeoff
 - `pareto.svg` compresses controller trade-offs onto the `p99 latency` vs `surplus-transfer gap` frontier
 - `response_surface_effects.svg` shows the top partial-variance contributors from the fitted hypercube response surface
+- `strategic_agents.svg` shows that the richer state-dependent population preserves the same welfare-transfer pattern under heavier flow
 - `grid_*` isolates arbitrage intensity versus maker quote width
 - `cube_*` holds retail intensity fixed and shows how informed-flow intensity and maker quote width reshape p99 and arbitrage-profit proxy
 - `hyper_*` folds arbitrage back into the unified sweep and makes the welfare-gap surface visible under the same slice convention

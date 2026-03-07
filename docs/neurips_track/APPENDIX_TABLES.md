@@ -74,6 +74,23 @@ Interpretation:
 - the converged controller is faster on held-out tail latency than the untrained checkpoint
 - the same convergence also widens the surplus-transfer gap, which is exactly the benchmark-plus-learning trade-off the paper now exposes
 
+## Prioritized Double-DQN Learning Curve
+
+Source: `docs/benchmarks/simulator_double_dqn_training_curve.*`
+
+| Episode | Mean Train Reward | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0.0000 | 875.55 +/- 145.75 | 336.25 +/- 37.31 | -0.7330 +/- 0.2313 | 0.5320 +/- 0.0152 | 3.2567 +/- 0.6388 |
+| 20 | 893.9220 | 933.43 +/- 176.88 | 163.12 +/- 13.94 | 0.0433 +/- 0.1247 | 0.5058 +/- 0.0146 | 2.5657 +/- 0.5204 |
+| 80 | 895.6865 | 1079.32 +/- 183.72 | 177.50 +/- 21.88 | -0.0961 +/- 0.1065 | 0.4690 +/- 0.0258 | 1.6813 +/- 0.4221 |
+| 200 | 915.6253 | 933.68 +/- 178.96 | 161.88 +/- 14.82 | 0.0339 +/- 0.1241 | 0.5060 +/- 0.0146 | 2.5926 +/- 0.5294 |
+
+Interpretation:
+
+- the stronger online-RL recipe exposes a genuine checkpoint-selection tradeoff
+- intermediate checkpoints improve fills and welfare gap substantially relative to the untrained policy
+- later optimization pushes the controller back toward the latency-favoring regime
+
 ## Mechanism Ablation
 
 Source: `docs/benchmarks/simulator_ablation_profile.*`
@@ -98,6 +115,22 @@ Source: `docs/benchmarks/simulator_agent_ablation_profile.*`
 | AgentSweep-ArbIntensityHigh | 1409.92 | 718.45 | 302.50 | 5.80 | 0.0314 | 1730.75 |
 | AgentSweep-InformedIntensityHigh | 1426.79 | 724.01 | 360.00 | 5.62 | 0.0111 | 685.50 |
 | AgentSweep-MakersWide | 1343.25 | 595.63 | 485.00 | 5.81 | 0.0469 | 754.50 |
+
+## Strategic-Agent Robustness
+
+Source: `docs/benchmarks/simulator_strategic_agent_profile.*`
+
+| Scenario | Orders/s | Fills/s | p99 (ms) | Impact | Retail Surplus | Retail Adverse | Welfare Gap |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Strategic-Control | 1761.11 +/- 12.09 | 1040.67 +/- 35.03 | 392.50 +/- 91.77 | 5.34 +/- 0.63 | -0.2623 +/- 0.2991 | 0.4805 +/- 0.0311 | 1.2515 +/- 0.6668 |
+| Strategic-HighArb | 1995.63 +/- 18.23 | 1193.45 +/- 37.64 | 430.00 +/- 110.22 | 5.34 +/- 0.45 | -0.5348 +/- 0.1569 | 0.5145 +/- 0.0533 | 1.4123 +/- 0.1500 |
+| Strategic-RetailBurst | 2693.85 +/- 8.77 | 1608.73 +/- 110.35 | 427.50 +/- 90.98 | 5.53 +/- 0.77 | -0.2243 +/- 0.1652 | 0.5076 +/- 0.0181 | 1.4467 +/- 0.3559 |
+
+Interpretation:
+
+- the richer state-dependent population preserves the same qualitative trade-off
+- higher arbitrage pressure still worsens retail outcome
+- stronger retail burst still loads throughput more than it reduces welfare transfer
 
 ## Parameter Grid Sweep
 

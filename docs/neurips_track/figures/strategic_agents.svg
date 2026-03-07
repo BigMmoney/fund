@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="540" viewBox="0 0 980 540" role="img">
+<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}.err{stroke:#dbeafe; stroke-width:1.5;}</style>
+<rect class="bg" x="0" y="0" width="980" height="540" rx="18"/>
+<text class="title" x="90" y="38">Strategic-Agent Robustness Snapshot</text>
+<text class="label" x="90" y="520">Retail surplus per unit and welfare gap</text>
+<line class="grid" x1="90" y1="70.0" x2="940" y2="70.0"/>
+<text class="label" x="12" y="74.0">2.1</text>
+<line class="grid" x1="90" y1="146.0" x2="940" y2="146.0"/>
+<text class="label" x="12" y="150.0">1.6</text>
+<line class="grid" x1="90" y1="222.0" x2="940" y2="222.0"/>
+<text class="label" x="12" y="226.0">1.0</text>
+<line class="grid" x1="90" y1="298.0" x2="940" y2="298.0"/>
+<text class="label" x="12" y="302.0">0.4</text>
+<line class="grid" x1="90" y1="374.0" x2="940" y2="374.0"/>
+<text class="label" x="12" y="378.0">-0.2</text>
+<line class="grid" x1="90" y1="450.0" x2="940" y2="450.0"/>
+<text class="label" x="12" y="454.0">-0.8</text>
+<line class="axis" x1="90" y1="70" x2="90" y2="450"/>
+<line class="axis" x1="90" y1="349.3" x2="940" y2="349.3"/>
+<rect x="137.2" y="349.3" width="75.6" height="34.1" fill="#34d399" rx="8"/>
+<line class="err" x1="175.0" y1="344.5" x2="175.0" y2="422.3"/>
+<line class="err" x1="168.0" y1="344.5" x2="182.0" y2="344.5"/>
+<line class="err" x1="168.0" y1="422.3" x2="182.0" y2="422.3"/>
+<text class="value" x="175.0" y="440.3" text-anchor="middle">-0.26</text>
+<rect x="231.7" y="186.6" width="75.6" height="162.7" fill="#f59e0b" rx="8"/>
+<line class="err" x1="269.4" y1="99.9" x2="269.4" y2="273.3"/>
+<line class="err" x1="262.4" y1="99.9" x2="276.4" y2="99.9"/>
+<line class="err" x1="262.4" y1="273.3" x2="276.4" y2="273.3"/>
+<text class="value" x="269.4" y="89.9" text-anchor="middle">1.25</text>
+<text class="label" x="231.7" y="478" text-anchor="middle">Control</text>
+<rect x="420.6" y="349.3" width="75.6" height="69.5" fill="#34d399" rx="8"/>
+<line class="err" x1="458.3" y1="398.4" x2="458.3" y2="439.2"/>
+<line class="err" x1="451.3" y1="398.4" x2="465.3" y2="398.4"/>
+<line class="err" x1="451.3" y1="439.2" x2="465.3" y2="439.2"/>
+<text class="value" x="458.3" y="442.0" text-anchor="middle">-0.53</text>
+<rect x="515.0" y="165.7" width="75.6" height="183.6" fill="#f59e0b" rx="8"/>
+<line class="err" x1="552.8" y1="146.2" x2="552.8" y2="185.2"/>
+<line class="err" x1="545.8" y1="146.2" x2="559.8" y2="146.2"/>
+<line class="err" x1="545.8" y1="185.2" x2="559.8" y2="185.2"/>
+<text class="value" x="552.8" y="136.2" text-anchor="middle">1.41</text>
+<text class="label" x="515.0" y="478" text-anchor="middle">HighArb</text>
+<rect x="703.9" y="349.3" width="75.6" height="29.2" fill="#34d399" rx="8"/>
+<line class="err" x1="741.7" y1="357.0" x2="741.7" y2="399.9"/>
+<line class="err" x1="734.7" y1="357.0" x2="748.7" y2="357.0"/>
+<line class="err" x1="734.7" y1="399.9" x2="748.7" y2="399.9"/>
+<text class="value" x="741.7" y="417.9" text-anchor="middle">-0.22</text>
+<rect x="798.3" y="161.2" width="75.6" height="188.0" fill="#f59e0b" rx="8"/>
+<line class="err" x1="836.1" y1="115.0" x2="836.1" y2="207.5"/>
+<line class="err" x1="829.1" y1="115.0" x2="843.1" y2="115.0"/>
+<line class="err" x1="829.1" y1="207.5" x2="843.1" y2="207.5"/>
+<text class="value" x="836.1" y="105.0" text-anchor="middle">1.45</text>
+<text class="label" x="798.3" y="478" text-anchor="middle">RetailBurst</text>
+<rect x="730" y="22" width="14" height="14" fill="#34d399" rx="3"/>
+<text class="legend" x="752" y="34">Retail Surplus / unit</text>
+<rect x="730" y="44" width="14" height="14" fill="#f59e0b" rx="3"/>
+<text class="legend" x="752" y="56">Welfare Gap</text>
+</svg>

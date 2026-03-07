@@ -152,6 +152,23 @@ type onlineDQNTrainingSnapshot struct {
 	Policy            learnedOnlineDQNPolicy
 }
 
+type learnedDoubleDQNPolicy struct {
+	Model             tinyMLPModel
+	Gamma             float64
+	Episodes          int
+	TrainingSeeds     []int64
+	HeldOutSeeds      []int64
+	HeldOutRegimes    []string
+	PrioritizedReplay bool
+	TargetMixTau      float64
+}
+
+type doubleDQNTrainingSnapshot struct {
+	Episode           int
+	MeanEpisodeReward float64
+	Policy            learnedDoubleDQNPolicy
+}
+
 type policyStepSample struct {
 	features []float64
 	hidden   []float64
@@ -180,6 +197,7 @@ type dqnReplaySample struct {
 	reward       float64
 	nextFeatures []float64
 	done         bool
+	priority     float64
 }
 
 var learnedPolicyCache = struct {
@@ -843,6 +861,7 @@ func trainLearnedOnlineDQNPolicyTraceWithRewardWeights(cfg ScenarioConfig, rewar
 				reward:       next.Reward,
 				nextFeatures: append([]float64(nil), observationFeatures(next.Observation)...),
 				done:         next.Done,
+				priority:     1,
 			})
 			if len(replay) > 6000 {
 				replay = replay[len(replay)-6000:]
@@ -880,6 +899,127 @@ func trainLearnedOnlineDQNPolicyTraceWithRewardWeights(cfg ScenarioConfig, rewar
 					TrainingSeeds:  append([]int64(nil), policy.TrainingSeeds...),
 					HeldOutSeeds:   append([]int64(nil), policy.HeldOutSeeds...),
 					HeldOutRegimes: append([]string(nil), policy.HeldOutRegimes...),
+				},
+			})
+		}
+	}
+	return trace
+}
+
+func trainLearnedDoubleDQNPolicyTrace(cfg ScenarioConfig) []doubleDQNTrainingSnapshot {
+	trainingSeeds := []int64{401, 409, 419, 421, 431, 433}
+	heldOutSeeds := []int64{223, 227, 229, 233}
+	spec := NewAdapter(cfg).ActionSpec()
+	actions := candidateBanditActions(spec)
+	inputDim := len(observationFeatures(Observation{}))
+	rng := rand.New(rand.NewSource(trainingRandomSeed(cfg) + 1107))
+	model := initTinyMLPModel(actions, inputDim, 14, rng)
+	targetModel := copyTinyMLPModel(model)
+
+	policy := learnedDoubleDQNPolicy{
+		Model:         copyTinyMLPModel(model),
+		Gamma:         0.97,
+		Episodes:      200,
+		TrainingSeeds: append([]int64(nil), trainingSeeds...),
+		HeldOutSeeds:  append([]int64(nil), heldOutSeeds...),
+		HeldOutRegimes: []string{
+			"HeldOut-HighArbWideMaker",
+			"HeldOut-RetailBurst",
+			"HeldOut-InformedWide",
+			"HeldOut-CompositeStress",
+		},
+		PrioritizedReplay: true,
+		TargetMixTau:      0.08,
+	}
+
+	trace := make([]doubleDQNTrainingSnapshot, 0, 11)
+	trace = append(trace, doubleDQNTrainingSnapshot{
+		Episode:           0,
+		MeanEpisodeReward: 0,
+		Policy: learnedDoubleDQNPolicy{
+			Model:             copyTinyMLPModel(policy.Model),
+			Gamma:             policy.Gamma,
+			Episodes:          policy.Episodes,
+			TrainingSeeds:     append([]int64(nil), policy.TrainingSeeds...),
+			HeldOutSeeds:      append([]int64(nil), policy.HeldOutSeeds...),
+			HeldOutRegimes:    append([]string(nil), policy.HeldOutRegimes...),
+			PrioritizedReplay: policy.PrioritizedReplay,
+			TargetMixTau:      policy.TargetMixTau,
+		},
+	})
+
+	replay := make([]dqnReplaySample, 0, 8000)
+	recentRewards := make([]float64, 0, 20)
+	totalSteps := 0
+	for episode := 1; episode <= policy.Episodes; episode++ {
+		seedBase := trainingSeeds[(episode-1)%len(trainingSeeds)]
+		seedOffset := int64((episode - 1) / len(trainingSeeds))
+		trainingCfg := cfg
+		trainingCfg.Seed = seedBase + seedOffset*1297
+		adapter := NewAdapter(trainingCfg)
+		timestep := adapter.Reset()
+		episodeReward := 0.0
+		epsilon := 0.20 - (0.17 * float64(episode-1) / float64(maxInt(policy.Episodes-1, 1)))
+		if epsilon < 0.02 {
+			epsilon = 0.02
+		}
+		for !timestep.Done {
+			features := observationFeatures(timestep.Observation)
+			actionIdx := 0
+			if rng.Float64() < epsilon {
+				actionIdx = rng.Intn(len(model.Actions))
+			} else {
+				actionIdx = argmaxFloats(qValuesFromTinyMLP(model, features))
+			}
+			next := adapter.Step(model.Actions[actionIdx].Action)
+			replay = append(replay, dqnReplaySample{
+				features:     append([]float64(nil), features...),
+				action:       actionIdx,
+				reward:       next.Reward,
+				nextFeatures: append([]float64(nil), observationFeatures(next.Observation)...),
+				done:         next.Done,
+				priority:     1,
+			})
+			if len(replay) > 8000 {
+				replay = replay[len(replay)-8000:]
+			}
+			episodeReward += next.Reward
+			totalSteps++
+			if len(replay) >= 64 {
+				for update := 0; update < 6; update++ {
+					idx := samplePrioritizedReplayIndex(replay, rng)
+					sample := replay[idx]
+					target := sample.reward
+					if !sample.done {
+						nextAction := argmaxFloats(qValuesFromTinyMLP(model, sample.nextFeatures))
+						targetValues := qValuesFromTinyMLP(targetModel, sample.nextFeatures)
+						target += policy.Gamma * targetValues[nextAction]
+					}
+					target = clampFloat(target, -35, 35)
+					tdErr := applyTinyMLPQUpdate(&model, sample.features, sample.action, target, 0.0030, 1e-4)
+					replay[idx].priority = math.Abs(tdErr) + 0.05
+				}
+				polyakMixTinyMLP(&targetModel, model, policy.TargetMixTau)
+			}
+			timestep = next
+		}
+		recentRewards = append(recentRewards, episodeReward)
+		if len(recentRewards) > 20 {
+			recentRewards = recentRewards[1:]
+		}
+		if episode%20 == 0 || episode == policy.Episodes {
+			trace = append(trace, doubleDQNTrainingSnapshot{
+				Episode:           episode,
+				MeanEpisodeReward: meanFloatSlice(recentRewards),
+				Policy: learnedDoubleDQNPolicy{
+					Model:             copyTinyMLPModel(model),
+					Gamma:             policy.Gamma,
+					Episodes:          policy.Episodes,
+					TrainingSeeds:     append([]int64(nil), policy.TrainingSeeds...),
+					HeldOutSeeds:      append([]int64(nil), policy.HeldOutSeeds...),
+					HeldOutRegimes:    append([]string(nil), policy.HeldOutRegimes...),
+					PrioritizedReplay: policy.PrioritizedReplay,
+					TargetMixTau:      policy.TargetMixTau,
 				},
 			})
 		}
@@ -1362,6 +1502,46 @@ func applyTinyMLPQUpdate(model *tinyMLPModel, features []float64, action int, ta
 	dlogits[action] = tdError
 	applyTinyMLPGradients(model, features, hidden, dlogits, lr, l2)
 	return tdError
+}
+
+func polyakMixTinyMLP(dst *tinyMLPModel, src tinyMLPModel, tau float64) {
+	if tau <= 0 {
+		return
+	}
+	if tau > 1 {
+		tau = 1
+	}
+	for i := range dst.W1 {
+		for j := range dst.W1[i] {
+			dst.W1[i][j] = (1-tau)*dst.W1[i][j] + tau*src.W1[i][j]
+		}
+		dst.B1[i] = (1-tau)*dst.B1[i] + tau*src.B1[i]
+	}
+	for i := range dst.W2 {
+		for j := range dst.W2[i] {
+			dst.W2[i][j] = (1-tau)*dst.W2[i][j] + tau*src.W2[i][j]
+		}
+		dst.B2[i] = (1-tau)*dst.B2[i] + tau*src.B2[i]
+	}
+}
+
+func samplePrioritizedReplayIndex(replay []dqnReplaySample, rng *rand.Rand) int {
+	if len(replay) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, sample := range replay {
+		total += maxFloat(sample.priority, 0.01)
+	}
+	draw := rng.Float64() * total
+	cumulative := 0.0
+	for idx, sample := range replay {
+		cumulative += maxFloat(sample.priority, 0.01)
+		if draw <= cumulative {
+			return idx
+		}
+	}
+	return len(replay) - 1
 }
 
 func softmax(logits []float64) []float64 {

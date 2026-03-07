@@ -264,6 +264,41 @@ type onlineDQNRewardSensitivityResult struct {
 	CI95SurplusTransferGap         float64       `json:"ci95_surplus_transfer_gap"`
 }
 
+type doubleDQNLearningCurvePoint struct {
+	Episode                        int     `json:"episode"`
+	MeanEpisodeReward              float64 `json:"mean_episode_reward"`
+	Runs                           int     `json:"runs"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
+}
+
+type strategicAgentResult struct {
+	Name                           string  `json:"name"`
+	Runs                           int     `json:"runs"`
+	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
+	CI95OrdersPerSec               float64 `json:"ci95_orders_per_sec"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
+	MeanAveragePriceImpact         float64 `json:"mean_average_price_impact"`
+	CI95AveragePriceImpact         float64 `json:"ci95_average_price_impact"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
+}
+
 type paretoPoint struct {
 	Name                   string  `json:"name"`
 	Category               string  `json:"category"`
@@ -674,6 +709,53 @@ func onlineDQNRewardProfiles() []rewardSensitivityProfile {
 				RiskRejectPenalty:   1.0,
 				ConservationPenalty: 10.0,
 			},
+		},
+	}
+}
+
+func strategicAgentScenarios() []ScenarioConfig {
+	return []ScenarioConfig{
+		{
+			Name:                   "Strategic-Control",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   521,
+			Agents:                 StrategicPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:                   "Strategic-HighArb",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   521,
+			Agents:                 AdjustClassBaseSize(ScaleClassIntensity(StrategicPopulation(), AgentArbitrageur, 3, 1), AgentArbitrageur, 1),
+			Risk:                   RiskConfig{MaxOrderAmount: 9, MaxOrdersPerStep: 28},
+		},
+		{
+			Name:                   "Strategic-RetailBurst",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   521,
+			Agents:                 ScaleClassIntensity(StrategicPopulation(), AgentRetail, 3, 1),
+			Risk:                   RiskConfig{MaxOrderAmount: 9, MaxOrdersPerStep: 28},
 		},
 	}
 }
@@ -1448,6 +1530,61 @@ func TestGenerateSimulatorOnlineDQNRewardSensitivityArtifacts(t *testing.T) {
 	}
 }
 
+func TestGenerateSimulatorDoubleDQNTrainingArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_DOUBLE_DQN") != "1" {
+		t.Skip("set RUN_SIM_DOUBLE_DQN=1 to generate double-DQN training artifacts")
+	}
+
+	base := scenarioByName(t, "Policy-LearnedOnlineDQN-100-250ms")
+	trace := trainLearnedDoubleDQNPolicyTrace(base)
+	regimes := heldOutRegimeScenarios()
+	points := make([]doubleDQNLearningCurvePoint, 0, len(trace))
+	for _, snapshot := range trace {
+		runs := make([]BenchmarkResult, 0, len(regimes)*len(snapshot.Policy.HeldOutSeeds))
+		for _, regime := range regimes {
+			for _, seed := range snapshot.Policy.HeldOutSeeds {
+				cfg := regime
+				cfg.Seed = seed
+				runs = append(runs, runScenarioWithDoubleDQNPolicy(cfg, snapshot.Policy))
+			}
+		}
+		points = append(points, summarizeDoubleDQNLearningCurvePoint(snapshot, runs))
+	}
+
+	if len(points) < 2 {
+		t.Fatalf("expected multiple double-DQN learning points, got %+v", points)
+	}
+	if err := writeSimulatorDoubleDQNLearningCurveArtifacts(points, trace[len(trace)-1].Policy.TrainingSeeds, trace[len(trace)-1].Policy.HeldOutSeeds, trace[len(trace)-1].Policy.HeldOutRegimes); err != nil {
+		t.Fatalf("write double-DQN learning artifacts: %v", err)
+	}
+}
+
+func TestGenerateSimulatorStrategicAgentArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_STRATEGIC_AGENTS") != "1" {
+		t.Skip("set RUN_SIM_STRATEGIC_AGENTS=1 to generate strategic-agent artifacts")
+	}
+
+	results := make([]strategicAgentResult, 0, len(strategicAgentScenarios()))
+	seeds := []int64{521, 523, 541, 547}
+	for _, base := range strategicAgentScenarios() {
+		runs := make([]BenchmarkResult, 0, len(seeds))
+		for _, seed := range seeds {
+			cfg := base
+			cfg.Seed = seed
+			runs = append(runs, runScenario(cfg))
+		}
+		results = append(results, summarizeStrategicAgentRuns(base.Name, runs))
+	}
+	if len(results) < 2 {
+		t.Fatalf("expected strategic-agent scenarios, got %+v", results)
+	}
+	if err := writeSimulatorStrategicAgentArtifacts(results, seeds); err != nil {
+		t.Fatalf("write strategic-agent artifacts: %v", err)
+	}
+}
+
 func runScenarioWithFittedQPolicy(cfg ScenarioConfig, policy learnedFittedQPolicy) BenchmarkResult {
 	start := time.Now()
 	adapter := NewAdapter(cfg)
@@ -1463,6 +1600,19 @@ func runScenarioWithFittedQPolicy(cfg ScenarioConfig, policy learnedFittedQPolic
 
 func runScenarioWithOnlineDQNPolicy(cfg ScenarioConfig, policy learnedOnlineDQNPolicy) BenchmarkResult {
 	return runScenarioWithOnlineDQNPolicyAndRewardWeights(cfg, policy, defaultRewardWeights())
+}
+
+func runScenarioWithDoubleDQNPolicy(cfg ScenarioConfig, policy learnedDoubleDQNPolicy) BenchmarkResult {
+	start := time.Now()
+	adapter := NewAdapter(cfg)
+	timestep := adapter.Reset()
+	for !timestep.Done {
+		action := chooseOnlineDQNAction(adapter.ActionSpec(), timestep.Observation, learnedOnlineDQNPolicy{Model: policy.Model})
+		timestep = adapter.Step(action)
+	}
+	result := adapter.env.benchmarkResult(time.Since(start))
+	result.Name = "Policy-LearnedDoubleDQN-100-250ms"
+	return result
 }
 
 func runScenarioWithOnlineDQNPolicyAndRewardWeights(cfg ScenarioConfig, policy learnedOnlineDQNPolicy, rewardWeights RewardWeights) BenchmarkResult {
@@ -1762,6 +1912,184 @@ func writeSimulatorOnlineDQNRewardSensitivityArtifacts(results []onlineDQNReward
 			w.RetailSurplusWeight, w.AdversePenalty, w.WelfarePenalty, w.SurplusGapPenalty, w.RiskRejectPenalty, w.ConservationPenalty))
 	}
 
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func summarizeDoubleDQNLearningCurvePoint(snapshot doubleDQNTrainingSnapshot, runs []BenchmarkResult) doubleDQNLearningCurvePoint {
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	surplusGap := make([]float64, 0, len(runs))
+	for _, run := range runs {
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		surplusGap = append(surplusGap, run.SurplusTransferGap)
+	}
+	meanFills, ciFills := meanCI95(fills)
+	meanP99, ciP99 := meanCI95(p99)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
+	meanGap, ciGap := meanCI95(surplusGap)
+	return doubleDQNLearningCurvePoint{
+		Episode:                        snapshot.Episode,
+		MeanEpisodeReward:              snapshot.MeanEpisodeReward,
+		Runs:                           len(runs),
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ciFills,
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ciP99,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+		MeanSurplusTransferGap:         meanGap,
+		CI95SurplusTransferGap:         ciGap,
+	}
+}
+
+func writeSimulatorDoubleDQNLearningCurveArtifacts(points []doubleDQNLearningCurvePoint, trainingSeeds []int64, heldOutSeeds []int64, heldOutRegimes []string) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+	jsonPath := filepath.Join(base, "simulator_double_dqn_training_curve.json")
+	mdPath := filepath.Join(base, "simulator_double_dqn_training_curve.md")
+	csvPath := filepath.Join(base, "simulator_double_dqn_training_curve.csv")
+	payload := map[string]any{
+		"training_seeds":  trainingSeeds,
+		"heldout_seeds":   heldOutSeeds,
+		"heldout_regimes": heldOutRegimes,
+		"results":         points,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+	var md strings.Builder
+	md.WriteString("# Double DQN Training Curve\n\n")
+	md.WriteString(fmt.Sprintf("Training seeds: `%v`\n\n", trainingSeeds))
+	md.WriteString(fmt.Sprintf("Held-out seeds: `%v`\n\n", heldOutSeeds))
+	md.WriteString(fmt.Sprintf("Held-out regimes: `%s`\n\n", strings.Join(heldOutRegimes, ", ")))
+	md.WriteString("Each row evaluates a prioritized Double-DQN style checkpoint on the held-out regime set.\n\n")
+	md.WriteString("| Episode | Mean Train Reward | Runs | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, point := range points {
+		md.WriteString(fmt.Sprintf("| %d | %.4f | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
+			point.Episode, point.MeanEpisodeReward, point.Runs,
+			point.MeanFillsPerSec, point.CI95FillsPerSec,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
+			point.MeanRetailAdverseSelectionRate, point.CI95RetailAdverseSelectionRate,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap))
+	}
+	var csv strings.Builder
+	csv.WriteString("episode,mean_episode_reward,runs,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_surplus_transfer_gap,ci95_surplus_transfer_gap\n")
+	for _, point := range points {
+		csv.WriteString(fmt.Sprintf("%d,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+			point.Episode, point.MeanEpisodeReward, point.Runs,
+			point.MeanFillsPerSec, point.CI95FillsPerSec,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
+			point.MeanRetailAdverseSelectionRate, point.CI95RetailAdverseSelectionRate,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap))
+	}
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func summarizeStrategicAgentRuns(name string, runs []BenchmarkResult) strategicAgentResult {
+	orders := make([]float64, 0, len(runs))
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	impact := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	surplusGap := make([]float64, 0, len(runs))
+	for _, run := range runs {
+		orders = append(orders, run.OrdersPerSec)
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		impact = append(impact, run.AveragePriceImpact)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		surplusGap = append(surplusGap, run.SurplusTransferGap)
+	}
+	meanOrders, ciOrders := meanCI95(orders)
+	meanFills, ciFills := meanCI95(fills)
+	meanP99, ciP99 := meanCI95(p99)
+	meanImpact, ciImpact := meanCI95(impact)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
+	meanGap, ciGap := meanCI95(surplusGap)
+	return strategicAgentResult{
+		Name:                           name,
+		Runs:                           len(runs),
+		MeanOrdersPerSec:               meanOrders,
+		CI95OrdersPerSec:               ciOrders,
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ciFills,
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ciP99,
+		MeanAveragePriceImpact:         meanImpact,
+		CI95AveragePriceImpact:         ciImpact,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+		MeanSurplusTransferGap:         meanGap,
+		CI95SurplusTransferGap:         ciGap,
+	}
+}
+
+func writeSimulatorStrategicAgentArtifacts(results []strategicAgentResult, seeds []int64) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+	jsonPath := filepath.Join(base, "simulator_strategic_agent_profile.json")
+	mdPath := filepath.Join(base, "simulator_strategic_agent_profile.md")
+	csvPath := filepath.Join(base, "simulator_strategic_agent_profile.csv")
+	payload := map[string]any{"seeds": seeds, "results": results}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+	var md strings.Builder
+	md.WriteString("# Strategic Agent Profile\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
+	md.WriteString("These scenarios use inventory-aware market makers, signal-scaled informed traders, trend-reactive retail flow, and dislocation-sensitive arbitrageurs.\n\n")
+	md.WriteString("| Scenario | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Retail Surplus | Retail Adverse | Welfare Gap |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, result := range results {
+		md.WriteString(fmt.Sprintf("| %s | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
+			result.Name, result.Runs, result.MeanOrdersPerSec, result.CI95OrdersPerSec, result.MeanFillsPerSec, result.CI95FillsPerSec,
+			result.MeanP99LatencyMs, result.CI95P99LatencyMs, result.MeanAveragePriceImpact, result.CI95AveragePriceImpact,
+			result.MeanRetailSurplusPerUnit, result.CI95RetailSurplusPerUnit, result.MeanRetailAdverseSelectionRate, result.CI95RetailAdverseSelectionRate,
+			result.MeanSurplusTransferGap, result.CI95SurplusTransferGap))
+	}
+	var csv strings.Builder
+	csv.WriteString("name,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_surplus_transfer_gap,ci95_surplus_transfer_gap\n")
+	for _, result := range results {
+		csv.WriteString(fmt.Sprintf("%s,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+			result.Name, result.Runs, result.MeanOrdersPerSec, result.CI95OrdersPerSec, result.MeanFillsPerSec, result.CI95FillsPerSec,
+			result.MeanP99LatencyMs, result.CI95P99LatencyMs, result.MeanAveragePriceImpact, result.CI95AveragePriceImpact,
+			result.MeanRetailSurplusPerUnit, result.CI95RetailSurplusPerUnit, result.MeanRetailAdverseSelectionRate, result.CI95RetailAdverseSelectionRate,
+			result.MeanSurplusTransferGap, result.CI95SurplusTransferGap))
+	}
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
 		return err
 	}

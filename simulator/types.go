@@ -48,14 +48,18 @@ const (
 )
 
 type AgentConfig struct {
-	ID           string
-	Class        AgentClass
-	LatencyTier  int
-	BaseSize     int64
-	QuoteWidth   int64
-	Intensity    int
-	InitialCash  int64
-	InitialUnits int64
+	ID               string
+	Class            AgentClass
+	LatencyTier      int
+	BaseSize         int64
+	QuoteWidth       int64
+	Intensity        int
+	InventoryTarget  int64
+	InventorySkew    int64
+	TrendSensitivity int64
+	SignalScale      int64
+	InitialCash      int64
+	InitialUnits     int64
 }
 
 type RiskConfig struct {

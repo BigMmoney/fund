@@ -13,7 +13,9 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - a step-wise `Reset/Step/Observe/Metrics` API
 - a gym-style adapter with runtime controls for batch window, risk scale, tie-break mode, release cadence, and price aggression
 - adapter-driven policy baselines, including offline contextual, fitted-Q, and online DQN-style controllers
+- a stronger prioritized Double-DQN style online-learning artifact
 - a logged-trajectory training split plus held-out regime evaluation for learned policies
+- a strategic-agent robustness layer with inventory-aware makers, trend-reactive retail flow, signal-scaled informed traders, and dislocation-sensitive arbitrageurs
 - ledger-aware settlement semantics and explicit invariant checks
 - reproducible benchmark artifacts, sweeps, and appendix figures
 - a paper-facing welfare decomposition built around `retail_surplus_per_unit`, `retail_adverse_selection_rate`, and `surplus_transfer_gap`
@@ -33,9 +35,11 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_heldout_policy_profile.*`: held-out regime generalization results for learned controllers
 - `docs/benchmarks/simulator_controller_pareto.*`: multiseed Pareto frontier over p99 latency vs surplus-transfer gap
 - `docs/benchmarks/simulator_online_dqn_training_curve.*`: online DQN-style held-out learning curve
+- `docs/benchmarks/simulator_double_dqn_training_curve.*`: prioritized Double-DQN held-out learning curve
 - `docs/benchmarks/simulator_online_dqn_reward_sensitivity.*`: held-out reward-weight sensitivity for the online DQN controller
 - `docs/benchmarks/simulator_fittedq_learning_curve.*`: fitted-Q training snapshots evaluated on held-out regimes
 - `docs/benchmarks/simulator_runtime_profile.*`: reference-machine throughput measurement for the unified hypercube
+- `docs/benchmarks/simulator_strategic_agent_profile.*`: richer strategic-agent robustness profile
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
 - `APPENDIX_TABLES.md`: appendix-ready controller, ablation, and sweep tables
@@ -83,6 +87,7 @@ Current controller interpretation:
 - `OfflineContextual` is still the most balanced learned baseline in the current repo: it keeps p99 far below burst-aware, cuts price impact below both `LinUCB` and `FittedQ`, and keeps the smallest welfare gap among the learned policies.
 - `FittedQ` adds a minimal offline-RL style training story and currently pushes the best in-distribution p99 (`145.00 +/- 21.36 ms`) while staying better than `LinUCB` on held-out welfare gap in every published regime, but it still widens transfer-to-arbitrageur relative to `OfflineContextual`.
 - `OnlineDQN` reaches the same in-distribution p99 band as `FittedQ`, improves held-out fills to `986.61`, and lowers held-out welfare gap to `2.2189`, but it converges quickly toward a latency-favoring regime rather than preserving the early welfare advantage.
+- `DoubleDQN` is now available as a stronger online-RL artifact: intermediate checkpoints reach `1079.32 +/- 183.72 fills/s` with welfare gap `1.6813 +/- 0.4221`, but later checkpoints drift back toward the latency-favoring regime.
 
 ## Offline Training and Held-Out Generalization
 
@@ -128,6 +133,13 @@ Online DQN held-out learning curve in `docs/benchmarks/simulator_online_dqn_trai
 - untrained snapshot (`episode 0`): `p99 200.00 +/- 25.46 ms`, welfare gap `1.5898 +/- 0.3869`
 - by `episode 20`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
 - later checkpoints stay on the same plateau, which is useful benchmark evidence: the online controller converges quickly toward a latency-favoring regime with higher transfer-to-arbitrageur
+
+Prioritized Double-DQN held-out learning curve in `docs/benchmarks/simulator_double_dqn_training_curve.*`:
+
+- untrained snapshot (`episode 0`): `p99 336.25 +/- 37.31 ms`, welfare gap `3.2567 +/- 0.6388`
+- strong intermediate checkpoint (`episode 80`): `1079.32 +/- 183.72 fills/s`, `p99 177.50 +/- 21.88 ms`, welfare gap `1.6813 +/- 0.4221`
+- final checkpoint (`episode 200`): `p99 161.88 +/- 14.82 ms`, welfare gap `2.5926 +/- 0.5294`
+- interpretation: stronger online RL exposes a sharper checkpoint-selection tradeoff instead of simply dominating the simpler DQN baseline
 
 Interpretation:
 
@@ -220,6 +232,13 @@ Retail-conditioned arbitrage deltas show the same pattern:
 
 This effect persists across retail intensities.
 
+Strategic-agent robustness in `docs/benchmarks/simulator_strategic_agent_profile.*`:
+
+- `Strategic-Control`: `1761.11 +/- 12.09 orders/s`, welfare gap `1.2515 +/- 0.6668`
+- `Strategic-HighArb`: `1995.63 +/- 18.23 orders/s`, welfare gap `1.4123 +/- 0.1500`
+- `Strategic-RetailBurst`: `2693.85 +/- 8.77 orders/s`, welfare gap `1.4467 +/- 0.3559`
+- the richer, state-dependent population preserves the same qualitative claim: more arbitrage pressure worsens retail outcome, while retail burst mainly raises throughput
+
 For reference, selected raw hypercube cells remain in `docs/benchmarks/simulator_parameter_hypercube_profile.json`:
 
 - `(arb=0, retail=1, informed=2, maker=1)`: `1350.60 orders/s`, arb profit `0.00`, welfare gap `0.2376`
@@ -243,6 +262,8 @@ Generated by `scripts/generate_neurips_figures.py`:
 
 ![Online DQN learning curve](figures/online_dqn_learning_curve.svg)
 
+![Prioritized Double-DQN learning curve](figures/double_dqn_learning_curve.svg)
+
 ![Controller Pareto frontier](figures/pareto.svg)
 
 ![Response-surface welfare effects](figures/response_surface_effects.svg)
@@ -250,6 +271,8 @@ Generated by `scripts/generate_neurips_figures.py`:
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
 ![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
+
+![Strategic-agent robustness](figures/strategic_agents.svg)
 
 ![Parameter grid p99 heatmap](figures/grid_p99_heatmap.svg)
 

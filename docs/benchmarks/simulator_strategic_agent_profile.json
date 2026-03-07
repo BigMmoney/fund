@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "name": "Strategic-Control",
+      "runs": 4,
+      "mean_orders_per_sec": 1761.1111111111109,
+      "ci95_orders_per_sec": 12.08687687504898,
+      "mean_fills_per_sec": 1040.6746031746031,
+      "ci95_fills_per_sec": 35.027535464841684,
+      "mean_p99_latency_ms": 392.5,
+      "ci95_p99_latency_ms": 91.76877192160741,
+      "mean_average_price_impact": 5.341451995306479,
+      "ci95_average_price_impact": 0.6254807311779899,
+      "mean_retail_surplus_per_unit": -0.26225458819827824,
+      "ci95_retail_surplus_per_unit": 0.29905837613686587,
+      "mean_retail_adverse_selection_rate": 0.4805098068708368,
+      "ci95_retail_adverse_selection_rate": 0.031104437328642928,
+      "mean_surplus_transfer_gap": 1.251518779075021,
+      "ci95_surplus_transfer_gap": 0.6668190630023342
+    },
+    {
+      "name": "Strategic-HighArb",
+      "runs": 4,
+      "mean_orders_per_sec": 1995.6349206349207,
+      "ci95_orders_per_sec": 18.228064781512444,
+      "mean_fills_per_sec": 1193.452380952381,
+      "ci95_fills_per_sec": 37.64145132728935,
+      "mean_p99_latency_ms": 430,
+      "ci95_p99_latency_ms": 110.22277441617953,
+      "mean_average_price_impact": 5.340018279120588,
+      "ci95_average_price_impact": 0.4464498578445422,
+      "mean_retail_surplus_per_unit": -0.5348446867543879,
+      "ci95_retail_surplus_per_unit": 0.15691719229429113,
+      "mean_retail_adverse_selection_rate": 0.5144913012059793,
+      "ci95_retail_adverse_selection_rate": 0.05329180808013708,
+      "mean_surplus_transfer_gap": 1.412301127526159,
+      "ci95_surplus_transfer_gap": 0.150034263027729
+    },
+    {
+      "name": "Strategic-RetailBurst",
+      "runs": 4,
+      "mean_orders_per_sec": 2693.8492063492063,
+      "ci95_orders_per_sec": 8.771578331164335,
+      "mean_fills_per_sec": 1608.7301587301588,
+      "ci95_fills_per_sec": 110.35266139311369,
+      "mean_p99_latency_ms": 427.5,
+      "ci95_p99_latency_ms": 90.98047867537299,
+      "mean_average_price_impact": 5.52761279417555,
+      "ci95_average_price_impact": 0.7713773074345581,
+      "mean_retail_surplus_per_unit": -0.22428124128465238,
+      "ci95_retail_surplus_per_unit": 0.1651792179438708,
+      "mean_retail_adverse_selection_rate": 0.5075510768592848,
+      "ci95_retail_adverse_selection_rate": 0.018081398900522006,
+      "mean_surplus_transfer_gap": 1.446652605792865,
+      "ci95_surplus_transfer_gap": 0.3559104275271268
+    }
+  ],
+  "seeds": [
+    521,
+    523,
+    541,
+    547
+  ]
+}
