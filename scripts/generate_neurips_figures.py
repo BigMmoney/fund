@@ -217,14 +217,25 @@ def generate() -> None:
     grid_sweep = load_named_results(GRID_SWEEP_PATH)
     cube_sweep = load_named_results(CUBE_SWEEP_PATH)
     hyper_sweep = load_named_results(HYPER_SWEEP_PATH)
+    label_map = {
+        "Immediate-Surrogate": "Immediate",
+        "SpeedBump-50ms": "SpeedBump 50",
+        "FBA-100ms": "FBA-100",
+        "FBA-250ms": "FBA-250",
+        "FBA-500ms": "FBA-500",
+        "Adaptive-100-250ms": "Adaptive B",
+        "Adaptive-OrderFlow-100-250ms": "Adaptive OF",
+        "Adaptive-QueueLoad-100-250ms": "Adaptive QL",
+        "Policy-BurstAware-100-250ms": "BurstAware",
+        "Policy-LearnedLinUCB-100-250ms": "LinUCB",
+        "Policy-LearnedTinyMLP-100-250ms": "TinyMLP",
+        "Policy-LearnedOfflineContextual-100-250ms": "OfflineCtx",
+        "Policy-LearnedFittedQ-100-250ms": "FittedQ",
+        "FBA-250ms-Stress": "Stress",
+    }
     categories = []
     for r in results:
-        label = r["name"].replace("Immediate-Surrogate", "Immediate")
-        label = label.replace("SpeedBump-", "SpeedBump ")
-        label = label.replace("Adaptive-", "Adaptive ")
-        label = label.replace("FBA-", "")
-        label = label.replace("-Stress", " Stress")
-        categories.append(label)
+        categories.append(label_map.get(r["name"], r["name"]))
 
     bar_chart_with_ci(
         "Throughput Comparison (95% CI)",

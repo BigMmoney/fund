@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -175,6 +176,40 @@ type hypercubeCompactSummary struct {
 	RetailConditionedArbitrage []retailConditionedArbitrageEffect       `json:"retail_conditioned_arbitrage"`
 }
 
+type heldOutPolicyResult struct {
+	RegimeName                     string  `json:"regime_name"`
+	Policy                         string  `json:"policy"`
+	Runs                           int     `json:"runs"`
+	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
+	CI95OrdersPerSec               float64 `json:"ci95_orders_per_sec"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
+	MeanAveragePriceImpact         float64 `json:"mean_average_price_impact"`
+	CI95AveragePriceImpact         float64 `json:"ci95_average_price_impact"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
+	NegativeBalanceViolationsTotal int     `json:"negative_balance_violations_total"`
+	ConservationBreachesTotal      int     `json:"conservation_breaches_total"`
+}
+
+type heldOutPolicySummary struct {
+	Policy                         string  `json:"policy"`
+	RegimeCount                    int     `json:"regime_count"`
+	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	MeanAveragePriceImpact         float64 `json:"mean_average_price_impact"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+}
+
 func simulatorScenarios() []ScenarioConfig {
 	return []ScenarioConfig{
 		{
@@ -318,6 +353,21 @@ func simulatorScenarios() []ScenarioConfig {
 			Name:                   "Policy-LearnedOfflineContextual-100-250ms",
 			Mode:                   ModeAdaptiveBatch,
 			PolicyController:       PolicyLearnedOfflineContextual,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:                   "Policy-LearnedFittedQ-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			PolicyController:       PolicyLearnedFittedQ,
 			AdaptivePolicy:         AdaptiveBalanced,
 			AdaptiveMinWindowSteps: 10,
 			AdaptiveMaxWindowSteps: 25,
@@ -591,6 +641,77 @@ func parameterHypercubeScenarios() []ScenarioConfig {
 	return scenarios
 }
 
+func heldOutRegimeScenarios() []ScenarioConfig {
+	return []ScenarioConfig{
+		{
+			Name:                   "HeldOut-HighArbWideMaker",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   211,
+			Agents:                 ScaleClassQuoteWidth(AdjustClassBaseSize(ScaleClassIntensity(DefaultPopulation(), AgentArbitrageur, 3, 1), AgentArbitrageur, 1), AgentMarketMaker, 3, 1),
+			Risk:                   RiskConfig{MaxOrderAmount: 9, MaxOrdersPerStep: 28},
+		},
+		{
+			Name:                   "HeldOut-RetailBurst",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   211,
+			Agents:                 RetailBurstPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 9, MaxOrdersPerStep: 30},
+		},
+		{
+			Name:                   "HeldOut-InformedWide",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   211,
+			Agents:                 ScaleClassQuoteWidth(ScaleClassIntensity(DefaultPopulation(), AgentInformed, 3, 1), AgentMarketMaker, 2, 1),
+			Risk:                   RiskConfig{MaxOrderAmount: 9, MaxOrdersPerStep: 28},
+		},
+		{
+			Name:                   "HeldOut-CompositeStress",
+			Mode:                   ModeAdaptiveBatch,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   211,
+			Agents:                 ScaleClassQuoteWidth(ScaleClassIntensity(ScaleClassIntensity(DefaultPopulation(), AgentRetail, 3, 1), AgentInformed, 2, 1), AgentMarketMaker, 3, 1),
+			Risk:                   RiskConfig{MaxOrderAmount: 10, MaxOrdersPerStep: 30},
+		},
+	}
+}
+
+func heldOutPolicies() []PolicyController {
+	return []PolicyController{
+		PolicyBurstAware,
+		PolicyLearnedLinUCB,
+		PolicyLearnedTinyMLP,
+		PolicyLearnedOfflineContextual,
+		PolicyLearnedFittedQ,
+	}
+}
+
 func TestSimulatorDeterminism(t *testing.T) {
 	cfg := scenarioByName(t, "SpeedBump-50ms")
 	left := runScenario(cfg)
@@ -772,6 +893,19 @@ func TestOfflineContextualPolicyProducesNamedResult(t *testing.T) {
 	}
 	if result.RetailAdverseSelectionRate < 0 || result.RetailAdverseSelectionRate > 1 {
 		t.Fatalf("expected retail adverse-selection rate to be bounded, got %+v", result)
+	}
+}
+
+func TestFittedQPolicyProducesNamedResult(t *testing.T) {
+	result := runScenario(scenarioByName(t, "Policy-LearnedFittedQ-100-250ms"))
+	if result.Name != "Policy-LearnedFittedQ-100-250ms" {
+		t.Fatalf("expected fitted-q policy result name, got %+v", result)
+	}
+	if result.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected fitted-q controller to record adaptive window stats, got %+v", result)
+	}
+	if result.NegativeBalanceViolations != 0 || result.ConservationBreaches != 0 {
+		t.Fatalf("expected fitted-q controller to preserve invariants, got %+v", result)
 	}
 }
 
@@ -1010,6 +1144,38 @@ func TestGenerateSimulatorParameterHypercubeArtifacts(t *testing.T) {
 	}
 	if err := writeSimulatorHypercubeSummaryArtifacts(summarizeHypercubeCompact(hyperResults, seeds)); err != nil {
 		t.Fatalf("write hypercube summary artifacts: %v", err)
+	}
+}
+
+func TestGenerateSimulatorHeldOutPolicyArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_HELDOUT") != "1" {
+		t.Skip("set RUN_SIM_HELDOUT=1 to generate simulator held-out policy artifacts")
+	}
+
+	seeds := []int64{223, 227, 229, 233}
+	results := make([]heldOutPolicyResult, 0, len(heldOutRegimeScenarios())*len(heldOutPolicies()))
+	for _, regime := range heldOutRegimeScenarios() {
+		for _, policy := range heldOutPolicies() {
+			runs := make([]BenchmarkResult, 0, len(seeds))
+			for _, seed := range seeds {
+				cfg := regime
+				cfg.Seed = seed
+				cfg.PolicyController = policy
+				runs = append(runs, runScenario(cfg))
+			}
+			results = append(results, summarizeHeldOutPolicyRuns(regime.Name, policy, runs))
+		}
+	}
+
+	linucb := findHeldOutPolicyResult(t, results, "HeldOut-HighArbWideMaker", PolicyLearnedLinUCB)
+	fittedQ := findHeldOutPolicyResult(t, results, "HeldOut-HighArbWideMaker", PolicyLearnedFittedQ)
+	if fittedQ.MeanSurplusTransferGap > linucb.MeanSurplusTransferGap && fittedQ.MeanP99LatencyMs >= linucb.MeanP99LatencyMs {
+		t.Fatalf("expected fitted-q policy to improve at least one held-out tradeoff axis, linucb=%+v fittedQ=%+v", linucb, fittedQ)
+	}
+
+	if err := writeSimulatorHeldOutPolicyArtifacts(results, seeds); err != nil {
+		t.Fatalf("write held-out policy artifacts: %v", err)
 	}
 }
 
@@ -1556,6 +1722,97 @@ func summarizeHypercubeCompact(results []hypercubeSweepResult, seeds []int64) hy
 	}
 }
 
+func summarizeHeldOutPolicyRuns(regime string, policy PolicyController, runs []BenchmarkResult) heldOutPolicyResult {
+	orders := make([]float64, 0, len(runs))
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	impact := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	gap := make([]float64, 0, len(runs))
+	negative := 0
+	conservation := 0
+	for _, run := range runs {
+		orders = append(orders, run.OrdersPerSec)
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		impact = append(impact, run.AveragePriceImpact)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		gap = append(gap, run.SurplusTransferGap)
+		negative += run.NegativeBalanceViolations
+		conservation += run.ConservationBreaches
+	}
+	meanOrders, ciOrders := meanCI95(orders)
+	meanFills, ciFills := meanCI95(fills)
+	meanP99, ciP99 := meanCI95(p99)
+	meanImpact, ciImpact := meanCI95(impact)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
+	meanGap, ciGap := meanCI95(gap)
+	return heldOutPolicyResult{
+		RegimeName:                     regime,
+		Policy:                         string(policy),
+		Runs:                           len(runs),
+		MeanOrdersPerSec:               meanOrders,
+		CI95OrdersPerSec:               ciOrders,
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ciFills,
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ciP99,
+		MeanAveragePriceImpact:         meanImpact,
+		CI95AveragePriceImpact:         ciImpact,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+		MeanSurplusTransferGap:         meanGap,
+		CI95SurplusTransferGap:         ciGap,
+		NegativeBalanceViolationsTotal: negative,
+		ConservationBreachesTotal:      conservation,
+	}
+}
+
+func summarizeHeldOutPolicyTable(results []heldOutPolicyResult) []heldOutPolicySummary {
+	byPolicy := make(map[string][]heldOutPolicyResult)
+	for _, result := range results {
+		byPolicy[result.Policy] = append(byPolicy[result.Policy], result)
+	}
+	policies := make([]string, 0, len(byPolicy))
+	for policy := range byPolicy {
+		policies = append(policies, policy)
+	}
+	sort.Strings(policies)
+	summaries := make([]heldOutPolicySummary, 0, len(policies))
+	for _, policy := range policies {
+		group := byPolicy[policy]
+		summaries = append(summaries, heldOutPolicySummary{
+			Policy:                         policy,
+			RegimeCount:                    len(group),
+			MeanOrdersPerSec:               meanHeldOutMetric(group, func(r heldOutPolicyResult) float64 { return r.MeanOrdersPerSec }),
+			MeanFillsPerSec:                meanHeldOutMetric(group, func(r heldOutPolicyResult) float64 { return r.MeanFillsPerSec }),
+			MeanP99LatencyMs:               meanHeldOutMetric(group, func(r heldOutPolicyResult) float64 { return r.MeanP99LatencyMs }),
+			MeanAveragePriceImpact:         meanHeldOutMetric(group, func(r heldOutPolicyResult) float64 { return r.MeanAveragePriceImpact }),
+			MeanRetailSurplusPerUnit:       meanHeldOutMetric(group, func(r heldOutPolicyResult) float64 { return r.MeanRetailSurplusPerUnit }),
+			MeanRetailAdverseSelectionRate: meanHeldOutMetric(group, func(r heldOutPolicyResult) float64 { return r.MeanRetailAdverseSelectionRate }),
+			MeanSurplusTransferGap:         meanHeldOutMetric(group, func(r heldOutPolicyResult) float64 { return r.MeanSurplusTransferGap }),
+		})
+	}
+	return summaries
+}
+
+func meanHeldOutMetric(results []heldOutPolicyResult, selector func(heldOutPolicyResult) float64) float64 {
+	if len(results) == 0 {
+		return 0
+	}
+	values := make([]float64, 0, len(results))
+	for _, result := range results {
+		values = append(values, selector(result))
+	}
+	mean, _ := meanStd(values)
+	return mean
+}
+
 func filterHypercubeByLevel(results []hypercubeSweepResult, factor string, level int) []hypercubeSweepResult {
 	filtered := make([]hypercubeSweepResult, 0, len(results))
 	for _, result := range results {
@@ -1669,6 +1926,17 @@ func findHypercubeResult(t *testing.T, results []hypercubeSweepResult, arb, reta
 	}
 	t.Fatalf("hypercube cell arb=%d retail=%d informed=%d maker=%d not found", arb, retail, informed, maker)
 	return hypercubeSweepResult{}
+}
+
+func findHeldOutPolicyResult(t *testing.T, results []heldOutPolicyResult, regime string, policy PolicyController) heldOutPolicyResult {
+	t.Helper()
+	for _, result := range results {
+		if result.RegimeName == regime && result.Policy == string(policy) {
+			return result
+		}
+	}
+	t.Fatalf("held-out result regime=%s policy=%s not found", regime, policy)
+	return heldOutPolicyResult{}
 }
 
 func writeSimulatorGridArtifacts(results []gridSweepResult, seeds []int64) error {
@@ -1925,6 +2193,86 @@ func writeSimulatorHypercubeSummaryArtifacts(summary hypercubeCompactSummary) er
 			effect.RetailIntensityMultiplier,
 			effect.DeltaOrdersPerSec, effect.DeltaP99LatencyMs, effect.DeltaLatencyArbitrageProfit,
 			effect.DeltaRetailSurplusPerUnit, effect.DeltaRetailAdverseSelection, effect.DeltaSurplusTransferGap))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorHeldOutPolicyArtifacts(results []heldOutPolicyResult, seeds []int64) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_heldout_policy_profile.json")
+	mdPath := filepath.Join(base, "simulator_heldout_policy_profile.md")
+	csvPath := filepath.Join(base, "simulator_heldout_policy_profile.csv")
+
+	summary := summarizeHeldOutPolicyTable(results)
+	payload := map[string]any{
+		"seeds":   seeds,
+		"results": results,
+		"summary": summary,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Held-Out Policy Profile\n\n")
+	md.WriteString(fmt.Sprintf("Held-out seeds: `%v`\n\n", seeds))
+	md.WriteString("The held-out regimes are excluded from the fitted-Q training seeds and evaluate generalization under unseen stress combinations.\n\n")
+	md.WriteString("## Regime x Policy Results\n\n")
+	md.WriteString("| Regime | Policy | Runs | Orders/s | Fills/s | p99 (ms) | Impact | Retail Surplus | Retail Adverse | Welfare Gap | Neg. Bal. | Conservation |\n")
+	md.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, r := range results {
+		md.WriteString(fmt.Sprintf("| %s | %s | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f | %d | %d |\n",
+			r.RegimeName, r.Policy, r.Runs,
+			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
+			r.MeanFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit,
+			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate,
+			r.MeanSurplusTransferGap, r.CI95SurplusTransferGap,
+			r.NegativeBalanceViolationsTotal, r.ConservationBreachesTotal))
+	}
+	md.WriteString("\n## Policy Summary\n\n")
+	md.WriteString("| Policy | Regimes | Orders/s | Fills/s | p99 (ms) | Impact | Retail Surplus | Retail Adverse | Welfare Gap |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, s := range summary {
+		md.WriteString(fmt.Sprintf("| %s | %d | %.2f | %.2f | %.2f | %.2f | %.4f | %.4f | %.4f |\n",
+			s.Policy, s.RegimeCount, s.MeanOrdersPerSec, s.MeanFillsPerSec, s.MeanP99LatencyMs,
+			s.MeanAveragePriceImpact, s.MeanRetailSurplusPerUnit, s.MeanRetailAdverseSelectionRate, s.MeanSurplusTransferGap))
+	}
+
+	var csv strings.Builder
+	csv.WriteString("section,regime,policy,runs,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_average_price_impact,ci95_average_price_impact,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_surplus_transfer_gap,ci95_surplus_transfer_gap,negative_balance_violations_total,conservation_breaches_total\n")
+	for _, r := range results {
+		csv.WriteString(fmt.Sprintf("regime_policy,%s,%s,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d\n",
+			r.RegimeName, r.Policy, r.Runs,
+			r.MeanOrdersPerSec, r.CI95OrdersPerSec,
+			r.MeanFillsPerSec, r.CI95FillsPerSec,
+			r.MeanP99LatencyMs, r.CI95P99LatencyMs,
+			r.MeanAveragePriceImpact, r.CI95AveragePriceImpact,
+			r.MeanRetailSurplusPerUnit, r.CI95RetailSurplusPerUnit,
+			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate,
+			r.MeanSurplusTransferGap, r.CI95SurplusTransferGap,
+			r.NegativeBalanceViolationsTotal, r.ConservationBreachesTotal))
+	}
+	for _, s := range summary {
+		csv.WriteString(fmt.Sprintf("policy_summary,,%s,%d,%.4f,,%.4f,,%.4f,,%.4f,,%.6f,,%.6f,,%.6f,,,\n",
+			s.Policy, s.RegimeCount,
+			s.MeanOrdersPerSec, s.MeanFillsPerSec, s.MeanP99LatencyMs,
+			s.MeanAveragePriceImpact, s.MeanRetailSurplusPerUnit,
+			s.MeanRetailAdverseSelectionRate, s.MeanSurplusTransferGap))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {

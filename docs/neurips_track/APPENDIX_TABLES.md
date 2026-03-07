@@ -12,12 +12,31 @@ Source: `docs/benchmarks/simulator_multiseed_profile.*`
 | Policy-LearnedLinUCB-100-250ms | 1337.60 | 755.65 | 100.00 | 155.00 | 5.90 | 0.0513 | 976.63 | 0.0795 | 0.4690 | 2.1694 |
 | Policy-LearnedTinyMLP-100-250ms | 1337.60 | 769.35 | 150.00 | 221.25 | 5.22 | 0.0336 | 856.13 | -0.3128 | 0.4924 | 1.9719 |
 | Policy-LearnedOfflineContextual-100-250ms | 1337.40 | 762.80 | 138.59 | 215.00 | 4.94 | 0.0294 | 771.25 | -0.1090 | 0.4980 | 1.3769 |
+| Policy-LearnedFittedQ-100-250ms | 1337.70 | 746.23 | 100.58 | 145.00 | 5.88 | 0.0451 | 966.38 | 0.0742 | 0.4738 | 2.2036 |
 
 Interpretation:
 
-- `LinUCB` remains best on tail latency, but it does so by widening the surplus transfer gap.
+- `FittedQ` is now best on in-distribution tail latency, but it still widens the surplus transfer gap relative to `OfflineContextual`.
 - `TinyMLP` still improves fills, but it remains welfare-weak on retail surplus.
 - `OfflineContextual` is the most balanced learned baseline in the current repo: it keeps p99 and fills close to the learned policies while cutting impact, queue advantage, arbitrage-profit proxy, and welfare gap.
+- `FittedQ` now provides the clearest offline-learning training story and the strongest in-distribution p99, but it still behaves more like `LinUCB` than `OfflineContextual` on surplus-transfer gap.
+
+## Held-Out Policy Generalization
+
+Source: `docs/benchmarks/simulator_heldout_policy_profile.*`
+
+| Policy | Regimes | Orders/s | Fills/s | p99 (ms) | Impact | Retail Surplus | Retail Adverse | Welfare Gap |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| burst_aware | 4 | 1929.41 | 834.08 | 376.88 | 5.32 | -0.4042 | 0.5200 | 1.6286 |
+| learned_linucb | 4 | 1930.41 | 978.52 | 171.25 | 5.76 | 0.1215 | 0.4916 | 2.4466 |
+| learned_offline_contextual | 4 | 1930.85 | 961.61 | 275.62 | 5.38 | -0.0732 | 0.4703 | 1.9535 |
+| learned_fitted_q | 4 | 1930.65 | 946.78 | 159.38 | 5.92 | 0.1110 | 0.4952 | 2.3158 |
+
+Interpretation:
+
+- `FittedQ` improves on `LinUCB` on both `p99` and welfare gap in `HeldOut-HighArbWideMaker`, `HeldOut-RetailBurst`, and `HeldOut-CompositeStress`.
+- In `HeldOut-InformedWide`, `FittedQ` gives up some tail latency versus `LinUCB` but still lowers welfare gap.
+- `OfflineContextual` remains the most welfare-balanced learned baseline on held-out regimes, but it is materially slower on tail latency than both `LinUCB` and `FittedQ`.
 
 ## Mechanism Ablation
 

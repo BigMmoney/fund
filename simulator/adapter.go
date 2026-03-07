@@ -122,6 +122,15 @@ type learnedOfflineContextualPolicy struct {
 	Gamma   float64
 }
 
+type learnedFittedQPolicy struct {
+	Actions        []linearArmModel
+	Gamma          float64
+	Iterations     int
+	TrainingSeeds  []int64
+	HeldOutSeeds   []int64
+	HeldOutRegimes []string
+}
+
 type policyStepSample struct {
 	features []float64
 	hidden   []float64
@@ -136,15 +145,25 @@ type offlinePolicySample struct {
 	target   float64
 }
 
+type offlineTransitionSample struct {
+	features     []float64
+	action       int
+	reward       float64
+	nextFeatures []float64
+	done         bool
+}
+
 var learnedPolicyCache = struct {
 	sync.Mutex
 	linucb  map[string]learnedLinUCBPolicy
 	tiny    map[string]tinyMLPModel
 	offline map[string]learnedOfflineContextualPolicy
+	fittedQ map[string]learnedFittedQPolicy
 }{
 	linucb:  make(map[string]learnedLinUCBPolicy),
 	tiny:    make(map[string]tinyMLPModel),
 	offline: make(map[string]learnedOfflineContextualPolicy),
+	fittedQ: make(map[string]learnedFittedQPolicy),
 }
 
 func NewAdapter(cfg ScenarioConfig) *Adapter {
@@ -248,6 +267,7 @@ func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	var linucb *learnedLinUCBPolicy
 	var tiny *tinyMLPModel
 	var offline *learnedOfflineContextualPolicy
+	var fittedQ *learnedFittedQPolicy
 	if policy == PolicyLearnedLinUCB {
 		model := cachedLinUCBPolicy(a.env.cfg)
 		linucb = &model
@@ -257,9 +277,12 @@ func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	} else if policy == PolicyLearnedOfflineContextual {
 		model := cachedOfflineContextualPolicy(a.env.cfg)
 		offline = &model
+	} else if policy == PolicyLearnedFittedQ {
+		model := cachedFittedQPolicy(a.env.cfg)
+		fittedQ = &model
 	}
 	for !timestep.Done {
-		action := a.selectAction(policy, timestep.Observation, linucb, tiny, offline)
+		action := a.selectAction(policy, timestep.Observation, linucb, tiny, offline, fittedQ)
 		timestep = a.Step(action)
 	}
 	result := a.env.benchmarkResult(time.Since(start))
@@ -324,7 +347,7 @@ func (a *Adapter) applyAction(action ControlAction) ControlAction {
 	return applied
 }
 
-func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel, offline *learnedOfflineContextualPolicy) ControlAction {
+func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel, offline *learnedOfflineContextualPolicy, fittedQ *learnedFittedQPolicy) ControlAction {
 	switch policy {
 	case PolicyBurstAware:
 		return burstAwareAction(a.ActionSpec(), observation)
@@ -343,6 +366,11 @@ func (a *Adapter) selectAction(policy PolicyController, observation Observation,
 			return ControlAction{}
 		}
 		return chooseOfflineContextualAction(a.ActionSpec(), observation, *offline)
+	case PolicyLearnedFittedQ:
+		if fittedQ == nil {
+			return ControlAction{}
+		}
+		return chooseFittedQAction(a.ActionSpec(), observation, *fittedQ)
 	default:
 		return ControlAction{}
 	}
@@ -415,6 +443,8 @@ func policyScenarioName(base string, policy PolicyController) string {
 		return "Policy-LearnedTinyMLP-100-250ms"
 	case PolicyLearnedOfflineContextual:
 		return "Policy-LearnedOfflineContextual-100-250ms"
+	case PolicyLearnedFittedQ:
+		return "Policy-LearnedFittedQ-100-250ms"
 	default:
 		return base
 	}
@@ -510,6 +540,23 @@ func cachedOfflineContextualPolicy(cfg ScenarioConfig) learnedOfflineContextualP
 	return trained
 }
 
+func cachedFittedQPolicy(cfg ScenarioConfig) learnedFittedQPolicy {
+	key := policyCacheKey(cfg, PolicyLearnedFittedQ)
+	learnedPolicyCache.Lock()
+	if cached, ok := learnedPolicyCache.fittedQ[key]; ok {
+		learnedPolicyCache.Unlock()
+		return cached
+	}
+	learnedPolicyCache.Unlock()
+
+	trained := trainLearnedFittedQPolicy(cfg)
+
+	learnedPolicyCache.Lock()
+	learnedPolicyCache.fittedQ[key] = trained
+	learnedPolicyCache.Unlock()
+	return trained
+}
+
 func trainTinyMLPPolicy(cfg ScenarioConfig) tinyMLPModel {
 	trainingSeeds := []int64{101, 103, 107, 109, 113, 127}
 	spec := NewAdapter(cfg).ActionSpec()
@@ -563,6 +610,88 @@ func trainOfflineContextualPolicy(cfg ScenarioConfig) learnedOfflineContextualPo
 		}
 	}
 	return policy
+}
+
+func trainLearnedFittedQPolicy(cfg ScenarioConfig) learnedFittedQPolicy {
+	trainingSeeds := []int64{181, 191, 193, 197, 199, 211}
+	heldOutSeeds := []int64{223, 227, 229, 233}
+	spec := NewAdapter(cfg).ActionSpec()
+	actions := candidateBanditActions(spec)
+	featureDim := len(observationFeatures(Observation{}))
+	policy := learnedFittedQPolicy{
+		Actions:       initLinearArmModels(actions, featureDim, 2.0),
+		Gamma:         0.97,
+		Iterations:    8,
+		TrainingSeeds: append([]int64(nil), trainingSeeds...),
+		HeldOutSeeds:  append([]int64(nil), heldOutSeeds...),
+		HeldOutRegimes: []string{
+			"HeldOut-HighArbWideMaker",
+			"HeldOut-RetailBurst",
+			"HeldOut-InformedWide",
+			"HeldOut-CompositeStress",
+		},
+	}
+
+	linucb := cachedLinUCBPolicy(cfg)
+	tiny := cachedTinyMLPPolicy(cfg)
+	offline := cachedOfflineContextualPolicy(cfg)
+	rng := rand.New(rand.NewSource(trainingRandomSeed(cfg) + 503))
+
+	transitions := make([]offlineTransitionSample, 0, len(trainingSeeds)*cfg.TotalSteps*6)
+	for _, seed := range trainingSeeds {
+		for _, behavior := range []PolicyController{PolicyBurstAware, PolicyLearnedLinUCB, PolicyLearnedTinyMLP, PolicyLearnedOfflineContextual} {
+			transitions = append(transitions, collectOfflineTransitionTrajectory(cfg, seed, behavior, actions, &linucb, &tiny, &offline, rng)...)
+		}
+		for rollout := 0; rollout < 2; rollout++ {
+			transitions = append(transitions, collectOfflineRandomTransitionTrajectory(cfg, seed+int64(rollout), actions, rng)...)
+		}
+	}
+
+	models := append([]linearArmModel(nil), policy.Actions...)
+	for i := range models {
+		models[i].A = copyMatrix(models[i].A)
+		models[i].B = append([]float64(nil), models[i].B...)
+		models[i].Theta = append([]float64(nil), models[i].Theta...)
+	}
+	prevModels := models
+	for iter := 0; iter < policy.Iterations; iter++ {
+		models = initLinearArmModels(actions, featureDim, 2.0)
+		for _, sample := range transitions {
+			target := sample.reward
+			if !sample.done {
+				target += policy.Gamma * maxActionValue(prevModels, sample.nextFeatures)
+			}
+			target = clampFloat(target, -25.0, 25.0)
+			arm := &models[sample.action]
+			arm.A = outerAdd(arm.A, sample.features)
+			addScaledInPlace(arm.B, sample.features, target)
+			arm.Updates++
+		}
+		for idx := range models {
+			models[idx].Theta = solveLinearSystem(models[idx].A, models[idx].B)
+		}
+		prevModels = copyLinearArmModels(models)
+	}
+	policy.Actions = prevModels
+	return policy
+}
+
+func initLinearArmModels(actions []learnedActionCandidate, featureDim int, ridge float64) []linearArmModel {
+	models := make([]linearArmModel, 0, len(actions))
+	for _, candidate := range actions {
+		identity := identityMatrix(featureDim)
+		for i := range identity {
+			identity[i][i] = ridge
+		}
+		models = append(models, linearArmModel{
+			Name:   candidate.Name,
+			Action: candidate.Action,
+			A:      identity,
+			B:      make([]float64, featureDim),
+			Theta:  make([]float64, featureDim),
+		})
+	}
+	return models
 }
 
 func candidateBanditActions(spec ActionSpec) []learnedActionCandidate {
@@ -748,6 +877,64 @@ func collectOfflineRandomTrajectory(cfg ScenarioConfig, seed int64, actions []le
 		})
 	}
 	return offlineSamplesFromTrajectory(trajectory, gamma)
+}
+
+func collectOfflineTransitionTrajectory(cfg ScenarioConfig, seed int64, behavior PolicyController, actions []learnedActionCandidate, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel, offline *learnedOfflineContextualPolicy, rng *rand.Rand) []offlineTransitionSample {
+	trainingCfg := cfg
+	trainingCfg.Seed = seed
+	adapter := NewAdapter(trainingCfg)
+	spec := adapter.ActionSpec()
+	timestep := adapter.Reset()
+	trajectory := make([]offlineTransitionSample, 0, trainingCfg.TotalSteps)
+	for !timestep.Done {
+		var action ControlAction
+		switch behavior {
+		case PolicyBurstAware:
+			action = burstAwareAction(spec, timestep.Observation)
+		case PolicyLearnedLinUCB:
+			action = chooseLinUCBAction(spec, timestep.Observation, *linucb)
+		case PolicyLearnedTinyMLP:
+			action = chooseTinyMLPAction(spec, timestep.Observation, *tiny)
+		case PolicyLearnedOfflineContextual:
+			action = chooseOfflineContextualAction(spec, timestep.Observation, *offline)
+		default:
+			action = actions[rng.Intn(len(actions))].Action
+		}
+		actionIdx := nearestCandidateIndex(spec, action, actions)
+		features := observationFeatures(timestep.Observation)
+		next := adapter.Step(action)
+		trajectory = append(trajectory, offlineTransitionSample{
+			features:     append([]float64(nil), features...),
+			action:       actionIdx,
+			reward:       next.Reward,
+			nextFeatures: append([]float64(nil), observationFeatures(next.Observation)...),
+			done:         next.Done,
+		})
+		timestep = next
+	}
+	return trajectory
+}
+
+func collectOfflineRandomTransitionTrajectory(cfg ScenarioConfig, seed int64, actions []learnedActionCandidate, rng *rand.Rand) []offlineTransitionSample {
+	trainingCfg := cfg
+	trainingCfg.Seed = seed
+	adapter := NewAdapter(trainingCfg)
+	timestep := adapter.Reset()
+	trajectory := make([]offlineTransitionSample, 0, trainingCfg.TotalSteps)
+	for !timestep.Done {
+		actionIdx := rng.Intn(len(actions))
+		features := observationFeatures(timestep.Observation)
+		next := adapter.Step(actions[actionIdx].Action)
+		trajectory = append(trajectory, offlineTransitionSample{
+			features:     append([]float64(nil), features...),
+			action:       actionIdx,
+			reward:       next.Reward,
+			nextFeatures: append([]float64(nil), observationFeatures(next.Observation)...),
+			done:         next.Done,
+		})
+		timestep = next
+	}
+	return trajectory
 }
 
 func offlineSamplesFromTrajectory(trajectory []policyStepSample, gamma float64) []offlinePolicySample {
@@ -1031,6 +1218,29 @@ func chooseOfflineContextualAction(spec ActionSpec, observation Observation, pol
 	return policy.Actions[bestIdx].Action
 }
 
+func chooseFittedQAction(spec ActionSpec, observation Observation, policy learnedFittedQPolicy) ControlAction {
+	if len(policy.Actions) == 0 {
+		return fallbackBanditAction(spec)
+	}
+	features := observationFeatures(observation)
+	bestIdx := 0
+	bestScore := math.Inf(-1)
+	for idx, arm := range policy.Actions {
+		score := dot(arm.Theta, features)
+		if arm.Updates == 0 {
+			score = math.Inf(-1)
+		}
+		if score > bestScore {
+			bestScore = score
+			bestIdx = idx
+		}
+	}
+	if bestScore == math.Inf(-1) {
+		return fallbackBanditAction(spec)
+	}
+	return policy.Actions[bestIdx].Action
+}
+
 func fallbackBanditAction(spec ActionSpec) ControlAction {
 	mid := minInt(spec.MaxBatchWindowSteps, spec.MinBatchWindowSteps+10)
 	cadence := minInt(spec.MaxReleaseCadenceSteps, maxInt(0, spec.MinBatchWindowSteps+5))
@@ -1186,6 +1396,21 @@ func copyMatrix(src [][]float64) [][]float64 {
 	return dst
 }
 
+func copyLinearArmModels(src []linearArmModel) []linearArmModel {
+	dst := make([]linearArmModel, len(src))
+	for i := range src {
+		dst[i] = linearArmModel{
+			Name:    src[i].Name,
+			Action:  src[i].Action,
+			A:       copyMatrix(src[i].A),
+			B:       append([]float64(nil), src[i].B...),
+			Theta:   append([]float64(nil), src[i].Theta...),
+			Updates: src[i].Updates,
+		}
+	}
+	return dst
+}
+
 func outerAdd(matrix [][]float64, features []float64) [][]float64 {
 	out := copyMatrix(matrix)
 	for i := range features {
@@ -1297,6 +1522,33 @@ func maxFloat(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+func clampFloat(v, minV, maxV float64) float64 {
+	if v < minV {
+		return minV
+	}
+	if v > maxV {
+		return maxV
+	}
+	return v
+}
+
+func maxActionValue(models []linearArmModel, features []float64) float64 {
+	best := math.Inf(-1)
+	for _, arm := range models {
+		if arm.Updates == 0 {
+			continue
+		}
+		score := dot(arm.Theta, features)
+		if score > best {
+			best = score
+		}
+	}
+	if best == math.Inf(-1) {
+		return 0
+	}
+	return best
 }
 
 func rankedBanditModels(policy learnedLinUCBPolicy) []linearArmModel {

@@ -27,6 +27,7 @@ const (
 	PolicyLearnedLinUCB            PolicyController = "learned_linucb"
 	PolicyLearnedTinyMLP           PolicyController = "learned_tiny_mlp"
 	PolicyLearnedOfflineContextual PolicyController = "learned_offline_contextual"
+	PolicyLearnedFittedQ           PolicyController = "learned_fitted_q"
 )
 
 type AgentClass string

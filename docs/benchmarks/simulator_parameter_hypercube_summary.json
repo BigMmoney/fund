@@ -165,17 +165,6 @@
   },
   "high_low_contrasts": [
     {
-      "factor": "maker_quote_width",
-      "low_level": 1,
-      "high_level": 3,
-      "delta_orders_per_sec": 0,
-      "delta_p99_latency_ms": 5.9027777777777715,
-      "delta_latency_arbitrage_profit": 11.798611111111086,
-      "delta_retail_surplus_per_unit": -0.12502983025872588,
-      "delta_retail_adverse_selection_rate": 0.008549806061661225,
-      "delta_surplus_transfer_gap": 0.2652578408145838
-    },
-    {
       "factor": "arbitrageur_intensity",
       "low_level": 0,
       "high_level": 3,
@@ -207,6 +196,17 @@
       "delta_retail_surplus_per_unit": -0.1985562356110593,
       "delta_retail_adverse_selection_rate": 0.013116291137016511,
       "delta_surplus_transfer_gap": 0.0875756467657467
+    },
+    {
+      "factor": "maker_quote_width",
+      "low_level": 1,
+      "high_level": 3,
+      "delta_orders_per_sec": 0,
+      "delta_p99_latency_ms": 5.9027777777777715,
+      "delta_latency_arbitrage_profit": 11.798611111111086,
+      "delta_retail_surplus_per_unit": -0.12502983025872588,
+      "delta_retail_adverse_selection_rate": 0.008549806061661225,
+      "delta_surplus_transfer_gap": 0.2652578408145838
     }
   ],
   "retail_conditioned_arbitrage": [

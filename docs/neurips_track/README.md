@@ -12,7 +12,8 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - multiple market-design regimes
 - a step-wise `Reset/Step/Observe/Metrics` API
 - a gym-style adapter with runtime controls for batch window, risk scale, tie-break mode, release cadence, and price aggression
-- adapter-driven policy baselines, including an offline contextual controller
+- adapter-driven policy baselines, including offline contextual and fitted-Q controllers
+- a logged-trajectory training split plus held-out regime evaluation for learned policies
 - ledger-aware settlement semantics and explicit invariant checks
 - reproducible benchmark artifacts, sweeps, and appendix figures
 - a paper-facing welfare decomposition built around `retail_surplus_per_unit`, `retail_adverse_selection_rate`, and `surplus_transfer_gap`
@@ -28,6 +29,7 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_parameter_cube_profile.*`: retail x informed x maker cube
 - `docs/benchmarks/simulator_parameter_hypercube_profile.*`: arbitrage x retail x informed x maker unified sweep
 - `docs/benchmarks/simulator_parameter_hypercube_summary.*`: compact main-effect and high-low contrast summary for the unified sweep
+- `docs/benchmarks/simulator_heldout_policy_profile.*`: held-out regime generalization results for learned controllers
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
 - `APPENDIX_TABLES.md`: appendix-ready controller, ablation, and sweep tables
@@ -44,6 +46,7 @@ From `docs/benchmarks/simulator_benchmark_profile.json`:
 - `Policy-LearnedLinUCB-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 130 ms`, retail surplus `0.3975`
 - `Policy-LearnedTinyMLP-100-250ms`: `1347.6 orders/s`, `p50 60 ms`, `p99 300 ms`, price impact `4.24`
 - `Policy-LearnedOfflineContextual-100-250ms`: `1349.2 orders/s`, `p50 80 ms`, `p99 200 ms`, impact `3.18`, retail adverse rate `0.4014`
+- `Policy-LearnedFittedQ-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 120 ms`, retail surplus `0.3731`, welfare gap `1.6269`
 - `FBA-250ms-Stress`: `1761.1 orders/s`, `p50 100 ms`, `p99 590 ms`
 
 All generated scenarios currently report:
@@ -62,13 +65,44 @@ From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `
 - `Policy-LearnedLinUCB-100-250ms`: `1337.60 +/- 3.88 orders/s`, `755.65 +/- 27.48 fills/s`, `p99 155.00 +/- 17.32 ms`, retail surplus `0.0795 +/- 0.1353`, welfare gap `2.1694 +/- 0.7433`
 - `Policy-LearnedTinyMLP-100-250ms`: `1337.60 +/- 3.88 orders/s`, `769.35 +/- 20.85 fills/s`, `p99 221.25 +/- 57.40 ms`, arb `856.13 +/- 107.16`, retail surplus `-0.3128 +/- 0.1535`
 - `Policy-LearnedOfflineContextual-100-250ms`: `1337.40 +/- 3.91 orders/s`, `762.80 +/- 36.22 fills/s`, `p99 215.00 +/- 47.25 ms`, impact `4.94 +/- 0.57`, queue `0.0294 +/- 0.0156`, arb `771.25 +/- 113.73`, retail surplus `-0.1090 +/- 0.1191`
+- `Policy-LearnedFittedQ-100-250ms`: `1337.70 +/- 3.86 orders/s`, `746.23 +/- 27.90 fills/s`, `p99 145.00 +/- 21.36 ms`, queue `0.0451 +/- 0.0217`, retail surplus `0.0742 +/- 0.1690`, welfare gap `2.2036 +/- 0.6732`
 - `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `900.50 +/- 23.67 fills/s`, `p99 373.75 +/- 70.24 ms`, arb `2057.00 +/- 235.64`
 
 Current controller interpretation:
 
-- `LinUCB` remains the fastest learned controller on tail latency, but pays the highest welfare gap (`2.1694`) among the learned baselines.
+- `FittedQ` is now the fastest learned controller on in-distribution tail latency (`145.00 +/- 21.36 ms`), but it still behaves closer to `LinUCB` than to `OfflineContextual` on surplus-transfer gap.
 - `TinyMLP` improves fills, but still leaves retail surplus negative and keeps arbitrage capture high.
-- `OfflineContextual` is the most balanced learned baseline in the current repo: it keeps p99 far below burst-aware, cuts price impact below both `LinUCB` and `TinyMLP`, and brings queue advantage close to the batch-style heuristics.
+- `OfflineContextual` is still the most balanced learned baseline in the current repo: it keeps p99 far below burst-aware, cuts price impact below both `LinUCB` and `FittedQ`, and keeps the smallest welfare gap among the learned policies.
+- `FittedQ` adds a minimal offline-RL style training story and currently pushes the best in-distribution p99 (`145.00 +/- 21.36 ms`) while staying better than `LinUCB` on held-out welfare gap in every published regime, but it still widens transfer-to-arbitrageur relative to `OfflineContextual`.
+
+## Offline Training and Held-Out Generalization
+
+The current learning line now has an explicit train/eval split instead of only online or imitation-style controllers.
+
+- training seeds for the offline fitted-Q controller: `[181, 191, 193, 197, 199, 211]`
+- held-out evaluation seeds: `[223, 227, 229, 233]`
+- logged behavior sources: `BurstAware`, `LinUCB`, `TinyMLP`, `OfflineContextual`, plus random rollouts
+- shared control surface: batch window, risk scale, tie-break mode, release cadence, and price aggression
+
+Held-out regimes in `docs/benchmarks/simulator_heldout_policy_profile.*`:
+
+- `HeldOut-HighArbWideMaker`
+- `HeldOut-RetailBurst`
+- `HeldOut-InformedWide`
+- `HeldOut-CompositeStress`
+
+Held-out policy summary:
+
+- `burst_aware`: `834.08 fills/s`, `p99 376.88 ms`, retail surplus `-0.4042`, welfare gap `1.6286`
+- `learned_linucb`: `978.52 fills/s`, `p99 171.25 ms`, retail surplus `0.1215`, welfare gap `2.4466`
+- `learned_offline_contextual`: `961.61 fills/s`, `p99 275.62 ms`, retail surplus `-0.0732`, welfare gap `1.9535`
+- `learned_fitted_q`: `946.78 fills/s`, `p99 159.38 ms`, retail surplus `0.1110`, welfare gap `2.3158`
+
+Most important held-out observation:
+
+- against `LinUCB`, `FittedQ` lowers both `p99` and welfare gap in `HeldOut-HighArbWideMaker`, `HeldOut-RetailBurst`, and `HeldOut-CompositeStress`
+- in `HeldOut-InformedWide`, `FittedQ` gives up some p99 (`182.50` vs `167.50 ms`) but still lowers welfare gap (`2.2994` vs `2.3765`)
+- `OfflineContextual` remains the most welfare-balanced learned baseline overall, but it is clearly slower than both `LinUCB` and `FittedQ` on held-out tails
 
 ## Welfare / Behavior Metrics
 
@@ -175,6 +209,9 @@ go test ./simulator -run TestGenerateSimulatorParameterCubeArtifacts -v
 
 $env:RUN_SIM_HYPER="1"
 go test ./simulator -run TestGenerateSimulatorParameterHypercubeArtifacts -v
+
+$env:RUN_SIM_HELDOUT="1"
+go test ./simulator -run TestGenerateSimulatorHeldOutPolicyArtifacts -v
 
 python scripts/generate_neurips_figures.py
 ```

@@ -30,10 +30,10 @@ Primary welfare metrics emphasized in the paper line:
 
 | Factor | Low | High | Delta Orders/s | Delta p99 (ms) | Delta Arb Profit | Delta Retail Surplus | Delta Retail Adverse | Delta Welfare Gap |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| maker_quote_width | 1 | 3 | 0.00 | 5.90 | 11.80 | -0.1250 | 0.0085 | 0.2653 |
 | arbitrageur_intensity | 0 | 3 | 176.26 | 1.94 | 2134.86 | -0.1804 | 0.0117 | 1.2099 |
 | retail_intensity | 1 | 3 | 780.94 | -3.82 | 95.64 | 0.0772 | 0.0018 | 0.0781 |
 | informed_intensity | 1 | 3 | 150.91 | -13.19 | -50.90 | -0.1986 | 0.0131 | 0.0876 |
+| maker_quote_width | 1 | 3 | 0.00 | 5.90 | 11.80 | -0.1250 | 0.0085 | 0.2653 |
 
 ## Retail-Conditioned Arbitrage Effect
 
