@@ -28,7 +28,7 @@ This paper develops a benchmark-oriented layer on top of an existing ledger-firs
 
 Our goal is not to introduce a new RL algorithm. The goal is to study how learning-based controllers behave when market-infrastructure constraints such as settlement invariants, replay stability, and batch-execution rules are part of the environment definition. The benchmark contribution is therefore not an update rule. It is a setting in which controller quality is only meaningful if it survives the same conservation, non-negativity, and mechanism rules as the market itself.
 
-Three points motivate the benchmark directly. First, matching-only simulators are not enough because they omit the settlement and replay constraints that determine whether a controller can be trusted in an infrastructure setting. Second, a ledger-aware benchmark is needed because controller quality should be measured under the same conservation, non-negativity, and mechanism rules that govern the market. Third, the main phenomenon exposed by the current artifact is a latency-welfare tradeoff: controllers that optimize aggressively for p99 latency and fills tend to worsen retail surplus-transfer outcomes, while more balanced controllers improve retail outcome only by giving up some tail performance.
+Three points motivate the benchmark directly. First, matching-only simulators are not enough because they omit the settlement and replay constraints that determine whether a controller can be trusted in an infrastructure setting. Second, a ledger-aware benchmark is needed because controller quality should be measured under the same conservation, non-negativity, and mechanism rules that govern the market. Third, the main phenomenon exposed by the benchmark is a latency-welfare tradeoff: controllers that optimize aggressively for p99 latency and fills tend to worsen retail surplus-transfer outcomes, while more balanced controllers improve retail outcome only by giving up some tail performance.
 
 \paragraph{Why this benchmark is needed.}
 Existing market environments usually emphasize one of three things: historical-replay reinforcement-learning pipelines, multi-agent market simulation, or high-throughput order-book execution. This benchmark is aimed at the gap between them. Mechanism effects, controller behavior, and settlement semantics are often evaluated in separate layers even though production trading infrastructure couples them tightly. Real market replay also entangles mechanism effects with historical participant behavior and venue-specific structure. A seedable synthetic generator allows controlled stress testing of mechanism-controller interactions across arbitrage, retail, informed, and maker regimes that are difficult to isolate cleanly in historical data.
@@ -51,7 +51,7 @@ This benchmark & yes, seedable & immediate/batch/adaptive & yes & yes & yes \\
 \caption{Positioning relative to existing market-environment families. The distinctive feature here is not another simulator, but a learning-facing benchmark with explicit settlement invariants, mechanism variation, and retail-outcome summaries in the same loop.}
 \end{table}
 
-The current paper makes four concrete contributions:
+This paper makes four concrete contributions:
 \begin{enumerate}[leftmargin=*]
   \item It defines an infrastructure-aware, constraint-aware benchmark environment in which market-mechanism experiments are coupled to deterministic settlement checks.
   \item It evaluates learned and hand-designed controllers across immediate, speed-bump, fixed-batch, adaptive, and stress regimes under a shared control API.
@@ -138,6 +138,40 @@ We report two result layers. The first is a single-seed reproducibility snapshot
 [7, 11, 19, 23, 29, 31, 37, 41].
 \]
 The learned fitted-Q controller uses an explicit offline train/eval split. Logged trajectories are collected on training seeds $[181, 191, 193, 197, 199, 211]$ from burst-aware, LinUCB, TinyMLP, offline contextual, and random behavior policies. The fitted-Q loop runs for eight iterations with discount $0.97$ over the shared discrete action bundle. The online DQN-style controller uses replay-based Q-learning over the same action bundle on training seeds $[307, 311, 313, 317, 331, 337]$, with checkpoints every 20 episodes through 160 episodes. Held-out evaluation uses seeds $[223, 227, 229, 233]$ on four unseen stress regimes defined in the artifact layer. All reported scenarios use the same simulator implementation and differ only in matching mode, batch-window size, seed, and population intensity. The current setup uses a discrete-time step duration of $10$ milliseconds.
+
+\subsection{Learning Specification}
+The learned controllers share one adapter interface. Observations contain seven scalars: a bias term, queue depth, buy/sell imbalance, spread, pending-order count, risk-rejection count, and normalized episode progress. The shared action bundle exposes six discrete control choices over batch-window target, risk-limit scale, tie-break mode, release cadence, and price-aggression bias.
+
+The per-step reward shared by all learned controllers is
+\begin{align*}
+r_t ={}& 1.0 \cdot \Delta \text{fills}
+- 0.25 \cdot \Delta \text{spread}
+- 1.5 \cdot \Delta \text{impact}
+- 12.0 \cdot |\Delta \text{queue}| \\
+&- 0.005 \cdot \Delta \text{arb}
++ 18.0 \cdot \Delta \text{retail surplus}
+- 10.0 \cdot \Delta \text{retail adverse}
+- 2.0 \cdot \Delta \text{welfare dispersion} \\
+&- 3.0 \cdot \max(\Delta \text{surplus gap}, 0)
+- 0.5 \cdot \Delta \text{risk rejects}
+- 10.0 \cdot \Delta \text{conservation breaches}.
+\end{align*}
+
+\begin{table}[t]
+\centering
+\footnotesize
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lllll}
+\toprule
+Controller & Function class & Training data / interaction & Main hyperparameters & Checkpoint rule \\
+\midrule
+\texttt{FittedQ} & linear per-action values & offline trajectories from burst-aware, LinUCB, TinyMLP, offline contextual, and random policies on 6 train seeds & $\gamma=0.97$, 8 Bellman iterations, least-squares refit each round, target clamp $[-25,25]$ & snapshots $0..8$ on held-out regimes; iteration 8 reported \\
+\texttt{OnlineDQN} & TinyMLP Q-network (hidden dim 10) & online interaction on 6 train seeds with replay memory & $\gamma=0.97$, 160 episodes, $\epsilon: 0.25 \rightarrow 0.03$, replay cap 6000, updates after 48 samples, 4 Q-updates per step, lr 0.0035, $L_2 = 10^{-4}$, target refresh every 250 env steps & checkpoints every 20 episodes; episode 160 reported \\
+\bottomrule
+\end{tabular}
+}
+\caption{Minimal training specification for the two paper-facing learned controllers. These settings are intentionally lightweight: the benchmark claim is not a new RL algorithm, but that learning behavior can be measured under infrastructure constraints.}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -269,9 +303,9 @@ First, immediate execution retains the lowest latency profile, but it also carri
 
 Second, the $50$ millisecond speed-bump baseline raises latency without reducing queue advantage. It preserves the immediate-style queue signal ($0.0742$) while worsening the welfare gap to $4.1034$. This makes it a useful negative control: latency rises, but batching-style fairness does not automatically follow.
 
-Third, the fixed $250$ millisecond batch regime lowers queue advantage to $0.0273$ and compresses the welfare gap relative to immediate execution, but it gives up substantial tail latency. The balanced adaptive heuristic is the strongest fixed-logic mechanism in the current repo on combined welfare terms: it keeps price impact low ($4.71$), reduces arbitrage-profit proxy to $522.00$, and nearly closes the welfare gap ($0.0278$).
+Third, the fixed $250$ millisecond batch regime lowers queue advantage to $0.0273$ and compresses the welfare gap relative to immediate execution, but it gives up substantial tail latency. The balanced adaptive heuristic is the strongest fixed-logic mechanism on combined welfare terms: it keeps price impact low ($4.71$), reduces arbitrage-profit proxy to $522.00$, and nearly closes the welfare gap ($0.0278$).
 
-Fourth, the controller comparison now exposes a clearer tradeoff than the earlier draft. \texttt{LinUCB} remains strong on tail latency and fill throughput, but it does so by widening both queue advantage and the surplus-transfer gap. \texttt{FittedQ} and \texttt{OnlineDQN} both produce the best in-distribution p99 tail ($145.0$ ms), giving explicit offline and online learning stories on top of the adapter API, but they still behave closer to \texttt{LinUCB} than to \texttt{OfflineContextual} on welfare transfer. \texttt{TinyMLP} improves fills further, but still leaves retail surplus negative and keeps arbitrage capture high. The offline contextual controller remains the strongest balanced learned baseline in the current repo: compared with \texttt{LinUCB}, it gives up some tail latency but cuts price impact ($4.94$ versus $5.90$), lowers queue advantage ($0.0294$ versus $0.0513$), lowers arbitrage-profit proxy ($771.25$ versus $976.63$), and shrinks the welfare gap ($1.3769$ versus $2.1694$).
+Fourth, the controller comparison now exposes a clearer tradeoff than the earlier draft. \texttt{LinUCB} remains strong on tail latency and fill throughput, but it does so by widening both queue advantage and the surplus-transfer gap. \texttt{FittedQ} and \texttt{OnlineDQN} both produce the best in-distribution p99 tail ($145.0$ ms), giving explicit offline and online learning stories on top of the adapter API, but they still behave closer to \texttt{LinUCB} than to \texttt{OfflineContextual} on welfare transfer. \texttt{TinyMLP} improves fills further, but still leaves retail surplus negative and keeps arbitrage capture high. The offline contextual controller remains the strongest balanced learned baseline in the benchmark: compared with \texttt{LinUCB}, it gives up some tail latency but cuts price impact ($4.94$ versus $5.90$), lowers queue advantage ($0.0294$ versus $0.0513$), lowers arbitrage-profit proxy ($771.25$ versus $976.63$), and shrinks the welfare gap ($1.3769$ versus $2.1694$).
 
 The stress scenario raises throughput to $1769.25$ orders per second and $900.50$ fills per second, but it also raises arbitrage capture to $2057.00$. Higher activity does not automatically imply better fairness or welfare outcomes.
 
@@ -338,7 +372,7 @@ The fitted-Q controller is no longer just a point baseline. We also log its held
 The online DQN-style controller adds a second, explicitly online training story. The untrained checkpoint begins at held-out p99 latency of $200.00 \pm 25.46$ ms and welfare gap of $1.5898 \pm 0.3869$. By episode $20$, held-out p99 falls to $155.62 \pm 12.84$ ms, while the welfare gap rises to $2.4226 \pm 0.5400$. Later checkpoints remain on the same plateau. The online controller therefore converges quickly toward a latency-favoring regime. Under the current reward structure, latency improvement is easier for the policy to exploit than retail-welfare preservation.
 
 \subsection{Controller Pareto Frontier}
-The multiseed controller frontier makes the same tradeoff visible on one surface. When minimizing p99 latency and surplus-transfer gap jointly, three points remain undominated in the current repo: immediate execution, the balanced adaptive heuristic, and the offline contextual controller. Immediate execution is fastest but welfare-weak; the adaptive heuristic nearly closes the welfare gap but gives up substantial tail latency; offline contextual is the strongest balanced learned point.
+The multiseed controller frontier makes the same tradeoff visible on one surface. When minimizing p99 latency and surplus-transfer gap jointly, three points remain undominated: immediate execution, the balanced adaptive heuristic, and the offline contextual controller. Immediate execution is fastest but welfare-weak; the adaptive heuristic nearly closes the welfare gap but gives up substantial tail latency; offline contextual is the strongest balanced learned point.
 
 \begin{table}[t]
 \centering
@@ -394,7 +428,7 @@ Retail surplus per unit & 0.7061 & informed $0.3121$, arb $0.2374$ \\
 \end{table}
 
 \section{Limitations}
-The current artifact has clear remaining limitations. The most important ones are:
+The benchmark has clear remaining limitations. The most important ones are:
 \begin{itemize}[leftmargin=*]
   \item the learned-controller family is still lightweight and discrete-action
   \item welfare metrics are derived from a synthetic fundamental rather than real market replay

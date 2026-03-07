@@ -12,7 +12,7 @@ This manuscript defines a benchmark-oriented layer on top of an existing ledger-
 
 Our goal is not to introduce a new RL algorithm. The goal is to study how learning-based controllers behave when market-infrastructure constraints such as settlement invariants, replay stability, and batch-execution rules are part of the environment definition. That framing matters because the benchmark contribution is not a faster policy update; it is a setting in which controller quality can only be claimed if it survives the same conservation, non-negativity, and mechanism rules as the market itself.
 
-Three points motivate the benchmark directly. First, matching-only simulators are not enough because they omit the settlement and replay constraints that determine whether a controller can be trusted in an infrastructure setting. Second, a ledger-aware benchmark is needed because controller quality should be measured under the same conservation, non-negativity, and mechanism rules that govern the market. Third, the main phenomenon exposed by the current artifact is a latency-welfare tradeoff: controllers that optimize aggressively for p99 latency and fills tend to worsen retail surplus-transfer outcomes, while more balanced controllers improve retail outcome only by giving up some tail performance.
+Three points motivate the benchmark directly. First, matching-only simulators are not enough because they omit the settlement and replay constraints that determine whether a controller can be trusted in an infrastructure setting. Second, a ledger-aware benchmark is needed because controller quality should be measured under the same conservation, non-negativity, and mechanism rules that govern the market. Third, the main phenomenon exposed by the benchmark is a latency-welfare tradeoff: controllers that optimize aggressively for p99 latency and fills tend to worsen retail surplus-transfer outcomes, while more balanced controllers improve retail outcome only by giving up some tail performance.
 
 ### Why this benchmark is needed
 
@@ -25,7 +25,7 @@ Existing market environments usually emphasize one of three things: historical-r
 | High-throughput LOB simulators | JAX-LOB | Typically synthetic | Usually continuous LOB focused | No | Limited | No |
 | This benchmark | Ledger-aware market benchmark | Yes, seedable and stressable | Yes: immediate, speed bump, fixed batch, adaptive, learned control | Yes | Yes | Yes |
 
-The current benchmark line makes four concrete contributions:
+This paper makes four concrete contributions:
 
 1. It defines an infrastructure-aware, constraint-aware benchmark environment in which market-mechanism experiments are coupled to deterministic settlement checks.
 2. It evaluates learned and hand-designed controllers across immediate, speed-bump, fixed-batch, adaptive, and stress regimes under a shared control API.
@@ -36,7 +36,7 @@ The current benchmark line makes four concrete contributions:
 
 Can a ledger-aware benchmark environment make market-design and controller tradeoffs measurable under realistic settlement constraints, instead of evaluating matching mechanisms in isolation?
 
-The current artifact focuses on four concrete questions:
+The benchmark focuses on four concrete questions:
 
 1. How do immediate, speed-bump, adaptive, and fixed-batch execution regimes differ in latency and fill behavior?
 2. Can fairness-adjacent proxies such as queue-priority advantage and arbitrage profit be measured in a reproducible environment?
@@ -59,7 +59,7 @@ Each scenario fixes:
 - risk thresholds
 - a population of agents
 
-The present artifact is benchmark-first rather than method-first. It is best read as a constraint-aware learning benchmark: a structured environment in which later policy-learning work can be evaluated under explicit infrastructure rules rather than only under matching dynamics.
+The benchmark is benchmark-first rather than method-first. It is best read as a constraint-aware learning benchmark: a structured environment in which policy-learning work can be evaluated under explicit infrastructure rules rather than only under matching dynamics.
 
 ## 4. Environment Design
 
@@ -203,6 +203,39 @@ The learned fitted-Q controller uses an explicit offline train/eval split. Logge
 
 All reported scenarios use the same simulator implementation and differ only in matching mode, batch-window size, seed, and population intensity. The current setup uses a discrete-time step duration of `10 ms`.
 
+### 8.1 Learning Specification
+
+The learned controllers share the same adapter interface. The observation vector is 7-dimensional:
+
+- bias term
+- queue depth
+- buy/sell imbalance
+- spread
+- pending-order count
+- risk-rejection count
+- normalized episode progress
+
+The shared action bundle contains 6 discrete control choices over:
+
+- target batch window
+- risk-limit scale
+- tie-break mode
+- release cadence
+- price-aggression bias
+
+The per-step reward is the same for all learned controllers:
+
+`reward = +1.0 * fills - 0.25 * spread - 1.5 * price_impact - 12.0 * |queue_advantage| - 0.005 * arbitrage_profit + 18.0 * retail_surplus - 10.0 * retail_adverse - 2.0 * welfare_dispersion - 3.0 * positive_surplus_gap - 0.5 * risk_rejections - 10.0 * conservation_breaches`
+
+The main learning-specific hyperparameters used in the paper are:
+
+| Controller | Function class | Training data / interaction | Main training hyperparameters | Checkpoint rule |
+| --- | --- | --- | --- | --- |
+| `Policy-LearnedFittedQ-100-250ms` | per-action linear value models | offline logged trajectories from burst-aware, LinUCB, TinyMLP, offline contextual, and random policies on 6 training seeds | `gamma=0.97`, `8` Bellman iterations, linear least-squares refit each iteration, target clamp `[-25, 25]` | all 9 snapshots (`0..8`) evaluated on held-out regimes; iteration `8` is the reported policy |
+| `Policy-LearnedOnlineDQN-100-250ms` | TinyMLP Q-network, hidden dim `10` | online interaction on 6 training seeds with replay memory | `gamma=0.97`, `160` episodes, epsilon decays `0.25 -> 0.03`, replay cap `6000`, updates begin after `48` samples, `4` SGD-style Q-updates per step, learning rate `0.0035`, `L2=1e-4`, target refresh every `250` env steps | checkpoints every `20` episodes; episode `160` is the reported policy |
+
+These settings are intentionally lightweight. The benchmark claim is not that these are state-of-the-art learning algorithms; it is that the environment makes their latency-welfare tradeoffs measurable under the same infrastructure constraints.
+
 ## 9. Current Results
 
 We report two layers of results:
@@ -230,10 +263,10 @@ We report two layers of results:
 - Immediate execution retains the lowest latency profile, but it also carries the widest spread (`1.98 +/- 0.17`) and a high welfare gap (`2.0430 +/- 0.2444`).
 - The `50 ms` speed-bump baseline raises latency without reducing queue advantage; it keeps `0.0742 +/- 0.0078` queue advantage and worsens welfare gap to `4.1034 +/- 0.3793`.
 - The fixed `250 ms` batch regime lowers queue advantage to `0.0273 +/- 0.0182` and compresses welfare gap relative to immediate execution, but it gives up substantial tail latency.
-- The balanced adaptive heuristic is the best fixed logic in the current repo on combined welfare terms: it keeps price impact low (`4.71 +/- 0.49`), reduces arbitrage-profit proxy to `522.00 +/- 86.23`, and nearly closes the welfare gap (`0.0278 +/- 0.6078`).
+- The balanced adaptive heuristic is the strongest fixed-logic controller on combined welfare terms: it keeps price impact low (`4.71 +/- 0.49`), reduces arbitrage-profit proxy to `522.00 +/- 86.23`, and nearly closes the welfare gap (`0.0278 +/- 0.6078`).
 - `Policy-LearnedLinUCB-100-250ms` remains strong on tail latency and fill throughput, but it does so by widening queue advantage and surplus-transfer gap.
 - `Policy-LearnedTinyMLP-100-250ms` improves fills further, but leaves both retail surplus and welfare gap worse than the offline contextual baseline.
-- `Policy-LearnedOfflineContextual-100-250ms` is the strongest balanced learned baseline in the current repo: compared with `LinUCB`, it gives up some tail latency but cuts price impact (`4.94` versus `5.90`), lowers queue advantage (`0.0294` versus `0.0513`), lowers arbitrage-profit proxy (`771.25` versus `976.63`), and shrinks the welfare gap (`1.3769` versus `2.1694`).
+- `Policy-LearnedOfflineContextual-100-250ms` is the strongest balanced learned baseline in the benchmark: compared with `LinUCB`, it gives up some tail latency but cuts price impact (`4.94` versus `5.90`), lowers queue advantage (`0.0294` versus `0.0513`), lowers arbitrage-profit proxy (`771.25` versus `976.63`), and shrinks the welfare gap (`1.3769` versus `2.1694`).
 - `Policy-LearnedFittedQ-100-250ms` is the strongest in-distribution learned controller on p99 (`145.00 +/- 21.36 ms`), but it still behaves more like `LinUCB` than `OfflineContextual` on transfer-to-arbitrageur: its welfare gap (`2.2036 +/- 0.6732`) is lower than `LinUCB` only marginally and much worse than `OfflineContextual`.
 - `Policy-LearnedOnlineDQN-100-250ms` reaches the same in-distribution p99 band as `FittedQ`, improves held-out fills relative to both `FittedQ` and `OfflineContextual`, and reinforces the central learning result: latency-favoring policies can emerge quickly even when they worsen welfare-transfer outcomes.
 
@@ -368,7 +401,7 @@ The new response-surface fit in `docs/benchmarks/simulator_parameter_hypercube_r
 
 ## 10. Limitations
 
-The current artifact has clear remaining limitations. The most important ones are:
+The benchmark has clear remaining limitations. The most important ones are:
 
 - the learned-controller family is still lightweight and discrete-action, even after adding the fitted-Q baseline
 - welfare metrics are derived from a synthetic fundamental rather than real market replay
