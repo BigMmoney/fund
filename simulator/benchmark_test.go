@@ -133,6 +133,48 @@ type hypercubeSweepResult struct {
 	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
 }
 
+type hypercubeFactorLevelSummary struct {
+	Factor                         string  `json:"factor"`
+	Level                          int     `json:"level"`
+	CellCount                      int     `json:"cell_count"`
+	MeanOrdersPerSec               float64 `json:"mean_orders_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	MeanLatencyArbitrageProfit     float64 `json:"mean_latency_arbitrage_profit"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+}
+
+type hypercubeHighLowContrast struct {
+	Factor                      string  `json:"factor"`
+	LowLevel                    int     `json:"low_level"`
+	HighLevel                   int     `json:"high_level"`
+	DeltaOrdersPerSec           float64 `json:"delta_orders_per_sec"`
+	DeltaP99LatencyMs           float64 `json:"delta_p99_latency_ms"`
+	DeltaLatencyArbitrageProfit float64 `json:"delta_latency_arbitrage_profit"`
+	DeltaRetailSurplusPerUnit   float64 `json:"delta_retail_surplus_per_unit"`
+	DeltaRetailAdverseSelection float64 `json:"delta_retail_adverse_selection_rate"`
+	DeltaSurplusTransferGap     float64 `json:"delta_surplus_transfer_gap"`
+}
+
+type retailConditionedArbitrageEffect struct {
+	RetailIntensityMultiplier   int     `json:"retail_intensity_multiplier"`
+	DeltaOrdersPerSec           float64 `json:"delta_orders_per_sec"`
+	DeltaP99LatencyMs           float64 `json:"delta_p99_latency_ms"`
+	DeltaLatencyArbitrageProfit float64 `json:"delta_latency_arbitrage_profit"`
+	DeltaRetailSurplusPerUnit   float64 `json:"delta_retail_surplus_per_unit"`
+	DeltaRetailAdverseSelection float64 `json:"delta_retail_adverse_selection_rate"`
+	DeltaSurplusTransferGap     float64 `json:"delta_surplus_transfer_gap"`
+}
+
+type hypercubeCompactSummary struct {
+	Seeds                      []int64                                  `json:"seeds"`
+	PrimaryWelfareMetrics      []string                                 `json:"primary_welfare_metrics"`
+	MainEffects                map[string][]hypercubeFactorLevelSummary `json:"main_effects"`
+	HighLowContrasts           []hypercubeHighLowContrast               `json:"high_low_contrasts"`
+	RetailConditionedArbitrage []retailConditionedArbitrageEffect       `json:"retail_conditioned_arbitrage"`
+}
+
 func simulatorScenarios() []ScenarioConfig {
 	return []ScenarioConfig{
 		{
@@ -966,6 +1008,9 @@ func TestGenerateSimulatorParameterHypercubeArtifacts(t *testing.T) {
 	if err := writeSimulatorHypercubeArtifacts(hyperResults, seeds); err != nil {
 		t.Fatalf("write hypercube artifacts: %v", err)
 	}
+	if err := writeSimulatorHypercubeSummaryArtifacts(summarizeHypercubeCompact(hyperResults, seeds)); err != nil {
+		t.Fatalf("write hypercube summary artifacts: %v", err)
+	}
 }
 
 func writeSimulatorArtifacts(results []BenchmarkResult) error {
@@ -1460,6 +1505,134 @@ func summarizeHypercubeRun(base ScenarioConfig, runs []BenchmarkResult) hypercub
 	}
 }
 
+func summarizeHypercubeCompact(results []hypercubeSweepResult, seeds []int64) hypercubeCompactSummary {
+	factorLevels := map[string][]int{
+		"arbitrageur_intensity": {0, 1, 2, 3},
+		"retail_intensity":      {1, 2, 3},
+		"informed_intensity":    {1, 2, 3},
+		"maker_quote_width":     {1, 2, 3},
+	}
+	mainEffects := make(map[string][]hypercubeFactorLevelSummary, len(factorLevels))
+	contrasts := make([]hypercubeHighLowContrast, 0, len(factorLevels))
+	for factor, levels := range factorLevels {
+		summaries := make([]hypercubeFactorLevelSummary, 0, len(levels))
+		for _, level := range levels {
+			filtered := filterHypercubeByLevel(results, factor, level)
+			summaries = append(summaries, summarizeHypercubeLevel(factor, level, filtered))
+		}
+		mainEffects[factor] = summaries
+		contrasts = append(contrasts, summarizeHypercubeContrast(factor, levels[0], levels[len(levels)-1], results))
+	}
+
+	retailEffects := make([]retailConditionedArbitrageEffect, 0, 3)
+	for _, retail := range []int{1, 2, 3} {
+		low := filterHypercubeByRetailAndArbitrage(results, retail, 0)
+		high := filterHypercubeByRetailAndArbitrage(results, retail, 3)
+		retailEffects = append(retailEffects, retailConditionedArbitrageEffect{
+			RetailIntensityMultiplier: retail,
+			DeltaOrdersPerSec:         meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanOrdersPerSec }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanOrdersPerSec }),
+			DeltaP99LatencyMs:         meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanP99LatencyMs }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanP99LatencyMs }),
+			DeltaLatencyArbitrageProfit: meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 {
+				return r.MeanLatencyArbitrageProfit
+			}) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanLatencyArbitrageProfit }),
+			DeltaRetailSurplusPerUnit: meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 {
+				return r.MeanRetailSurplusPerUnit
+			}) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanRetailSurplusPerUnit }),
+			DeltaRetailAdverseSelection: meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 {
+				return r.MeanRetailAdverseSelectionRate
+			}) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanRetailAdverseSelectionRate }),
+			DeltaSurplusTransferGap: meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 {
+				return r.MeanSurplusTransferGap
+			}) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanSurplusTransferGap }),
+		})
+	}
+
+	return hypercubeCompactSummary{
+		Seeds:                      seeds,
+		PrimaryWelfareMetrics:      []string{"retail_surplus_per_unit", "retail_adverse_selection_rate", "surplus_transfer_gap"},
+		MainEffects:                mainEffects,
+		HighLowContrasts:           contrasts,
+		RetailConditionedArbitrage: retailEffects,
+	}
+}
+
+func filterHypercubeByLevel(results []hypercubeSweepResult, factor string, level int) []hypercubeSweepResult {
+	filtered := make([]hypercubeSweepResult, 0, len(results))
+	for _, result := range results {
+		switch factor {
+		case "arbitrageur_intensity":
+			if result.ArbitrageurIntensityMultiplier == level {
+				filtered = append(filtered, result)
+			}
+		case "retail_intensity":
+			if result.RetailIntensityMultiplier == level {
+				filtered = append(filtered, result)
+			}
+		case "informed_intensity":
+			if result.InformedIntensityMultiplier == level {
+				filtered = append(filtered, result)
+			}
+		case "maker_quote_width":
+			if result.MakerQuoteWidthMultiplier == level {
+				filtered = append(filtered, result)
+			}
+		}
+	}
+	return filtered
+}
+
+func filterHypercubeByRetailAndArbitrage(results []hypercubeSweepResult, retail, arbitrage int) []hypercubeSweepResult {
+	filtered := make([]hypercubeSweepResult, 0, len(results))
+	for _, result := range results {
+		if result.RetailIntensityMultiplier == retail && result.ArbitrageurIntensityMultiplier == arbitrage {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered
+}
+
+func summarizeHypercubeLevel(factor string, level int, results []hypercubeSweepResult) hypercubeFactorLevelSummary {
+	return hypercubeFactorLevelSummary{
+		Factor:                         factor,
+		Level:                          level,
+		CellCount:                      len(results),
+		MeanOrdersPerSec:               meanHypercubeMetric(results, func(r hypercubeSweepResult) float64 { return r.MeanOrdersPerSec }),
+		MeanP99LatencyMs:               meanHypercubeMetric(results, func(r hypercubeSweepResult) float64 { return r.MeanP99LatencyMs }),
+		MeanLatencyArbitrageProfit:     meanHypercubeMetric(results, func(r hypercubeSweepResult) float64 { return r.MeanLatencyArbitrageProfit }),
+		MeanRetailSurplusPerUnit:       meanHypercubeMetric(results, func(r hypercubeSweepResult) float64 { return r.MeanRetailSurplusPerUnit }),
+		MeanRetailAdverseSelectionRate: meanHypercubeMetric(results, func(r hypercubeSweepResult) float64 { return r.MeanRetailAdverseSelectionRate }),
+		MeanSurplusTransferGap:         meanHypercubeMetric(results, func(r hypercubeSweepResult) float64 { return r.MeanSurplusTransferGap }),
+	}
+}
+
+func summarizeHypercubeContrast(factor string, lowLevel, highLevel int, results []hypercubeSweepResult) hypercubeHighLowContrast {
+	low := filterHypercubeByLevel(results, factor, lowLevel)
+	high := filterHypercubeByLevel(results, factor, highLevel)
+	return hypercubeHighLowContrast{
+		Factor:                      factor,
+		LowLevel:                    lowLevel,
+		HighLevel:                   highLevel,
+		DeltaOrdersPerSec:           meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanOrdersPerSec }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanOrdersPerSec }),
+		DeltaP99LatencyMs:           meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanP99LatencyMs }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanP99LatencyMs }),
+		DeltaLatencyArbitrageProfit: meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanLatencyArbitrageProfit }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanLatencyArbitrageProfit }),
+		DeltaRetailSurplusPerUnit:   meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanRetailSurplusPerUnit }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanRetailSurplusPerUnit }),
+		DeltaRetailAdverseSelection: meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanRetailAdverseSelectionRate }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanRetailAdverseSelectionRate }),
+		DeltaSurplusTransferGap:     meanHypercubeMetric(high, func(r hypercubeSweepResult) float64 { return r.MeanSurplusTransferGap }) - meanHypercubeMetric(low, func(r hypercubeSweepResult) float64 { return r.MeanSurplusTransferGap }),
+	}
+}
+
+func meanHypercubeMetric(results []hypercubeSweepResult, selector func(hypercubeSweepResult) float64) float64 {
+	if len(results) == 0 {
+		return 0
+	}
+	values := make([]float64, 0, len(results))
+	for _, result := range results {
+		values = append(values, selector(result))
+	}
+	mean, _ := meanStd(values)
+	return mean
+}
+
 func findGridResult(t *testing.T, results []gridSweepResult, arb, maker int) gridSweepResult {
 	t.Helper()
 	for _, result := range results {
@@ -1667,6 +1840,91 @@ func writeSimulatorHypercubeArtifacts(results []hypercubeSweepResult, seeds []in
 			r.MeanRetailAdverseSelectionRate, r.CI95RetailAdverseSelectionRate,
 			r.MeanWelfareDispersion, r.CI95WelfareDispersion,
 			r.MeanSurplusTransferGap, r.CI95SurplusTransferGap))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorHypercubeSummaryArtifacts(summary hypercubeCompactSummary) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_parameter_hypercube_summary.json")
+	mdPath := filepath.Join(base, "simulator_parameter_hypercube_summary.md")
+	csvPath := filepath.Join(base, "simulator_parameter_hypercube_summary.csv")
+
+	raw, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Parameter Hypercube Summary\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", summary.Seeds))
+	md.WriteString("Primary welfare metrics emphasized in the paper line:\n\n")
+	for _, metric := range summary.PrimaryWelfareMetrics {
+		md.WriteString(fmt.Sprintf("- `%s`\n", metric))
+	}
+	md.WriteString("\n## Main Effects\n\n")
+	md.WriteString("| Factor | Level | Cells | Orders/s | p99 (ms) | Arb Profit | Retail Surplus | Retail Adverse | Welfare Gap |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, factor := range []string{"arbitrageur_intensity", "retail_intensity", "informed_intensity", "maker_quote_width"} {
+		for _, level := range summary.MainEffects[factor] {
+			md.WriteString(fmt.Sprintf("| %s | %d | %d | %.2f | %.2f | %.2f | %.4f | %.4f | %.4f |\n",
+				level.Factor, level.Level, level.CellCount,
+				level.MeanOrdersPerSec, level.MeanP99LatencyMs, level.MeanLatencyArbitrageProfit,
+				level.MeanRetailSurplusPerUnit, level.MeanRetailAdverseSelectionRate, level.MeanSurplusTransferGap))
+		}
+	}
+	md.WriteString("\n## High-Low Contrasts\n\n")
+	md.WriteString("| Factor | Low | High | Delta Orders/s | Delta p99 (ms) | Delta Arb Profit | Delta Retail Surplus | Delta Retail Adverse | Delta Welfare Gap |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, contrast := range summary.HighLowContrasts {
+		md.WriteString(fmt.Sprintf("| %s | %d | %d | %.2f | %.2f | %.2f | %.4f | %.4f | %.4f |\n",
+			contrast.Factor, contrast.LowLevel, contrast.HighLevel,
+			contrast.DeltaOrdersPerSec, contrast.DeltaP99LatencyMs, contrast.DeltaLatencyArbitrageProfit,
+			contrast.DeltaRetailSurplusPerUnit, contrast.DeltaRetailAdverseSelection, contrast.DeltaSurplusTransferGap))
+	}
+	md.WriteString("\n## Retail-Conditioned Arbitrage Effect\n\n")
+	md.WriteString("Each row reports the average `(arb=3) - (arb=0)` delta at a fixed retail-intensity level, averaged over informed intensity and maker width.\n\n")
+	md.WriteString("| Retail Level | Delta Orders/s | Delta p99 (ms) | Delta Arb Profit | Delta Retail Surplus | Delta Retail Adverse | Delta Welfare Gap |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, effect := range summary.RetailConditionedArbitrage {
+		md.WriteString(fmt.Sprintf("| %d | %.2f | %.2f | %.2f | %.4f | %.4f | %.4f |\n",
+			effect.RetailIntensityMultiplier,
+			effect.DeltaOrdersPerSec, effect.DeltaP99LatencyMs, effect.DeltaLatencyArbitrageProfit,
+			effect.DeltaRetailSurplusPerUnit, effect.DeltaRetailAdverseSelection, effect.DeltaSurplusTransferGap))
+	}
+
+	var csv strings.Builder
+	csv.WriteString("section,factor,level,level_high,cell_count,mean_orders_per_sec,mean_p99_latency_ms,mean_latency_arbitrage_profit,mean_retail_surplus_per_unit,mean_retail_adverse_selection_rate,mean_surplus_transfer_gap\n")
+	for _, factor := range []string{"arbitrageur_intensity", "retail_intensity", "informed_intensity", "maker_quote_width"} {
+		for _, level := range summary.MainEffects[factor] {
+			csv.WriteString(fmt.Sprintf("main_effect,%s,%d,,%d,%.4f,%.4f,%.4f,%.6f,%.6f,%.6f\n",
+				level.Factor, level.Level, level.CellCount,
+				level.MeanOrdersPerSec, level.MeanP99LatencyMs, level.MeanLatencyArbitrageProfit,
+				level.MeanRetailSurplusPerUnit, level.MeanRetailAdverseSelectionRate, level.MeanSurplusTransferGap))
+		}
+	}
+	for _, contrast := range summary.HighLowContrasts {
+		csv.WriteString(fmt.Sprintf("high_low_contrast,%s,%d,%d,,%.4f,%.4f,%.4f,%.6f,%.6f,%.6f\n",
+			contrast.Factor, contrast.LowLevel, contrast.HighLevel,
+			contrast.DeltaOrdersPerSec, contrast.DeltaP99LatencyMs, contrast.DeltaLatencyArbitrageProfit,
+			contrast.DeltaRetailSurplusPerUnit, contrast.DeltaRetailAdverseSelection, contrast.DeltaSurplusTransferGap))
+	}
+	for _, effect := range summary.RetailConditionedArbitrage {
+		csv.WriteString(fmt.Sprintf("retail_conditioned_arbitrage,retail_intensity,%d,3-0,,%.4f,%.4f,%.4f,%.6f,%.6f,%.6f\n",
+			effect.RetailIntensityMultiplier,
+			effect.DeltaOrdersPerSec, effect.DeltaP99LatencyMs, effect.DeltaLatencyArbitrageProfit,
+			effect.DeltaRetailSurplusPerUnit, effect.DeltaRetailAdverseSelection, effect.DeltaSurplusTransferGap))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {

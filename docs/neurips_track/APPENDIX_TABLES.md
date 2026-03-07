@@ -84,6 +84,7 @@ Selected cells:
 ## Unified Hypercube Sweep
 
 Source: `docs/benchmarks/simulator_parameter_hypercube_profile.*`
+Compact summary source: `docs/benchmarks/simulator_parameter_hypercube_summary.*`
 
 Hypercube definition:
 
@@ -106,4 +107,33 @@ Interpretation:
 
 - adding arbitrage pressure widens the welfare gap even when throughput rises
 - higher retail intensity is mostly a throughput and fill-rate lever; it does not neutralize adverse selection on its own
-- the unified hypercube makes it possible to separate “high activity” from “high transfer-to-arbitrageur” regimes under one artifact family
+- the unified hypercube makes it possible to separate "high activity" from "high transfer-to-arbitrageur" regimes under one artifact family
+
+## Compact Hypercube Summary
+
+This summary compresses the `4 x 3 x 3 x 3` hypercube into paper-facing contrasts over the three primary welfare metrics: retail surplus, retail adverse selection, and surplus-transfer gap.
+
+### Factor High-Low Contrasts
+
+| Factor | Low -> High | Delta Orders/s | Delta Retail Surplus | Delta Retail Adverse | Delta Welfare Gap |
+|---|---:|---:|---:|---:|---:|
+| arbitrageur_intensity | `0 -> 3` | 176.26 | -0.1804 | 0.0117 | 1.2099 |
+| retail_intensity | `1 -> 3` | 780.94 | 0.0772 | 0.0018 | 0.0781 |
+| informed_intensity | `1 -> 3` | 150.91 | -0.1986 | 0.0131 | 0.0876 |
+| maker_quote_width | `1 -> 3` | 0.00 | -0.1250 | 0.0085 | 0.2653 |
+
+### Retail-Conditioned Arbitrage Effect
+
+Each row is the average `(arb=3) - (arb=0)` delta at fixed retail intensity, averaged across informed intensity and maker width.
+
+| Retail Level | Delta Orders/s | Delta Arb Profit | Delta Retail Surplus | Delta Retail Adverse | Delta Welfare Gap |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 192.26 | 2023.08 | -0.2430 | -0.0074 | 1.1748 |
+| 2 | 192.26 | 2157.81 | -0.1816 | 0.0190 | 1.2262 |
+| 3 | 144.25 | 2223.69 | -0.1166 | 0.0235 | 1.2287 |
+
+Interpretation:
+
+- arbitrage intensity is the dominant driver of welfare-gap expansion in the unified sweep
+- higher retail intensity mostly loads throughput; it does not offset transfer-to-arbitrageur
+- wider maker quotes do not change throughput here, but they still worsen retail outcomes and welfare gap

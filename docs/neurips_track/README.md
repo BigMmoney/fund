@@ -2,6 +2,8 @@
 
 This directory is a parallel benchmark-paper line. It does not replace the original systems-paper material in `docs/PAPER_MANUSCRIPT.md` or `docs/arxiv/`.
 
+The scope of this paper line is intentionally narrow. It is centered on one benchmark question: how mechanism and controller choices trade off latency/fills against retail outcomes and transfer-to-arbitrageur under explicit settlement constraints.
+
 ## Purpose
 
 This track upgrades the repo toward a benchmark/simulator paper with:
@@ -13,7 +15,7 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - adapter-driven policy baselines, including an offline contextual controller
 - ledger-aware settlement semantics and explicit invariant checks
 - reproducible benchmark artifacts, sweeps, and appendix figures
-- welfare/behavior metrics in addition to latency and fairness proxies
+- a paper-facing welfare decomposition built around `retail_surplus_per_unit`, `retail_adverse_selection_rate`, and `surplus_transfer_gap`
 
 ## Key Components
 
@@ -25,6 +27,7 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_parameter_grid_profile.*`: arbitrage x maker grid
 - `docs/benchmarks/simulator_parameter_cube_profile.*`: retail x informed x maker cube
 - `docs/benchmarks/simulator_parameter_hypercube_profile.*`: arbitrage x retail x informed x maker unified sweep
+- `docs/benchmarks/simulator_parameter_hypercube_summary.*`: compact main-effect and high-low contrast summary for the unified sweep
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
 - `APPENDIX_TABLES.md`: appendix-ready controller, ablation, and sweep tables
@@ -69,19 +72,23 @@ Current controller interpretation:
 
 ## Welfare / Behavior Metrics
 
-The benchmark now reports more than proxy fairness signals. In addition to queue advantage and arbitrage-profit proxy, the simulator tracks:
+The repository still records several welfare/behavior diagnostics, but the paper line now emphasizes three primary welfare metrics:
 
 - `retail_surplus_per_unit`
-- `arbitrageur_surplus_per_unit`
 - `retail_adverse_selection_rate`
-- `welfare_dispersion`
 - `surplus_transfer_gap`
 
-These metrics are computed per fill from the ex post surplus implied by the synthetic fundamental. They are written into both `MetricsSnapshot` and `BenchmarkResult`, propagated into multi-seed aggregates, and used by the learned-controller reward layer.
+These three metrics are the most interpretable decomposition for the current benchmark:
+
+- `retail_surplus_per_unit`: how retail flow performs against the synthetic fundamental
+- `retail_adverse_selection_rate`: how often retail flow trades at negative ex post surplus
+- `surplus_transfer_gap`: how much more per-unit surplus arbitrageurs capture than retail flow
+
+Secondary diagnostics such as `arbitrageur_surplus_per_unit` and `welfare_dispersion` remain in the artifacts, but they are no longer the center of the paper claim.
 
 ## Sweeps
 
-The benchmark now exposes three sweep families:
+The benchmark now exposes three sweep families and one compact summary artifact:
 
 1. `parameter_grid_profile`
 - arbitrageur intensity `{0, 1, 2, 3}`
@@ -98,7 +105,25 @@ The benchmark now exposes three sweep families:
 - informed intensity `{1, 2, 3}`
 - maker quote width `{1, 2, 3}`
 
-Selected hypercube observations from `docs/benchmarks/simulator_parameter_hypercube_profile.json` over seeds `[101, 103, 107, 109]`:
+4. `parameter_hypercube_summary`
+- factor-level main effects over the unified hypercube
+- high-low contrasts for arbitrage, retail, informed, and maker-width factors
+- retail-conditioned `(arb=3) - (arb=0)` welfare deltas
+
+Selected compact contrasts from `docs/benchmarks/simulator_parameter_hypercube_summary.json` over seeds `[101, 103, 107, 109]`:
+
+- `arbitrageur_intensity 0 -> 3`: `+176.26 orders/s`, `-0.1804` retail surplus, `+0.0117` retail adverse, `+1.2099` welfare gap
+- `retail_intensity 1 -> 3`: `+780.94 orders/s`, `+0.0772` retail surplus, `+0.0018` retail adverse, `+0.0781` welfare gap
+- `maker_quote_width 1 -> 3`: `+0.00 orders/s`, `-0.1250` retail surplus, `+0.0085` retail adverse, `+0.2653` welfare gap
+- `informed_intensity 1 -> 3`: `+150.91 orders/s`, `-0.1986` retail surplus, `+0.0131` retail adverse, `+0.0876` welfare gap
+
+Retail-conditioned arbitrage deltas show the same pattern:
+
+- `retail x1`: `(arb=3) - (arb=0)` gives `+2023.08` arb profit and `+1.1748` welfare gap
+- `retail x2`: `(arb=3) - (arb=0)` gives `+2157.81` arb profit and `+1.2262` welfare gap
+- `retail x3`: `(arb=3) - (arb=0)` gives `+2223.69` arb profit and `+1.2287` welfare gap
+
+For reference, selected raw hypercube cells remain in `docs/benchmarks/simulator_parameter_hypercube_profile.json`:
 
 - `(arb=0, retail=1, informed=2, maker=1)`: `1350.60 orders/s`, arb profit `0.00`, welfare gap `0.2376`
 - `(arb=3, retail=1, informed=2, maker=1)`: `1542.86 orders/s`, arb profit `1982.00`, welfare gap `1.2839`

@@ -72,6 +72,14 @@ Action availability is scenario-dependent. Query it through `ActionSpec()`.
 
 `MetricsSnapshot` is the aggregate benchmark state after each step.
 
+The paper-facing benchmark claim now emphasizes three primary welfare metrics:
+
+- `retail_surplus_per_unit`
+- `retail_adverse_selection_rate`
+- `surplus_transfer_gap`
+
+`arbitrageur_surplus_per_unit` and `welfare_dispersion` remain available as secondary diagnostics.
+
 | Field | Type | Meaning |
 |---|---|---|
 | `orders_submitted` | `int` | Total submitted orders. |
@@ -115,6 +123,15 @@ Important fields:
 - quality, fairness, and welfare signals: `average_spread`, `average_price_impact`, `queue_priority_advantage`, `latency_arbitrage_profit`, `execution_dispersion`, `retail_surplus_per_unit`, `arbitrageur_surplus_per_unit`, `retail_adverse_selection_rate`, `welfare_dispersion`, `surplus_transfer_gap`
 - safety counters: `negative_balance_violations`, `conservation_breaches`, `risk_rejections`
 
+The manuscript and README center their controller and mechanism comparison on:
+
+- latency / fills
+- `retail_surplus_per_unit`
+- `retail_adverse_selection_rate`
+- `surplus_transfer_gap`
+
+The remaining fairness and welfare fields are still part of the artifact layer and can support downstream analyses, but they are treated as secondary in the current paper line.
+
 ## Current Learned Controller Interface
 
 The current learned policy baselines are:
@@ -123,7 +140,7 @@ The current learned policy baselines are:
 - `Policy-LearnedTinyMLP-100-250ms`
 - `Policy-LearnedOfflineContextual-100-250ms`
 
-Both operate over the action bundle:
+All three operate over the action bundle:
 
 - batch window
 - risk scale
