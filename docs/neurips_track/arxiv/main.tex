@@ -18,13 +18,36 @@
 \maketitle
 
 \begin{abstract}
-We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. We explicitly study how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise \texttt{Reset/Step/Observe/Metrics} API, an adapter-driven control surface, six policy baselines including offline contextual, fitted-Q, and online DQN-style controllers, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. It now adds both offline and online learning stories, held-out regime evaluation, and a fitted response-surface summary over the unified hypercube. Across all published runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare-transfer tradeoffs.
+We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. We explicitly study how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise \texttt{Reset/Step/Observe/Metrics} API, an adapter-driven control surface, six policy baselines including offline contextual, fitted-Q, and online DQN-style controllers, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. It now adds both offline and online learning stories, held-out regime evaluation, and a fitted response-surface summary over the unified hypercube. This benchmark exposes a systematic tension between latency optimization and retail welfare outcomes that persists across mechanisms, controllers, and stress regimes. Across all published runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare-transfer tradeoffs.
 \end{abstract}
 
 \section{Introduction}
 Electronic markets are shaped jointly by matching rules, latency structure, and settlement semantics. Market-design work on frequent batch auctions argues that short batching windows can reduce some latency-driven distortions in continuous markets \cite{budish2015fba}. In practice, many evaluation artifacts study matching rules in isolation and do not model the settlement layer, replay behavior, or safety checks that an actual market stack must satisfy.
 
 This paper develops a benchmark-oriented layer on top of an existing ledger-first market-infrastructure prototype. It is not a replacement for the original systems paper. It is a separate evaluation track with a narrower question: can market-design and controller tradeoffs be measured inside an environment that preserves explicit settlement invariants and summarizes retail outcomes through a small, interpretable welfare decomposition? In particular, we study how learning-based controllers behave when settlement invariants, replay stability, and market-design choices are all part of the environment definition.
+
+Our goal is not to introduce a new RL algorithm. The goal is to study how learning-based controllers behave when market-infrastructure constraints such as settlement invariants, replay stability, and batch-execution rules are part of the environment definition. The benchmark contribution is therefore not an update rule. It is a setting in which controller quality is only meaningful if it survives the same conservation, non-negativity, and mechanism rules as the market itself.
+
+\paragraph{Why this benchmark is needed.}
+Existing market environments usually emphasize one of three things: historical-replay reinforcement-learning pipelines, multi-agent market simulation, or high-throughput order-book execution. This benchmark is aimed at the gap between them. Mechanism effects, controller behavior, and settlement semantics are often evaluated in separate layers even though production trading infrastructure couples them tightly. Real market replay also entangles mechanism effects with historical participant behavior and venue-specific structure. A seedable synthetic generator allows controlled stress testing of mechanism-controller interactions across arbitrage, retail, informed, and maker regimes that are difficult to isolate cleanly in historical data.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+Environment family & Synthetic/replay control & Mechanism variation & Settlement invariants & Learning API & Welfare summary \\
+\midrule
+FinRL-Meta-style replay suites \cite{liu2022finrlmeta} & replay-heavy & limited & no & yes & no \\
+ABIDES-Gym-style simulators \cite{amrouni2021abidesgym} & yes & limited & no & yes & limited \\
+JAX-LOB-style LOB simulators \cite{frey2023jaxlob} & mostly synthetic & LOB-focused & no & limited & no \\
+This benchmark & yes, seedable & immediate/batch/adaptive & yes & yes & yes \\
+\bottomrule
+\end{tabular}
+}
+\caption{Positioning relative to existing market-environment families. The distinctive feature here is not another simulator, but a learning-facing benchmark with explicit settlement invariants, mechanism variation, and retail-outcome summaries in the same loop.}
+\end{table}
 
 The current paper makes four concrete contributions:
 \begin{enumerate}[leftmargin=*]
@@ -71,7 +94,7 @@ The present environment includes four agent classes:
   \item \textbf{Retail traders}: submit noisier buy or sell orders with wider dispersion around the current reference level.
   \item \textbf{Informed traders}: trade in the direction of the next-step fundamental when the generator exposes a directional signal.
 \end{itemize}
-These agents are intentionally simple. Their purpose is to generate heterogeneous but controlled activity so that matching rules and controller choices can be compared under a repeatable workload.
+These agents are intentionally simple. Their purpose is to generate heterogeneous but reproducible activity so that matching rules and controller choices can be compared under a repeatable workload. Richer strategic agents are a natural extension, but they are not required for the benchmark objective in its current form.
 
 \section{Tasks and Baselines}
 The current benchmark suite contains fifteen scenarios:
@@ -105,6 +128,7 @@ The environment reports five groups of signals:
   \item \textbf{Secondary diagnostics}: arbitrageur surplus per traded unit and welfare dispersion.
   \item \textbf{Safety metrics}: negative-balance violations, conservation breaches, and risk rejections.
 \end{itemize}
+The welfare metrics should be interpreted as controlled outcome proxies inside the benchmark environment rather than direct measurements of real-market welfare. Their purpose is to expose systematic tradeoffs between latency optimization and surplus transfer under a fixed synthetic fundamental, not to claim a universal welfare theorem for live markets.
 
 \section{Experimental Setup}
 We report two result layers. The first is a single-seed reproducibility snapshot. The second is an eight-seed aggregate profile that is more appropriate for paper-facing discussion. The aggregate profile uses seeds
@@ -350,7 +374,7 @@ Maker width $1 \rightarrow 3$ & 0.00 & -0.1250 & 0.0085 & 0.2653 \\
 \caption{Compact high-low contrasts from the unified hypercube.}
 \end{table}
 
-This compact summary removes the need to interpret the hypercube only through slice families. Arbitrage pressure is the dominant driver of welfare-gap expansion, retail intensity is mostly a throughput lever, and wider maker quotes worsen retail outcome without moving aggregate activity in this setup. Averaged over informed intensity and maker width, moving from $\text{arb}=0$ to $\text{arb}=3$ widens the welfare gap by $1.1748$, $1.2262$, and $1.2287$ at retail intensities $x1$, $x2$, and $x3$, respectively. This effect persists across retail intensities. Higher retail flow does not neutralize transfer-to-arbitrageur.
+This compact summary removes the need to interpret the hypercube only through slice families. Rather than reporting slice plots alone, the benchmark summarizes the stress surface with response-surface fits and factor contrasts that expose the dominant drivers of welfare transfer. Arbitrage pressure is the dominant driver of welfare-gap expansion, retail intensity is mostly a throughput lever, and wider maker quotes worsen retail outcome without moving aggregate activity in this setup. Averaged over informed intensity and maker width, moving from $\text{arb}=0$ to $\text{arb}=3$ widens the welfare gap by $1.1748$, $1.2262$, and $1.2287$ at retail intensities $x1$, $x2$, and $x3$, respectively. This effect persists across retail intensities. Higher retail flow does not neutralize transfer-to-arbitrageur.
 
 The fitted response surface compresses the same hypercube into standardized main effects and pairwise interactions. For surplus-transfer gap, the fit reaches $R^2 = 0.3495$, with arbitrage intensity dominating partial variance explained ($0.3157$) and maker quote width the next largest effect ($0.0291$). For retail surplus per unit, the fit reaches $R^2 = 0.7061$, where informed intensity ($0.3121$) and arbitrage intensity ($0.2374$) dominate the effect ranking. This moves the benchmark beyond purely descriptive slice analysis.
 
@@ -377,7 +401,7 @@ The current artifact is stronger than the earlier benchmark scaffold, but it is 
 \end{itemize}
 
 \section{Related Work}
-The benchmark is motivated directly by frequent-batch-auction market design \cite{budish2015fba}. Its benchmark-oriented framing is also aligned with the broader machine-learning practice of exposing reusable environments rather than only single-task scripts \cite{brockman2016gym}. The present contribution sits between those two traditions: it is neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware environment that aims to make later learning or control work more credible.
+The benchmark is motivated directly by frequent-batch-auction market design \cite{budish2015fba}. Its benchmark-oriented framing is also aligned with the broader machine-learning practice of exposing reusable environments rather than only single-task scripts \cite{brockman2016gym}. Relative to replay-centric financial RL suites such as FinRL-Meta \cite{liu2022finrlmeta}, multi-agent market simulators such as ABIDES-Gym \cite{amrouni2021abidesgym}, and high-throughput LOB simulators such as JAX-LOB \cite{frey2023jaxlob}, the present contribution is aimed at a narrower but important gap: controller evaluation under explicit settlement invariants, mechanism variation, and retail-outcome transfer metrics in the same loop. It is therefore neither a pure market-design theory paper nor a standard reinforcement-learning benchmark, but an infrastructure-aware environment that aims to make later learning or control work more credible.
 
 \section{Conclusion}
 This NeurIPS-track benchmark line now supports a tighter benchmark narrative than the earlier scaffold. It preserves settlement invariants, exposes a reusable interaction API, reduces the paper-facing welfare story to a small interpretable decomposition, and compresses the unified stress surface into main effects and contrasts that are easier to reason about. The current results show a clear tradeoff: controllers that optimize aggressively for latency and fills widen the surplus-transfer gap, while more balanced controllers can give up some tail performance to materially improve market-quality and retail outcomes.
