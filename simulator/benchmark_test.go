@@ -210,6 +210,22 @@ type heldOutPolicySummary struct {
 	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
 }
 
+type fittedQLearningCurvePoint struct {
+	Iteration                      int     `json:"iteration"`
+	MeanBellmanMSE                 float64 `json:"mean_bellman_mse"`
+	Runs                           int     `json:"runs"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
+}
+
 func simulatorScenarios() []ScenarioConfig {
 	return []ScenarioConfig{
 		{
@@ -1177,6 +1193,147 @@ func TestGenerateSimulatorHeldOutPolicyArtifacts(t *testing.T) {
 	if err := writeSimulatorHeldOutPolicyArtifacts(results, seeds); err != nil {
 		t.Fatalf("write held-out policy artifacts: %v", err)
 	}
+}
+
+func TestGenerateSimulatorFittedQLearningCurveArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_FITTEDQ_CURVE") != "1" {
+		t.Skip("set RUN_SIM_FITTEDQ_CURVE=1 to generate fitted-q learning-curve artifacts")
+	}
+
+	base := scenarioByName(t, "Policy-LearnedFittedQ-100-250ms")
+	trace := trainLearnedFittedQPolicyTrace(base)
+	regimes := heldOutRegimeScenarios()
+	points := make([]fittedQLearningCurvePoint, 0, len(trace))
+	for _, snapshot := range trace {
+		runs := make([]BenchmarkResult, 0, len(regimes)*len(snapshot.Policy.HeldOutSeeds))
+		for _, regime := range regimes {
+			for _, seed := range snapshot.Policy.HeldOutSeeds {
+				cfg := regime
+				cfg.Seed = seed
+				runs = append(runs, runScenarioWithFittedQPolicy(cfg, snapshot.Policy))
+			}
+		}
+		points = append(points, summarizeFittedQLearningCurvePoint(snapshot, runs))
+	}
+
+	if len(points) < 2 {
+		t.Fatalf("expected multiple fitted-q learning points, got %+v", points)
+	}
+	if points[len(points)-1].MeanSurplusTransferGap >= points[0].MeanSurplusTransferGap {
+		t.Fatalf("expected fitted-q training to improve held-out welfare gap over the untrained baseline, start=%+v end=%+v", points[0], points[len(points)-1])
+	}
+	if err := writeSimulatorFittedQLearningCurveArtifacts(points, trace[len(trace)-1].Policy.TrainingSeeds, trace[len(trace)-1].Policy.HeldOutSeeds, trace[len(trace)-1].Policy.HeldOutRegimes); err != nil {
+		t.Fatalf("write fitted-q learning-curve artifacts: %v", err)
+	}
+}
+
+func runScenarioWithFittedQPolicy(cfg ScenarioConfig, policy learnedFittedQPolicy) BenchmarkResult {
+	start := time.Now()
+	adapter := NewAdapter(cfg)
+	timestep := adapter.Reset()
+	for !timestep.Done {
+		action := chooseFittedQAction(adapter.ActionSpec(), timestep.Observation, policy)
+		timestep = adapter.Step(action)
+	}
+	result := adapter.env.benchmarkResult(time.Since(start))
+	result.Name = policyScenarioName(result.Name, PolicyLearnedFittedQ)
+	return result
+}
+
+func summarizeFittedQLearningCurvePoint(snapshot fittedQTrainingSnapshot, runs []BenchmarkResult) fittedQLearningCurvePoint {
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	surplusGap := make([]float64, 0, len(runs))
+	for _, run := range runs {
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		surplusGap = append(surplusGap, run.SurplusTransferGap)
+	}
+	meanFills, ciFills := meanCI95(fills)
+	meanP99, ciP99 := meanCI95(p99)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
+	meanGap, ciGap := meanCI95(surplusGap)
+	return fittedQLearningCurvePoint{
+		Iteration:                      snapshot.Iteration,
+		MeanBellmanMSE:                 snapshot.BellmanMSE,
+		Runs:                           len(runs),
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ciFills,
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ciP99,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+		MeanSurplusTransferGap:         meanGap,
+		CI95SurplusTransferGap:         ciGap,
+	}
+}
+
+func writeSimulatorFittedQLearningCurveArtifacts(points []fittedQLearningCurvePoint, trainingSeeds []int64, heldOutSeeds []int64, heldOutRegimes []string) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_fittedq_learning_curve.json")
+	mdPath := filepath.Join(base, "simulator_fittedq_learning_curve.md")
+	csvPath := filepath.Join(base, "simulator_fittedq_learning_curve.csv")
+
+	payload := map[string]any{
+		"training_seeds":  trainingSeeds,
+		"heldout_seeds":   heldOutSeeds,
+		"heldout_regimes": heldOutRegimes,
+		"results":         points,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Fitted-Q Learning Curve\n\n")
+	md.WriteString(fmt.Sprintf("Training seeds: `%v`\n\n", trainingSeeds))
+	md.WriteString(fmt.Sprintf("Held-out seeds: `%v`\n\n", heldOutSeeds))
+	md.WriteString(fmt.Sprintf("Held-out regimes: `%s`\n\n", strings.Join(heldOutRegimes, ", ")))
+	md.WriteString("Each row evaluates the fitted-Q snapshot after a given Bellman-update iteration on the held-out regime set.\n\n")
+	md.WriteString("| Iteration | Bellman MSE | Runs | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, point := range points {
+		md.WriteString(fmt.Sprintf("| %d | %.4f | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
+			point.Iteration, point.MeanBellmanMSE, point.Runs,
+			point.MeanFillsPerSec, point.CI95FillsPerSec,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
+			point.MeanRetailAdverseSelectionRate, point.CI95RetailAdverseSelectionRate,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap))
+	}
+
+	var csv strings.Builder
+	csv.WriteString("iteration,mean_bellman_mse,runs,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_surplus_transfer_gap,ci95_surplus_transfer_gap\n")
+	for _, point := range points {
+		csv.WriteString(fmt.Sprintf("%d,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+			point.Iteration, point.MeanBellmanMSE, point.Runs,
+			point.MeanFillsPerSec, point.CI95FillsPerSec,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
+			point.MeanRetailAdverseSelectionRate, point.CI95RetailAdverseSelectionRate,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
 }
 
 func writeSimulatorArtifacts(results []BenchmarkResult) error {

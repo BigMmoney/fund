@@ -16,6 +16,7 @@ Scope:
 - minimal gym-style adapter via `NewAdapter`, with batch-window, risk-scale, tie-break, release-cadence, and price-aggression controls plus reward-bearing timesteps
 - schema documentation in `docs/neurips_track/ENVIRONMENT_SCHEMA.md`
 - logged-trajectory training and held-out regime evaluation artifacts
+- fitted-Q learning-curve artifacts over held-out regimes
 - mechanism ablations and agent/workload ablations
 - parameter-grid sweeps over arbitrage intensity and maker quote width
 - parameter-cube sweeps over retail intensity, informed intensity, and maker quote width
@@ -50,6 +51,7 @@ Key outputs:
 - `docs/benchmarks/simulator_parameter_hypercube_profile.*`
 - `docs/benchmarks/simulator_parameter_hypercube_summary.*`
 - `docs/benchmarks/simulator_heldout_policy_profile.*`
+- `docs/benchmarks/simulator_fittedq_learning_curve.*`
 
 To generate artifacts:
 
@@ -77,6 +79,9 @@ go test ./simulator -run TestGenerateSimulatorParameterHypercubeArtifacts -v
 
 $env:RUN_SIM_HELDOUT="1"
 go test ./simulator -run TestGenerateSimulatorHeldOutPolicyArtifacts -v
+
+$env:RUN_SIM_FITTEDQ_CURVE="1"
+go test ./simulator -run TestGenerateSimulatorFittedQLearningCurveArtifacts -v
 
 python scripts/generate_neurips_figures.py
 ```

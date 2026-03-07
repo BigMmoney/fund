@@ -12,6 +12,8 @@ This appendix collects the repository-hosted figure set that supplements the Neu
 
 ![Welfare and behavior comparison](figures/welfare.svg)
 
+![Fitted-Q learning curve](figures/fittedq_learning_curve.svg)
+
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
 ![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
@@ -74,6 +76,7 @@ Each hypercube slice fixes informed intensity at `x2` and renders retail intensi
 
 - `fairness.svg` still shows the queue-advantage and arbitrage-profit proxy layer
 - `welfare.svg` adds direct welfare/behavior signals: retail surplus per traded unit and retail adverse-selection rate
+- `fittedq_learning_curve.svg` shows the held-out welfare-gap trajectory across fitted-Q Bellman updates
 - `grid_*` isolates arbitrage intensity versus maker quote width
 - `cube_*` holds retail intensity fixed and shows how informed-flow intensity and maker quote width reshape p99 and arbitrage-profit proxy
 - `hyper_*` folds arbitrage back into the unified sweep and makes the welfare-gap surface visible under the same slice convention

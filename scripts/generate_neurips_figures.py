@@ -11,6 +11,7 @@ AGENT_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_agent_ablation_prof
 GRID_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_grid_profile.json"
 CUBE_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_cube_profile.json"
 HYPER_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_profile.json"
+FITTEDQ_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_fittedq_learning_curve.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
 
 
@@ -217,6 +218,7 @@ def generate() -> None:
     grid_sweep = load_named_results(GRID_SWEEP_PATH)
     cube_sweep = load_named_results(CUBE_SWEEP_PATH)
     hyper_sweep = load_named_results(HYPER_SWEEP_PATH)
+    fittedq_curve = load_named_results(FITTEDQ_CURVE_PATH)
     label_map = {
         "Immediate-Surrogate": "Immediate",
         "SpeedBump-50ms": "SpeedBump 50",
@@ -300,6 +302,21 @@ def generate() -> None:
         categories,
         FIG_DIR / "welfare.svg",
         "Per-unit welfare and adverse-selection rate",
+    )
+
+    line_chart_with_ci(
+        "Fitted-Q Held-Out Learning Curve",
+        [
+            (
+                "Held-out Welfare Gap",
+                "#f472b6",
+                [r["mean_surplus_transfer_gap"] for r in fittedq_curve],
+                [r["ci95_surplus_transfer_gap"] for r in fittedq_curve],
+            ),
+        ],
+        [f"Iter {r['iteration']}" for r in fittedq_curve],
+        FIG_DIR / "fittedq_learning_curve.svg",
+        "Held-out welfare gap",
     )
 
     bar_chart_with_ci(

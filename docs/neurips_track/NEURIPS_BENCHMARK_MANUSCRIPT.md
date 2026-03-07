@@ -2,13 +2,13 @@
 
 ## Abstract
 
-We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise `Reset/Step/Observe/Metrics` API, an adapter-driven control surface, five policy baselines including offline contextual and fitted-Q controllers, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. It also adds a minimal offline-training story with held-out regime evaluation over unseen stress combinations. Across all measured runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare-transfer tradeoffs.
+We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. The benchmark is also designed to study how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise `Reset/Step/Observe/Metrics` API, an adapter-driven control surface, five policy baselines including offline contextual and fitted-Q controllers, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. It also adds a minimal offline-training story with held-out regime evaluation over unseen stress combinations. Across all measured runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare-transfer tradeoffs.
 
 ## 1. Introduction
 
 Electronic markets are shaped jointly by matching rules, latency structure, and settlement semantics. Frequent batch auction arguments motivate short batching windows as a response to latency-driven distortions in continuous markets. In practice, however, evaluation artifacts often study matching rules in isolation and do not explicitly couple them to settlement safety, replay behavior, or account-state correctness.
 
-This manuscript defines a benchmark-oriented layer on top of an existing ledger-first market-infrastructure prototype. The goal is not to replace the original systems paper. The goal is narrower: establish a reusable evaluation environment in which mechanism comparisons and controller experiments are made under explicit settlement constraints, and in which retail outcomes are summarized by a small, interpretable welfare decomposition rather than by a long tail of auxiliary metrics.
+This manuscript defines a benchmark-oriented layer on top of an existing ledger-first market-infrastructure prototype. The goal is not to replace the original systems paper. The goal is narrower: establish a reusable evaluation environment in which mechanism comparisons and controller experiments are made under explicit settlement constraints, and in which retail outcomes are summarized by a small, interpretable welfare decomposition rather than by a long tail of auxiliary metrics. In that sense, the paper studies how learning-based controllers behave when settlement invariants, replay stability, and market-design choices are all part of the environment definition.
 
 The current benchmark line makes four concrete contributions:
 
@@ -229,7 +229,21 @@ Held-out results in `docs/benchmarks/simulator_heldout_policy_profile.*` use uns
 
 The held-out picture is materially different from the in-distribution aggregate. `FittedQ` lowers both `p99` and welfare gap relative to `LinUCB` in `HeldOut-HighArbWideMaker`, `HeldOut-RetailBurst`, and `HeldOut-CompositeStress`. In `HeldOut-InformedWide`, it gives up some tail latency (`182.50` versus `167.50 ms`) but still lowers welfare gap (`2.2994` versus `2.3765`). `OfflineContextual` remains the most welfare-balanced learned baseline overall, but it is materially slower than both `LinUCB` and `FittedQ` on held-out tails.
 
-### 9.4 Visual Summary
+### 9.4 Fitted-Q Learning Curve
+
+The new fitted-Q learning-curve artifact in `docs/benchmarks/simulator_fittedq_learning_curve.*` makes the training story explicit instead of leaving the controller as a black-box baseline.
+
+| Iteration | Bellman MSE | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0.0000 | 875.99 +/- 159.10 | 341.25 +/- 22.97 | -0.7067 +/- 0.1909 | 0.5293 +/- 0.0121 | 3.2117 +/- 0.5538 |
+| 1 | 45.1571 | 960.57 +/- 182.21 | 198.75 +/- 25.39 | -0.0251 +/- 0.1070 | 0.4999 +/- 0.0179 | 2.0790 +/- 0.4767 |
+| 8 | 6.5753 | 944.25 +/- 176.56 | 155.62 +/- 12.84 | 0.1177 +/- 0.1193 | 0.4961 +/- 0.0154 | 2.4226 +/- 0.5400 |
+
+![Fitted-Q learning curve](figures/fittedq_learning_curve.svg)
+
+The pattern is useful rather than cosmetic. The first Bellman update captures most of the welfare-gap improvement over the untrained snapshot, while later iterations keep reducing Bellman error and held-out p99. The final controller is therefore faster on tail latency than the early snapshot, but it gives back part of the early welfare improvement. That is exactly the kind of benchmark-plus-learning tradeoff this track is meant to expose.
+
+### 9.5 Visual Summary
 
 ![Throughput comparison](figures/throughput.svg)
 
@@ -249,7 +263,7 @@ The held-out picture is materially different from the in-distribution aggregate.
 
 The full appendix figure set, including cube and hypercube slices, is collected in `APPENDIX_FIGURES.md`.
 
-### 9.5 Mechanism Ablation Snapshot
+### 9.6 Mechanism Ablation Snapshot
 
 From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]`:
 
@@ -262,7 +276,7 @@ From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]
 
 These ablations show that relaxing risk limits is not a free lunch: it raises throughput, but also sharply increases arbitrage capture.
 
-### 9.6 Agent and Workload Sweep Snapshot
+### 9.7 Agent and Workload Sweep Snapshot
 
 From `docs/benchmarks/simulator_agent_ablation_profile.*` over seeds `[43, 47, 53, 59]`:
 
@@ -278,7 +292,7 @@ From `docs/benchmarks/simulator_agent_ablation_profile.*` over seeds `[43, 47, 5
 
 The sweeps make clear that the benchmark is sensitive to population composition and workload intensity, not only to the matching rule.
 
-### 9.7 Parameter Grid, Cube, and Unified Hypercube
+### 9.8 Parameter Grid, Cube, and Unified Hypercube
 
 The benchmark now exposes three sensitivity surfaces:
 
@@ -308,7 +322,7 @@ The compact summary in `docs/benchmarks/simulator_parameter_hypercube_summary.*`
 
 This summary removes the need to interpret the hypercube only through slice families. Arbitrage pressure is the dominant driver of welfare-gap expansion, retail intensity is mostly a throughput lever, and wider maker quotes worsen retail outcome without moving aggregate activity in this setup.
 
-Retail-conditioned arbitrage deltas reinforce the same point. Averaged over informed intensity and maker width, moving from `arb=0` to `arb=3` widens the welfare gap by `1.1748`, `1.2262`, and `1.2287` at retail intensities `x1`, `x2`, and `x3`, respectively. Higher retail flow does not neutralize transfer-to-arbitrageur.
+Retail-conditioned arbitrage deltas reinforce the same point. Averaged over informed intensity and maker width, moving from `arb=0` to `arb=3` widens the welfare gap by `1.1748`, `1.2262`, and `1.2287` at retail intensities `x1`, `x2`, and `x3`, respectively. This effect persists across retail intensities. Higher retail flow does not neutralize transfer-to-arbitrageur.
 
 ## 10. Limitations
 

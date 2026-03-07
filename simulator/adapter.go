@@ -131,6 +131,12 @@ type learnedFittedQPolicy struct {
 	HeldOutRegimes []string
 }
 
+type fittedQTrainingSnapshot struct {
+	Iteration  int
+	BellmanMSE float64
+	Policy     learnedFittedQPolicy
+}
+
 type policyStepSample struct {
 	features []float64
 	hidden   []float64
@@ -613,12 +619,17 @@ func trainOfflineContextualPolicy(cfg ScenarioConfig) learnedOfflineContextualPo
 }
 
 func trainLearnedFittedQPolicy(cfg ScenarioConfig) learnedFittedQPolicy {
+	trace := trainLearnedFittedQPolicyTrace(cfg)
+	return trace[len(trace)-1].Policy
+}
+
+func trainLearnedFittedQPolicyTrace(cfg ScenarioConfig) []fittedQTrainingSnapshot {
 	trainingSeeds := []int64{181, 191, 193, 197, 199, 211}
 	heldOutSeeds := []int64{223, 227, 229, 233}
 	spec := NewAdapter(cfg).ActionSpec()
 	actions := candidateBanditActions(spec)
 	featureDim := len(observationFeatures(Observation{}))
-	policy := learnedFittedQPolicy{
+	basePolicy := learnedFittedQPolicy{
 		Actions:       initLinearArmModels(actions, featureDim, 2.0),
 		Gamma:         0.97,
 		Iterations:    8,
@@ -647,21 +658,32 @@ func trainLearnedFittedQPolicy(cfg ScenarioConfig) learnedFittedQPolicy {
 		}
 	}
 
-	models := append([]linearArmModel(nil), policy.Actions...)
-	for i := range models {
-		models[i].A = copyMatrix(models[i].A)
-		models[i].B = append([]float64(nil), models[i].B...)
-		models[i].Theta = append([]float64(nil), models[i].Theta...)
-	}
-	prevModels := models
-	for iter := 0; iter < policy.Iterations; iter++ {
-		models = initLinearArmModels(actions, featureDim, 2.0)
+	prevModels := copyLinearArmModels(basePolicy.Actions)
+	trace := make([]fittedQTrainingSnapshot, 0, basePolicy.Iterations+1)
+	trace = append(trace, fittedQTrainingSnapshot{
+		Iteration:  0,
+		BellmanMSE: 0,
+		Policy: learnedFittedQPolicy{
+			Actions:        copyLinearArmModels(prevModels),
+			Gamma:          basePolicy.Gamma,
+			Iterations:     basePolicy.Iterations,
+			TrainingSeeds:  append([]int64(nil), basePolicy.TrainingSeeds...),
+			HeldOutSeeds:   append([]int64(nil), basePolicy.HeldOutSeeds...),
+			HeldOutRegimes: append([]string(nil), basePolicy.HeldOutRegimes...),
+		},
+	})
+	for iter := 0; iter < basePolicy.Iterations; iter++ {
+		models := initLinearArmModels(actions, featureDim, 2.0)
+		sumSquaredError := 0.0
 		for _, sample := range transitions {
 			target := sample.reward
 			if !sample.done {
-				target += policy.Gamma * maxActionValue(prevModels, sample.nextFeatures)
+				target += basePolicy.Gamma * maxActionValue(prevModels, sample.nextFeatures)
 			}
 			target = clampFloat(target, -25.0, 25.0)
+			prediction := dot(prevModels[sample.action].Theta, sample.features)
+			delta := target - prediction
+			sumSquaredError += delta * delta
 			arm := &models[sample.action]
 			arm.A = outerAdd(arm.A, sample.features)
 			addScaledInPlace(arm.B, sample.features, target)
@@ -671,9 +693,20 @@ func trainLearnedFittedQPolicy(cfg ScenarioConfig) learnedFittedQPolicy {
 			models[idx].Theta = solveLinearSystem(models[idx].A, models[idx].B)
 		}
 		prevModels = copyLinearArmModels(models)
+		trace = append(trace, fittedQTrainingSnapshot{
+			Iteration:  iter + 1,
+			BellmanMSE: sumSquaredError / maxFloat(float64(len(transitions)), 1),
+			Policy: learnedFittedQPolicy{
+				Actions:        copyLinearArmModels(prevModels),
+				Gamma:          basePolicy.Gamma,
+				Iterations:     basePolicy.Iterations,
+				TrainingSeeds:  append([]int64(nil), basePolicy.TrainingSeeds...),
+				HeldOutSeeds:   append([]int64(nil), basePolicy.HeldOutSeeds...),
+				HeldOutRegimes: append([]string(nil), basePolicy.HeldOutRegimes...),
+			},
+		})
 	}
-	policy.Actions = prevModels
-	return policy
+	return trace
 }
 
 func initLinearArmModels(actions []learnedActionCandidate, featureDim int, ridge float64) []linearArmModel {

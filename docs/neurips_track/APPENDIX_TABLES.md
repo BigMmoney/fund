@@ -38,6 +38,22 @@ Interpretation:
 - In `HeldOut-InformedWide`, `FittedQ` gives up some tail latency versus `LinUCB` but still lowers welfare gap.
 - `OfflineContextual` remains the most welfare-balanced learned baseline on held-out regimes, but it is materially slower on tail latency than both `LinUCB` and `FittedQ`.
 
+## Fitted-Q Learning Curve
+
+Source: `docs/benchmarks/simulator_fittedq_learning_curve.*`
+
+| Iteration | Bellman MSE | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0.0000 | 875.99 +/- 159.10 | 341.25 +/- 22.97 | -0.7067 +/- 0.1909 | 0.5293 +/- 0.0121 | 3.2117 +/- 0.5538 |
+| 1 | 45.1571 | 960.57 +/- 182.21 | 198.75 +/- 25.39 | -0.0251 +/- 0.1070 | 0.4999 +/- 0.0179 | 2.0790 +/- 0.4767 |
+| 8 | 6.5753 | 944.25 +/- 176.56 | 155.62 +/- 12.84 | 0.1177 +/- 0.1193 | 0.4961 +/- 0.0154 | 2.4226 +/- 0.5400 |
+
+Interpretation:
+
+- the first Bellman update captures most of the held-out welfare-gap gain
+- later iterations continue to reduce Bellman error and held-out p99
+- the later controller is faster on tail latency, but it gives back some of the earliest welfare improvement
+
 ## Mechanism Ablation
 
 Source: `docs/benchmarks/simulator_ablation_profile.*`
@@ -154,5 +170,6 @@ Each row is the average `(arb=3) - (arb=0)` delta at fixed retail intensity, ave
 Interpretation:
 
 - arbitrage intensity is the dominant driver of welfare-gap expansion in the unified sweep
+- this effect persists across retail intensities
 - higher retail intensity mostly loads throughput; it does not offset transfer-to-arbitrageur
 - wider maker quotes do not change throughput here, but they still worsen retail outcomes and welfare gap
