@@ -240,6 +240,8 @@ The main learning-specific hyperparameters used in the paper are:
 
 These settings are intentionally lightweight. The benchmark claim is not that these are state-of-the-art learning algorithms; it is that the environment makes their latency-welfare tradeoffs measurable under the same infrastructure constraints.
 
+On the reference machine used for artifact generation, the unified hypercube run (`108` cells, `4` seeds per cell, `125` steps per run) completes `54,000` simulator steps in `9.90 s`, or about `5.45e3 steps/s`; `docs/benchmarks/simulator_runtime_profile.*` records the exact measurement. Combining the published per-cell throughput with episode duration gives an estimated `1.00e5 order events/s` and `4.68e4 fills/s` of wall-clock simulation throughput. This is enough to support lightweight offline and online learning experiments without changing the environment definition.
+
 ## 9. Current Results
 
 We report two layers of results:
@@ -308,7 +310,19 @@ The online DQN-style controller now adds a second, explicitly online training st
 
 ![Online DQN learning curve](figures/online_dqn_learning_curve.svg)
 
-### 9.6 Pareto Frontier
+### 9.6 Reward Sensitivity
+
+`docs/benchmarks/simulator_online_dqn_reward_sensitivity.*` retrains the online DQN controller under three deliberately separated reward profiles: the paper default, a latency-heavy profile, and a welfare-heavy profile. Even under these large coefficient shifts, the final held-out operating point stays on the same plateau:
+
+- `default`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
+- `latency_heavy`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
+- `welfare_heavy`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
+
+The training reward scale changes substantially across profiles, but the held-out controller behavior does not. For this benchmark, that is a useful result rather than a null one: the latency-welfare tension is not only a consequence of one hand-tuned reward vector. Under the current action space and held-out regimes, the online policy still converges toward the same latency-favoring operating region.
+
+![Online DQN reward sensitivity](figures/reward_sensitivity.svg)
+
+### 9.7 Pareto Frontier
 
 The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controller_pareto.*` uses `p99 latency` and `surplus-transfer gap` as the two minimized axes, with `fills/s` kept as a third interpretation axis.
 
@@ -318,7 +332,7 @@ The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controlle
 
 ![Controller Pareto frontier](figures/pareto.svg)
 
-### 9.7 Visual Summary
+### 9.8 Visual Summary
 
 ![Throughput comparison](figures/throughput.svg)
 

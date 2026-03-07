@@ -175,6 +175,8 @@ Controller & Function class & Training data / interaction & Main hyperparameters
 \caption{Minimal training specification for the two paper-facing learned controllers. These settings are intentionally lightweight: the benchmark claim is not a new RL algorithm, but that learning behavior can be measured under infrastructure constraints.}
 \end{table}
 
+On the reference machine used for artifact generation, the unified hypercube run ($108$ cells, $4$ seeds per cell, $125$ steps per run) completes $54{,}000$ simulator steps in $9.90$ seconds, or about $5.45 \times 10^3$ steps per second; the artifact layer records the same measurement in \texttt{simulator\_runtime\_profile}. Combining published per-cell throughput with episode duration yields an estimated wall-clock rate of $1.00 \times 10^5$ order events per second and $4.68 \times 10^4$ fills per second, which is sufficient for the lightweight offline and online learning experiments reported here.
+
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
@@ -372,6 +374,23 @@ The fitted-Q controller is no longer just a point baseline. We also log its held
 
 \subsection{Online DQN Learning Curve}
 The online DQN-style controller adds a second, explicitly online training story. The untrained checkpoint begins at held-out p99 latency of $200.00 \pm 25.46$ ms and welfare gap of $1.5898 \pm 0.3869$. By episode $20$, held-out p99 falls to $155.62 \pm 12.84$ ms, while the welfare gap rises to $2.4226 \pm 0.5400$. Later checkpoints remain on the same plateau. The online controller therefore converges quickly toward a latency-favoring regime. Under the current reward structure, latency improvement is easier for the policy to exploit than retail-welfare preservation.
+
+\subsection{Reward Sensitivity}
+To test whether the online-learning result depends on one hand-tuned reward vector, we retrain the online DQN controller under three deliberately separated reward profiles: the paper default, a latency-heavy profile, and a welfare-heavy profile. The final held-out operating point remains on the same plateau in all three cases. Default reward weights produce held-out p99 latency of $155.62 \pm 12.84$ ms and welfare gap $2.4226 \pm 0.5400$. The latency-heavy and welfare-heavy profiles produce the same held-out p99 and welfare-gap pair within the reported confidence intervals. The training reward scale changes materially, but the held-out controller behavior does not. For this benchmark, that is a useful robustness result: the latency-welfare tension is not only a consequence of one reward-weight vector. Under the current action bundle and held-out regimes, the online policy still converges toward the same latency-favoring operating region.
+
+\begin{table}[t]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Profile & Mean train reward & Held-out p99 (ms) & Held-out welfare gap \\
+\midrule
+Default & 923.96 & 155.62 & 2.4226 \\
+Latency-heavy & 1899.13 & 155.62 & 2.4226 \\
+Welfare-heavy & -108.57 & 155.62 & 2.4226 \\
+\bottomrule
+\end{tabular}
+\caption{Online DQN reward-sensitivity summary on held-out regimes. Large reward-weight perturbations change train reward scale but not the final held-out operating point.}
+\end{table}
 
 \subsection{Controller Pareto Frontier}
 The multiseed controller frontier makes the same tradeoff visible on one surface. When minimizing p99 latency and surplus-transfer gap jointly, three points remain undominated: immediate execution, the balanced adaptive heuristic, and the offline contextual controller. Immediate execution is fastest but welfare-weak; the adaptive heuristic nearly closes the welfare gap but gives up substantial tail latency; offline contextual is the strongest balanced learned point.

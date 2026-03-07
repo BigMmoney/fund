@@ -198,10 +198,14 @@ var learnedPolicyCache = struct {
 }
 
 func NewAdapter(cfg ScenarioConfig) *Adapter {
+	return NewAdapterWithRewardWeights(cfg, defaultRewardWeights())
+}
+
+func NewAdapterWithRewardWeights(cfg ScenarioConfig, rewardWeights RewardWeights) *Adapter {
 	env := NewEnvironment(cfg)
 	return &Adapter{
 		env:           env,
-		rewardWeights: defaultRewardWeights(),
+		rewardWeights: rewardWeights,
 		prevMetrics:   env.Metrics(),
 	}
 }
@@ -768,6 +772,10 @@ func trainLearnedOnlineDQNPolicy(cfg ScenarioConfig) learnedOnlineDQNPolicy {
 }
 
 func trainLearnedOnlineDQNPolicyTrace(cfg ScenarioConfig) []onlineDQNTrainingSnapshot {
+	return trainLearnedOnlineDQNPolicyTraceWithRewardWeights(cfg, defaultRewardWeights())
+}
+
+func trainLearnedOnlineDQNPolicyTraceWithRewardWeights(cfg ScenarioConfig, rewardWeights RewardWeights) []onlineDQNTrainingSnapshot {
 	trainingSeeds := []int64{307, 311, 313, 317, 331, 337}
 	heldOutSeeds := []int64{223, 227, 229, 233}
 	spec := NewAdapter(cfg).ActionSpec()
@@ -813,7 +821,7 @@ func trainLearnedOnlineDQNPolicyTrace(cfg ScenarioConfig) []onlineDQNTrainingSna
 		seedOffset := int64((episode - 1) / len(trainingSeeds))
 		trainingCfg := cfg
 		trainingCfg.Seed = seedBase + seedOffset*997
-		adapter := NewAdapter(trainingCfg)
+		adapter := NewAdapterWithRewardWeights(trainingCfg, rewardWeights)
 		timestep := adapter.Reset()
 		episodeReward := 0.0
 		epsilon := 0.25 - (0.22 * float64(episode-1) / float64(maxInt(policy.Episodes-1, 1)))

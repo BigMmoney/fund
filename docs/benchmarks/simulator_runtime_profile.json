@@ -1,0 +1,13 @@
+{
+  "measurement_scope": "parameter_hypercube_artifact_generation",
+  "scenario_cells": 108,
+  "runs_per_cell": 4,
+  "steps_per_run": 125,
+  "step_duration_ms": 10,
+  "wall_seconds": 9.9036272,
+  "total_steps": 54000,
+  "steps_per_second": 5452.547729179466,
+  "estimated_total_order_events": 993026.7857142857,
+  "estimated_order_events_per_second": 100268.99899001505,
+  "estimated_fills_per_second": 46753.85378957298
+}

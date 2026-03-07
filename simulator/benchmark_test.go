@@ -242,6 +242,28 @@ type onlineDQNLearningCurvePoint struct {
 	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
 }
 
+type rewardSensitivityProfile struct {
+	Name          string        `json:"name"`
+	RewardWeights RewardWeights `json:"reward_weights"`
+}
+
+type onlineDQNRewardSensitivityResult struct {
+	ProfileName                    string        `json:"profile_name"`
+	RewardWeights                  RewardWeights `json:"reward_weights"`
+	MeanTrainEpisodeReward         float64       `json:"mean_train_episode_reward"`
+	Runs                           int           `json:"runs"`
+	MeanFillsPerSec                float64       `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64       `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64       `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64       `json:"ci95_p99_latency_ms"`
+	MeanRetailSurplusPerUnit       float64       `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64       `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64       `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64       `json:"ci95_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64       `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64       `json:"ci95_surplus_transfer_gap"`
+}
+
 type paretoPoint struct {
 	Name                   string  `json:"name"`
 	Category               string  `json:"category"`
@@ -613,6 +635,47 @@ func scenarioByName(t *testing.T, name string) ScenarioConfig {
 	}
 	t.Fatalf("scenario %q not found", name)
 	return ScenarioConfig{}
+}
+
+func onlineDQNRewardProfiles() []rewardSensitivityProfile {
+	return []rewardSensitivityProfile{
+		{
+			Name:          "default",
+			RewardWeights: defaultRewardWeights(),
+		},
+		{
+			Name: "latency_heavy",
+			RewardWeights: RewardWeights{
+				FillWeight:          2.00,
+				SpreadPenalty:       0.10,
+				PriceImpactPenalty:  0.20,
+				QueuePenalty:        4.0,
+				ArbitragePenalty:    0.0005,
+				RetailSurplusWeight: 1.0,
+				AdversePenalty:      1.0,
+				WelfarePenalty:      0.1,
+				SurplusGapPenalty:   0.1,
+				RiskRejectPenalty:   0.2,
+				ConservationPenalty: 10.0,
+			},
+		},
+		{
+			Name: "welfare_heavy",
+			RewardWeights: RewardWeights{
+				FillWeight:          0.10,
+				SpreadPenalty:       0.50,
+				PriceImpactPenalty:  4.00,
+				QueuePenalty:        20.0,
+				ArbitragePenalty:    0.0500,
+				RetailSurplusWeight: 40.0,
+				AdversePenalty:      30.0,
+				WelfarePenalty:      8.0,
+				SurplusGapPenalty:   12.0,
+				RiskRejectPenalty:   1.0,
+				ConservationPenalty: 10.0,
+			},
+		},
+	}
 }
 
 func parameterGridScenarios() []ScenarioConfig {
@@ -1347,6 +1410,44 @@ func TestGenerateSimulatorOnlineDQNTrainingArtifacts(t *testing.T) {
 	}
 }
 
+func TestGenerateSimulatorOnlineDQNRewardSensitivityArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_REWARD_SENSITIVITY") != "1" {
+		t.Skip("set RUN_SIM_REWARD_SENSITIVITY=1 to generate online-DQN reward-sensitivity artifacts")
+	}
+
+	base := scenarioByName(t, "Policy-LearnedOnlineDQN-100-250ms")
+	profiles := onlineDQNRewardProfiles()
+	regimes := heldOutRegimeScenarios()
+	results := make([]onlineDQNRewardSensitivityResult, 0, len(profiles))
+	var trainingSeeds []int64
+	var heldOutSeeds []int64
+	var heldOutRegimes []string
+	for _, profile := range profiles {
+		trace := trainLearnedOnlineDQNPolicyTraceWithRewardWeights(base, profile.RewardWeights)
+		final := trace[len(trace)-1]
+		trainingSeeds = append([]int64(nil), final.Policy.TrainingSeeds...)
+		heldOutSeeds = append([]int64(nil), final.Policy.HeldOutSeeds...)
+		heldOutRegimes = append([]string(nil), final.Policy.HeldOutRegimes...)
+		runs := make([]BenchmarkResult, 0, len(regimes)*len(final.Policy.HeldOutSeeds))
+		for _, regime := range regimes {
+			for _, seed := range final.Policy.HeldOutSeeds {
+				cfg := regime
+				cfg.Seed = seed
+				runs = append(runs, runScenarioWithOnlineDQNPolicyAndRewardWeights(cfg, final.Policy, profile.RewardWeights))
+			}
+		}
+		results = append(results, summarizeOnlineDQNRewardSensitivityResult(profile, final.MeanEpisodeReward, runs))
+	}
+
+	if len(results) < 3 {
+		t.Fatalf("expected multiple reward-sensitivity profiles, got %+v", results)
+	}
+	if err := writeSimulatorOnlineDQNRewardSensitivityArtifacts(results, profiles, trainingSeeds, heldOutSeeds, heldOutRegimes); err != nil {
+		t.Fatalf("write online-DQN reward-sensitivity artifacts: %v", err)
+	}
+}
+
 func runScenarioWithFittedQPolicy(cfg ScenarioConfig, policy learnedFittedQPolicy) BenchmarkResult {
 	start := time.Now()
 	adapter := NewAdapter(cfg)
@@ -1361,8 +1462,12 @@ func runScenarioWithFittedQPolicy(cfg ScenarioConfig, policy learnedFittedQPolic
 }
 
 func runScenarioWithOnlineDQNPolicy(cfg ScenarioConfig, policy learnedOnlineDQNPolicy) BenchmarkResult {
+	return runScenarioWithOnlineDQNPolicyAndRewardWeights(cfg, policy, defaultRewardWeights())
+}
+
+func runScenarioWithOnlineDQNPolicyAndRewardWeights(cfg ScenarioConfig, policy learnedOnlineDQNPolicy, rewardWeights RewardWeights) BenchmarkResult {
 	start := time.Now()
-	adapter := NewAdapter(cfg)
+	adapter := NewAdapterWithRewardWeights(cfg, rewardWeights)
 	timestep := adapter.Reset()
 	for !timestep.Done {
 		action := chooseOnlineDQNAction(adapter.ActionSpec(), timestep.Observation, policy)
@@ -1555,6 +1660,106 @@ func writeSimulatorOnlineDQNLearningCurveArtifacts(points []onlineDQNLearningCur
 			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
 			point.MeanRetailAdverseSelectionRate, point.CI95RetailAdverseSelectionRate,
 			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func summarizeOnlineDQNRewardSensitivityResult(profile rewardSensitivityProfile, meanTrainReward float64, runs []BenchmarkResult) onlineDQNRewardSensitivityResult {
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	surplusGap := make([]float64, 0, len(runs))
+	for _, run := range runs {
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		surplusGap = append(surplusGap, run.SurplusTransferGap)
+	}
+	meanFills, ciFills := meanCI95(fills)
+	meanP99, ciP99 := meanCI95(p99)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
+	meanGap, ciGap := meanCI95(surplusGap)
+	return onlineDQNRewardSensitivityResult{
+		ProfileName:                    profile.Name,
+		RewardWeights:                  profile.RewardWeights,
+		MeanTrainEpisodeReward:         meanTrainReward,
+		Runs:                           len(runs),
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ciFills,
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ciP99,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+		MeanSurplusTransferGap:         meanGap,
+		CI95SurplusTransferGap:         ciGap,
+	}
+}
+
+func writeSimulatorOnlineDQNRewardSensitivityArtifacts(results []onlineDQNRewardSensitivityResult, profiles []rewardSensitivityProfile, trainingSeeds []int64, heldOutSeeds []int64, heldOutRegimes []string) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_online_dqn_reward_sensitivity.json")
+	mdPath := filepath.Join(base, "simulator_online_dqn_reward_sensitivity.md")
+	csvPath := filepath.Join(base, "simulator_online_dqn_reward_sensitivity.csv")
+
+	payload := map[string]any{
+		"profiles":        profiles,
+		"training_seeds":  trainingSeeds,
+		"heldout_seeds":   heldOutSeeds,
+		"heldout_regimes": heldOutRegimes,
+		"results":         results,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Online DQN Reward Sensitivity\n\n")
+	md.WriteString(fmt.Sprintf("Training seeds: `%v`\n\n", trainingSeeds))
+	md.WriteString(fmt.Sprintf("Held-out seeds: `%v`\n\n", heldOutSeeds))
+	md.WriteString(fmt.Sprintf("Held-out regimes: `%s`\n\n", strings.Join(heldOutRegimes, ", ")))
+	md.WriteString("Each row retrains the online DQN-style controller under a different reward-weight profile and evaluates the final checkpoint on the held-out regime set.\n\n")
+	md.WriteString("| Profile | Mean Train Reward | Runs | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |\n")
+	md.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, result := range results {
+		md.WriteString(fmt.Sprintf("| %s | %.4f | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
+			result.ProfileName, result.MeanTrainEpisodeReward, result.Runs,
+			result.MeanFillsPerSec, result.CI95FillsPerSec,
+			result.MeanP99LatencyMs, result.CI95P99LatencyMs,
+			result.MeanRetailSurplusPerUnit, result.CI95RetailSurplusPerUnit,
+			result.MeanRetailAdverseSelectionRate, result.CI95RetailAdverseSelectionRate,
+			result.MeanSurplusTransferGap, result.CI95SurplusTransferGap))
+	}
+
+	var csv strings.Builder
+	csv.WriteString("profile_name,mean_train_episode_reward,runs,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_surplus_transfer_gap,ci95_surplus_transfer_gap,fill_weight,spread_penalty,price_impact_penalty,queue_penalty,arbitrage_penalty,retail_surplus_weight,adverse_penalty,welfare_penalty,surplus_gap_penalty,risk_reject_penalty,conservation_penalty\n")
+	for _, result := range results {
+		w := result.RewardWeights
+		csv.WriteString(fmt.Sprintf("%s,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+			result.ProfileName, result.MeanTrainEpisodeReward, result.Runs,
+			result.MeanFillsPerSec, result.CI95FillsPerSec,
+			result.MeanP99LatencyMs, result.CI95P99LatencyMs,
+			result.MeanRetailSurplusPerUnit, result.CI95RetailSurplusPerUnit,
+			result.MeanRetailAdverseSelectionRate, result.CI95RetailAdverseSelectionRate,
+			result.MeanSurplusTransferGap, result.CI95SurplusTransferGap,
+			w.FillWeight, w.SpreadPenalty, w.PriceImpactPenalty, w.QueuePenalty, w.ArbitragePenalty,
+			w.RetailSurplusWeight, w.AdversePenalty, w.WelfarePenalty, w.SurplusGapPenalty, w.RiskRejectPenalty, w.ConservationPenalty))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {

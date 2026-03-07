@@ -33,7 +33,9 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_heldout_policy_profile.*`: held-out regime generalization results for learned controllers
 - `docs/benchmarks/simulator_controller_pareto.*`: multiseed Pareto frontier over p99 latency vs surplus-transfer gap
 - `docs/benchmarks/simulator_online_dqn_training_curve.*`: online DQN-style held-out learning curve
+- `docs/benchmarks/simulator_online_dqn_reward_sensitivity.*`: held-out reward-weight sensitivity for the online DQN controller
 - `docs/benchmarks/simulator_fittedq_learning_curve.*`: fitted-Q training snapshots evaluated on held-out regimes
+- `docs/benchmarks/simulator_runtime_profile.*`: reference-machine throughput measurement for the unified hypercube
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
 - `APPENDIX_TABLES.md`: appendix-ready controller, ablation, and sweep tables
@@ -132,6 +134,24 @@ Interpretation:
 - the first offline update captures most of the welfare-gap gain
 - later fitted-Q iterations continue to reduce Bellman error and tail latency
 - the later controller is faster, but it gives back some of the initial welfare improvement
+
+Reference-machine simulator throughput:
+
+- unified hypercube artifact: `54,000` simulator steps in `9.90 s`
+- about `5.45e3 steps/s`
+- estimated `1.00e5 order events/s`
+- estimated `4.68e4 fills/s`
+
+Online DQN reward sensitivity in `docs/benchmarks/simulator_online_dqn_reward_sensitivity.*`:
+
+- `default`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
+- `latency_heavy`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
+- `welfare_heavy`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
+
+Interpretation:
+
+- large reward-weight perturbations change train reward scale, but not the final held-out operating point
+- the latency-welfare tradeoff therefore survives reward reweighting inside the published action space
 
 ## Welfare / Behavior Metrics
 

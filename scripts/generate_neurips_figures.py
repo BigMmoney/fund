@@ -13,6 +13,7 @@ CUBE_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_cube_profi
 HYPER_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_profile.json"
 FITTEDQ_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_fittedq_learning_curve.json"
 ONLINE_DQN_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_online_dqn_training_curve.json"
+REWARD_SENSITIVITY_PATH = ROOT / "docs" / "benchmarks" / "simulator_online_dqn_reward_sensitivity.json"
 PARETO_PATH = ROOT / "docs" / "benchmarks" / "simulator_controller_pareto.json"
 RESPONSE_SURFACE_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_response_surface.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
@@ -285,6 +286,7 @@ def generate() -> None:
     hyper_sweep = load_named_results(HYPER_SWEEP_PATH)
     fittedq_curve = load_named_results(FITTEDQ_CURVE_PATH)
     online_dqn_curve = load_named_results(ONLINE_DQN_CURVE_PATH)
+    reward_sensitivity = load_named_results(REWARD_SENSITIVITY_PATH)
     pareto_points = load_named_results(PARETO_PATH)
     response_surface = json.loads(RESPONSE_SURFACE_PATH.read_text(encoding="utf-8"))["fits"]
     label_map = {
@@ -407,6 +409,27 @@ def generate() -> None:
         [f"Ep {r['episode']}" for r in online_dqn_curve],
         FIG_DIR / "online_dqn_learning_curve.svg",
         "Held-out welfare gap / scaled p99",
+    )
+
+    bar_chart_with_ci(
+        "Online DQN Reward Sensitivity",
+        [
+            (
+                "Held-out p99 / 100",
+                "#38bdf8",
+                [r["mean_p99_latency_ms"] / 100 for r in reward_sensitivity],
+                [r["ci95_p99_latency_ms"] / 100 for r in reward_sensitivity],
+            ),
+            (
+                "Held-out Welfare Gap",
+                "#f472b6",
+                [r["mean_surplus_transfer_gap"] for r in reward_sensitivity],
+                [r["ci95_surplus_transfer_gap"] for r in reward_sensitivity],
+            ),
+        ],
+        [r["profile_name"] for r in reward_sensitivity],
+        FIG_DIR / "reward_sensitivity.svg",
+        "Scaled p99 / welfare gap",
     )
 
     pareto_scatter_chart(pareto_points, FIG_DIR / "pareto.svg")
