@@ -7,43 +7,43 @@
 <text class="legend" x="375.0" y="72" text-anchor="middle">Maker x2</text>
 <text class="legend" x="525.0" y="72" text-anchor="middle">Maker x3</text>
 <text class="legend" x="130" y="139.0" text-anchor="end">Arb x0</text>
-<rect x="150" y="90" width="142" height="82" fill="#6a8da9" rx="12" opacity="0.88"/>
-<text class="value" x="221.0" y="125.0" text-anchor="middle">390.0</text>
-<text class="label" x="221.0" y="148.0" text-anchor="middle">+/- 88.7</text>
-<rect x="300" y="90" width="142" height="82" fill="#da5580" rx="12" opacity="0.88"/>
-<text class="value" x="371.0" y="125.0" text-anchor="middle">450.0</text>
-<text class="label" x="371.0" y="148.0" text-anchor="middle">+/- 21.9</text>
-<rect x="450" y="90" width="142" height="82" fill="#6a8da9" rx="12" opacity="0.88"/>
-<text class="value" x="521.0" y="125.0" text-anchor="middle">390.0</text>
-<text class="label" x="521.0" y="148.0" text-anchor="middle">+/- 101.1</text>
+<rect x="150" y="90" width="142" height="82" fill="#4d9cb4" rx="12" opacity="0.88"/>
+<text class="value" x="221.0" y="125.0" text-anchor="middle">337.5</text>
+<text class="label" x="221.0" y="148.0" text-anchor="middle">+/- 93.8</text>
+<rect x="300" y="90" width="142" height="82" fill="#5598b1" rx="12" opacity="0.88"/>
+<text class="value" x="371.0" y="125.0" text-anchor="middle">345.0</text>
+<text class="label" x="371.0" y="148.0" text-anchor="middle">+/- 97.1</text>
+<rect x="450" y="90" width="142" height="82" fill="#b5688e" rx="12" opacity="0.88"/>
+<text class="value" x="521.0" y="125.0" text-anchor="middle">432.5</text>
+<text class="label" x="521.0" y="148.0" text-anchor="middle">+/- 75.4</text>
 <text class="legend" x="130" y="229.0" text-anchor="end">Arb x1</text>
-<rect x="150" y="180" width="142" height="82" fill="#16b8c8" rx="12" opacity="0.88"/>
-<text class="value" x="221.0" y="215.0" text-anchor="middle">345.0</text>
-<text class="label" x="221.0" y="238.0" text-anchor="middle">+/- 103.1</text>
-<rect x="300" y="180" width="142" height="82" fill="#28aec1" rx="12" opacity="0.88"/>
-<text class="value" x="371.0" y="215.0" text-anchor="middle">355.0</text>
-<text class="label" x="371.0" y="238.0" text-anchor="middle">+/- 85.6</text>
-<rect x="450" y="180" width="142" height="82" fill="#16b8c8" rx="12" opacity="0.88"/>
-<text class="value" x="521.0" y="215.0" text-anchor="middle">345.0</text>
-<text class="label" x="521.0" y="238.0" text-anchor="middle">+/- 161.3</text>
+<rect x="150" y="180" width="142" height="82" fill="#5d94ae" rx="12" opacity="0.88"/>
+<text class="value" x="221.0" y="215.0" text-anchor="middle">352.5</text>
+<text class="label" x="221.0" y="238.0" text-anchor="middle">+/- 105.4</text>
+<rect x="300" y="180" width="142" height="82" fill="#6b8da9" rx="12" opacity="0.88"/>
+<text class="value" x="371.0" y="215.0" text-anchor="middle">365.0</text>
+<text class="label" x="371.0" y="238.0" text-anchor="middle">+/- 102.4</text>
+<rect x="450" y="180" width="142" height="82" fill="#6e8ca8" rx="12" opacity="0.88"/>
+<text class="value" x="521.0" y="215.0" text-anchor="middle">367.5</text>
+<text class="label" x="521.0" y="238.0" text-anchor="middle">+/- 76.3</text>
 <text class="legend" x="130" y="319.0" text-anchor="end">Arb x2</text>
-<rect x="150" y="270" width="142" height="82" fill="#6a8da9" rx="12" opacity="0.88"/>
-<text class="value" x="221.0" y="305.0" text-anchor="middle">390.0</text>
-<text class="label" x="221.0" y="328.0" text-anchor="middle">+/- 63.1</text>
-<rect x="300" y="270" width="142" height="82" fill="#8182a0" rx="12" opacity="0.88"/>
-<text class="value" x="371.0" y="305.0" text-anchor="middle">402.5</text>
-<text class="label" x="371.0" y="328.0" text-anchor="middle">+/- 97.1</text>
-<rect x="450" y="270" width="142" height="82" fill="#f24a78" rx="12" opacity="0.88"/>
-<text class="value" x="521.0" y="305.0" text-anchor="middle">462.5</text>
-<text class="label" x="521.0" y="328.0" text-anchor="middle">+/- 122.1</text>
+<rect x="150" y="270" width="142" height="82" fill="#16b8c8" rx="12" opacity="0.88"/>
+<text class="value" x="221.0" y="305.0" text-anchor="middle">287.5</text>
+<text class="label" x="221.0" y="328.0" text-anchor="middle">+/- 44.0</text>
+<rect x="300" y="270" width="142" height="82" fill="#a57094" rx="12" opacity="0.88"/>
+<text class="value" x="371.0" y="305.0" text-anchor="middle">417.5</text>
+<text class="label" x="371.0" y="328.0" text-anchor="middle">+/- 95.4</text>
+<rect x="450" y="270" width="142" height="82" fill="#977799" rx="12" opacity="0.88"/>
+<text class="value" x="521.0" y="305.0" text-anchor="middle">405.0</text>
+<text class="label" x="521.0" y="328.0" text-anchor="middle">+/- 159.0</text>
 <text class="legend" x="130" y="409.0" text-anchor="end">Arb x3</text>
-<rect x="150" y="360" width="142" height="82" fill="#e3517d" rx="12" opacity="0.88"/>
-<text class="value" x="221.0" y="395.0" text-anchor="middle">455.0</text>
-<text class="label" x="221.0" y="418.0" text-anchor="middle">+/- 26.4</text>
-<rect x="300" y="360" width="142" height="82" fill="#a27194" rx="12" opacity="0.88"/>
-<text class="value" x="371.0" y="395.0" text-anchor="middle">420.0</text>
-<text class="label" x="371.0" y="418.0" text-anchor="middle">+/- 69.6</text>
+<rect x="150" y="360" width="142" height="82" fill="#9c7497" rx="12" opacity="0.88"/>
+<text class="value" x="221.0" y="395.0" text-anchor="middle">410.0</text>
+<text class="label" x="221.0" y="418.0" text-anchor="middle">+/- 70.3</text>
+<rect x="300" y="360" width="142" height="82" fill="#bb658c" rx="12" opacity="0.88"/>
+<text class="value" x="371.0" y="395.0" text-anchor="middle">437.5</text>
+<text class="label" x="371.0" y="418.0" text-anchor="middle">+/- 52.0</text>
 <rect x="450" y="360" width="142" height="82" fill="#f24a78" rx="12" opacity="0.88"/>
-<text class="value" x="521.0" y="395.0" text-anchor="middle">462.5</text>
+<text class="value" x="521.0" y="395.0" text-anchor="middle">487.5</text>
 <text class="label" x="521.0" y="418.0" text-anchor="middle">+/- 36.9</text>
 </svg>

@@ -1,0 +1,6 @@
+name,mean_orders_per_sec,ci95_orders_per_sec,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_surplus_transfer_gap,ci95_surplus_transfer_gap
+Calibrated-Immediate-Surrogate,34.837500,0.009684,28.534375,0.078723,1000.000000,0.000000,-0.833134,0.092899,0.538916,0.008341,4.332101,0.139793
+Calibrated-FBA-2s,34.765073,0.009664,42.409563,0.422516,2000.000000,0.000000,0.018527,0.114580,0.434410,0.011852,3.392738,0.159265
+Calibrated-Adaptive-1-3s,34.765073,0.009664,40.102911,0.589091,3000.000000,0.000000,0.211014,0.201459,0.431388,0.013294,4.240296,0.323030
+Calibrated-Policy-LearnedOfflineContextual-1-3s,34.765073,0.009664,52.135655,1.107059,1500.000000,490.000000,-0.121134,0.091759,0.437006,0.013049,3.165626,0.103681
+Calibrated-Policy-LearnedFittedQ-1-3s,34.765073,0.009664,52.353950,1.191736,1000.000000,0.000000,-0.101816,0.110667,0.432978,0.014636,3.130145,0.129941

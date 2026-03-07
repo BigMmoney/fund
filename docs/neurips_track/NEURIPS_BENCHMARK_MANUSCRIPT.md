@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. The benchmark is designed to study how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise `Reset/Step/Observe/Metrics` API, an adapter-driven control surface, six policy baselines including offline contextual, fitted-Q, and online DQN-style controllers, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. It adds both offline and online learning stories, held-out regime evaluation over unseen stress combinations, and a fitted response-surface summary over the unified hypercube. The main empirical finding is a systematic tension between latency optimization and retail welfare outcomes: controllers that improve tail latency and fill throughput tend to widen surplus-transfer gap, while more balanced controllers give up some latency performance to improve retail outcome. Across all measured runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare-transfer tradeoffs.
+We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. The benchmark is designed to study how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise `Reset/Step/Observe/Metrics` API, an adapter-driven control surface, six policy baselines including offline contextual, fitted-Q, and online DQN-style controllers, a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width, and a first closed-loop calibration pass against real Binance spot stylized facts. It adds both offline and online learning stories, held-out regime evaluation over unseen stress combinations, and a fitted response-surface summary over the unified hypercube. The main empirical finding is a systematic tension between latency optimization and retail welfare outcomes: controllers that improve tail latency and fill throughput tend to widen surplus-transfer gap, while more balanced controllers give up some latency performance to improve retail outcome. That tension survives the first real-data-calibrated rerun while settlement invariants remain intact.
 
 ## 1. Introduction
 
@@ -29,10 +29,10 @@ Existing market environments usually emphasize one of three things: historical-r
 
 This paper makes four concrete contributions:
 
-1. It defines an infrastructure-aware, constraint-aware benchmark environment in which market-mechanism experiments are coupled to deterministic settlement checks.
+1. It defines an infrastructure-aware, constraint-aware benchmark environment in which market-mechanism experiments are coupled to deterministic settlement checks and a versioned calibration path.
 2. It evaluates learned and hand-designed controllers across immediate, speed-bump, fixed-batch, adaptive, and stress regimes under a shared control API.
 3. It reports both offline and online learning behavior, including held-out regime generalization and explicit training-curve evidence for FittedQ and OnlineDQN.
-4. It summarizes a unified four-dimensional stress surface and shows that arbitrage intensity consistently emerges as the dominant driver of welfare-gap expansion.
+4. It summarizes a unified four-dimensional stress surface, shows that arbitrage intensity consistently emerges as the dominant driver of welfare-gap expansion, and reports a first closed-loop market-data calibration pass in which the same latency-welfare tension persists.
 
 ## 2. Research Question
 
@@ -341,7 +341,21 @@ The training reward scale changes substantially across profiles, but the held-ou
 
 ![Online DQN reward sensitivity](figures/reward_sensitivity.svg)
 
-### 9.8 Pareto Frontier
+### 9.8 First Closed-Loop Calibration Pass
+
+The benchmark now includes a first closed-loop calibration pass against real public market data rather than only a synthetic generator. `docs/benchmarks/binance_spot_multimarket_facts.*` computes a stylized-facts envelope from an 8-symbol Binance spot slice. `docs/benchmarks/simulator_calibration_target_table.*` and `docs/benchmarks/simulator_calibrated_vs_market.*` then compare that envelope against a baseline synthetic scenario and a tuned synthetic scenario.
+
+The first-pass result is directionally strong even though it is not yet a final realism claim. The tuned generator moves `spread_mean_bps` from `326.408449` to `12.828347`, near the empirical upper envelope `11.217050`, and moves the top impact bucket from `264.410790 bps` to `8.472587 bps`. It falls inside the empirical range on `7 / 13` tracked summary metrics. The remaining misses are concentrated in order-sign autocorrelation, inter-arrival timing, one return-clustering term, and a subset of ask-side depth-shape statistics.
+
+More importantly for the benchmark claim, `docs/benchmarks/simulator_calibrated_benchmark_profile.*` reruns the latency-welfare comparison under the tuned generator and keeps all calibrated scenarios at `zero-breach`. The calibrated rerun preserves the same qualitative tension as the base benchmark:
+
+- `Calibrated-Immediate-Surrogate`: `34.84 +/- 0.01 orders/s`, welfare gap `4.3321 +/- 0.1398`
+- `Calibrated-FBA-2s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.3927 +/- 0.1593`
+- `Calibrated-Policy-LearnedFittedQ-1-3s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.1301 +/- 0.1299`
+
+The realism gap is therefore narrower than in earlier versions of the benchmark, and the central latency-welfare tension does not disappear once the synthetic generator is retuned toward a market-data envelope.
+
+### 9.9 Pareto Frontier
 
 The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controller_pareto.*` uses `p99 latency` and `surplus-transfer gap` as the two minimized axes, with `fills/s` kept as a third interpretation axis.
 
@@ -351,7 +365,7 @@ The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controlle
 
 ![Controller Pareto frontier](figures/pareto.svg)
 
-### 9.9 Visual Summary
+### 9.10 Visual Summary
 
 ![Throughput comparison](figures/throughput.svg)
 

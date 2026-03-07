@@ -43,6 +43,9 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_strategic_agent_profile.*`: richer strategic-agent robustness profile
 - `docs/benchmarks/binance_spot_smoke_facts.*`: first end-to-end real-data smoke artifact
 - `docs/benchmarks/binance_spot_multimarket_facts.*`: first cross-symbol calibration envelope
+- `docs/benchmarks/simulator_calibration_target_table.*`: first market-to-simulator target bundle
+- `docs/benchmarks/simulator_calibrated_vs_market.*`: first-pass tuned-generator versus market comparison
+- `docs/benchmarks/simulator_calibrated_benchmark_profile.*`: latency-welfare benchmark rerun under the tuned generator
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
 - `CALIBRATION_PROTOCOL.md`: realism-upgrade protocol and target envelope
@@ -254,16 +257,24 @@ Published artifacts:
   - 60-minute BTC/ETH validation slice
 - `docs/benchmarks/binance_spot_multimarket_facts.*`
   - 6-hour 8-symbol cross-section used as the first calibration envelope
+- `docs/benchmarks/simulator_calibration_target_table.*`
+  - versioned market-to-simulator target bundle
+- `docs/benchmarks/simulator_calibrated_vs_market.*`
+  - first closed-loop baseline-versus-tuned comparison
+- `docs/benchmarks/simulator_calibrated_benchmark_profile.*`
+  - latency-welfare rerun under the tuned generator
 
 Current cross-symbol envelope from `binance_spot_multimarket_facts.json`:
 
 - symbols: `8`
 - total trades: `402755`
 - spread-mean range: `0.000010 -> 0.010000`
+- spread-mean range bps: `0.001485 -> 11.217050`
 - order-sign lag1 range: `0.2831 -> 0.8056`
 - inter-arrival mean range ms: `125.88 -> 7808.87`
 - volatility abs-return lag1 range: `0.0522 -> 0.3892`
 - top impact-bucket mean range: `-0.00075385 -> 0.97178892`
+- top impact-bucket mean range bps: `-0.846142 -> 0.648730`
 
 Execution entry points:
 
@@ -272,7 +283,21 @@ powershell -ExecutionPolicy Bypass -File scripts/run_calibration_pipeline.ps1 -C
 powershell -ExecutionPolicy Bypass -File scripts/run_calibration_pipeline.ps1 -ConfigPath configs/calibration/binance_spot_multimarket.json
 ```
 
-This does not yet claim a fully retuned synthetic generator. It does establish the realism-upgrade pipeline, publish the first empirical envelope, and preserve the next calibration steps in `ROADMAP_TODO.md`.
+First-pass closed-loop calibration result:
+
+- `spread_mean_bps` improved from `326.408449` in the baseline synthetic scenario to `12.828347` in the tuned scenario
+- `impact_q4_mean_bps` improved from `264.410790` to `8.472587`
+- the tuned generator now lands inside the empirical range on `7 / 13` tracked summary metrics
+- the remaining misses are concentrated in sign autocorrelation, inter-arrival timing, one return-clustering term, and the upper-impact bucket
+
+Calibrated benchmark rerun summary:
+
+- all calibrated scenarios remain `zero-breach`
+- `Calibrated-Immediate-Surrogate`: `34.84 +/- 0.01 orders/s`, welfare gap `4.3321 +/- 0.1398`
+- `Calibrated-FBA-2s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.3927 +/- 0.1593`
+- `Calibrated-Policy-LearnedFittedQ-1-3s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.1301 +/- 0.1299`
+
+This is still a first-pass calibration rather than a final realism claim, but it closes the main loop: real-data envelope, tuned synthetic comparison, and latency-welfare rerun under the tuned generator.
 
 For reference, selected raw hypercube cells remain in `docs/benchmarks/simulator_parameter_hypercube_profile.json`:
 

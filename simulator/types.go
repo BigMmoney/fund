@@ -67,6 +67,17 @@ type RiskConfig struct {
 	MaxOrdersPerStep int
 }
 
+type FundamentalConfig struct {
+	Base             int64
+	Floor            int64
+	Ceiling          int64
+	RegimeLength     int
+	DriftMagnitude   int64
+	ShockMin         int64
+	ShockMax         int64
+	ShockPersistence float64
+}
+
 type ScenarioConfig struct {
 	Name                    string
 	Mode                    MatchingMode
@@ -84,6 +95,7 @@ type ScenarioConfig struct {
 	StepDuration            time.Duration
 	TotalSteps              int
 	Seed                    int64
+	Fundamentals            FundamentalConfig
 	Agents                  []AgentConfig
 	Risk                    RiskConfig
 }

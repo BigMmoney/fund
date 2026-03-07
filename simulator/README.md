@@ -65,6 +65,9 @@ Key outputs:
 - `docs/benchmarks/simulator_strategic_agent_profile.*`
 - `docs/benchmarks/binance_spot_smoke_facts.*`
 - `docs/benchmarks/binance_spot_multimarket_facts.*`
+- `docs/benchmarks/simulator_calibration_target_table.*`
+- `docs/benchmarks/simulator_calibrated_vs_market.*`
+- `docs/benchmarks/simulator_calibrated_benchmark_profile.*`
 
 To generate artifacts:
 
@@ -105,6 +108,12 @@ go test ./simulator -run TestGenerateSimulatorDoubleDQNTrainingArtifacts -v
 $env:RUN_SIM_STRATEGIC_AGENTS="1"
 go test ./simulator -run TestGenerateSimulatorStrategicAgentArtifacts -v
 
+$env:RUN_SIM_CALIBRATION_COMPARE="1"
+go test ./simulator -run TestGenerateSimulatorCalibrationArtifacts -v
+
+$env:RUN_SIM_CALIBRATED_BENCH="1"
+go test ./simulator -run TestGenerateSimulatorCalibratedBenchmarkArtifacts -v
+
 python scripts/generate_neurips_figures.py
 ```
 
@@ -119,3 +128,10 @@ Calibration protocol and backlog live in:
 
 - `docs/neurips_track/CALIBRATION_PROTOCOL.md`
 - `docs/neurips_track/ROADMAP_TODO.md`
+
+Current first-pass calibration status:
+
+- the tuned synthetic generator reduces `spread_mean_bps` from `326.408449` to `12.828347`
+- it moves the top impact bucket from `264.410790 bps` to `8.472587 bps`
+- it falls inside the empirical market envelope on `7 / 13` tracked summary metrics
+- calibrated benchmark reruns keep all scenarios at `zero-breach`

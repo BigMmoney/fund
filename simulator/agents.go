@@ -31,32 +31,82 @@ func StrategicPopulation() []AgentConfig {
 		{
 			ID: "mm-strat-1", Class: AgentMarketMaker, LatencyTier: 2, BaseSize: 3, QuoteWidth: 2, Intensity: 2,
 			InventoryTarget: 5000, InventorySkew: 2, TrendSensitivity: 1, SignalScale: 2,
-			InitialCash: 500000, InitialUnits: 5000,
+			InitialCash: 100000000000, InitialUnits: 10000000,
 		},
 		{
 			ID: "mm-strat-2", Class: AgentMarketMaker, LatencyTier: 2, BaseSize: 3, QuoteWidth: 3, Intensity: 2,
 			InventoryTarget: 5000, InventorySkew: 3, TrendSensitivity: 1, SignalScale: 2,
-			InitialCash: 500000, InitialUnits: 5000,
+			InitialCash: 100000000000, InitialUnits: 10000000,
 		},
 		{
 			ID: "arb-strat-1", Class: AgentArbitrageur, LatencyTier: 1, BaseSize: 4, QuoteWidth: 1, Intensity: 1,
 			InventoryTarget: 5000, InventorySkew: 0, TrendSensitivity: 2, SignalScale: 3,
-			InitialCash: 500000, InitialUnits: 5000,
+			InitialCash: 100000000000, InitialUnits: 10000000,
 		},
 		{
 			ID: "ret-strat-1", Class: AgentRetail, LatencyTier: 3, BaseSize: 2, QuoteWidth: 4, Intensity: 2,
 			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 1, SignalScale: 2,
-			InitialCash: 500000, InitialUnits: 5000,
+			InitialCash: 100000000000, InitialUnits: 10000000,
 		},
 		{
 			ID: "ret-strat-2", Class: AgentRetail, LatencyTier: 3, BaseSize: 2, QuoteWidth: 5, Intensity: 2,
 			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 2, SignalScale: 2,
-			InitialCash: 500000, InitialUnits: 5000,
+			InitialCash: 100000000000, InitialUnits: 10000000,
 		},
 		{
 			ID: "inf-strat-1", Class: AgentInformed, LatencyTier: 2, BaseSize: 3, QuoteWidth: 1, Intensity: 1,
 			InventoryTarget: 5000, InventorySkew: 0, TrendSensitivity: 3, SignalScale: 3,
-			InitialCash: 500000, InitialUnits: 5000,
+			InitialCash: 100000000000, InitialUnits: 10000000,
+		},
+	}
+}
+
+func CalibratedPopulation() []AgentConfig {
+	return []AgentConfig{
+		{
+			ID: "mm-cal-1", Class: AgentMarketMaker, LatencyTier: 2, BaseSize: 8, QuoteWidth: 0, Intensity: 4,
+			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 0, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "mm-cal-2", Class: AgentMarketMaker, LatencyTier: 2, BaseSize: 8, QuoteWidth: 0, Intensity: 4,
+			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 0, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "mm-cal-3", Class: AgentMarketMaker, LatencyTier: 2, BaseSize: 6, QuoteWidth: 1, Intensity: 3,
+			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 0, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "mm-cal-4", Class: AgentMarketMaker, LatencyTier: 2, BaseSize: 5, QuoteWidth: 1, Intensity: 3,
+			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 0, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "arb-cal-1", Class: AgentArbitrageur, LatencyTier: 1, BaseSize: 2, QuoteWidth: 1, Intensity: 1,
+			InventoryTarget: 5000, InventorySkew: 0, TrendSensitivity: 0, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "ret-cal-1", Class: AgentRetail, LatencyTier: 3, BaseSize: 2, QuoteWidth: 1, Intensity: 2,
+			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 1, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "ret-cal-2", Class: AgentRetail, LatencyTier: 3, BaseSize: 2, QuoteWidth: 2, Intensity: 2,
+			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 1, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "ret-cal-3", Class: AgentRetail, LatencyTier: 3, BaseSize: 2, QuoteWidth: 2, Intensity: 1,
+			InventoryTarget: 5000, InventorySkew: 1, TrendSensitivity: 1, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
+		},
+		{
+			ID: "inf-cal-1", Class: AgentInformed, LatencyTier: 2, BaseSize: 2, QuoteWidth: 1, Intensity: 1,
+			InventoryTarget: 5000, InventorySkew: 0, TrendSensitivity: 1, SignalScale: 1,
+			InitialCash: 1000000000, InitialUnits: 1000000,
 		},
 	}
 }
@@ -184,7 +234,7 @@ func generateOrdersForAgent(cfg AgentConfig, step int, fundamentals []int64, rng
 			AgentID:     cfg.ID,
 			Class:       cfg.Class,
 			Side:        side,
-			Price:       clampInt64(price, 1, 100),
+			Price:       clampInt64(price, 1, 100000),
 			Amount:      amount,
 			ArrivalStep: step,
 			ArrivalSeq:  *seq,

@@ -39,6 +39,24 @@ type Environment struct {
 	runtimeRandomTieBreak  bool
 	runtimeReleaseCadence  int
 	runtimePriceAggression int64
+	traceAcceptedOrders    []acceptedOrderEvent
+	traceSnapshots         []bookSnapshot
+}
+
+type acceptedOrderEvent struct {
+	Step           int
+	EventTimeMs    float64
+	Side           Side
+	Amount         float64
+	ReferencePrice float64
+}
+
+type bookSnapshot struct {
+	Step     int
+	MidPrice float64
+	Spread   float64
+	BidQty   [5]float64
+	AskQty   [5]float64
 }
 
 type pendingOrder struct {
@@ -64,7 +82,7 @@ func (e *Environment) Reset() Observation {
 	}
 
 	e.rng = rand.New(rand.NewSource(e.cfg.Seed))
-	e.fundamentals = generateFundamentals(e.cfg.TotalSteps+1, e.cfg.Seed)
+	e.fundamentals = generateFundamentals(e.cfg.TotalSteps+1, e.cfg.Seed, e.cfg.Fundamentals)
 	e.agents = agents
 	e.accounts = accounts
 	e.initialCash = totalCash
@@ -92,6 +110,8 @@ func (e *Environment) Reset() Observation {
 	e.runtimeRandomTieBreak = e.cfg.RandomizeBatchTieBreak
 	e.runtimeReleaseCadence = 0
 	e.runtimePriceAggression = 0
+	e.traceAcceptedOrders = nil
+	e.traceSnapshots = nil
 	return e.Observe()
 }
 
@@ -167,6 +187,10 @@ func (e *Environment) Step() StepResult {
 		e.flushResidualWork()
 	}
 
+	if e.currentStep > 0 {
+		e.recordSnapshot(e.currentStep - 1)
+	}
+
 	e.done = e.currentStep >= e.cfg.TotalSteps && !e.hasResidualWork()
 	return StepResult{Observation: e.Observe(), Metrics: e.Metrics()}
 }
@@ -235,7 +259,7 @@ func (e *Environment) runStep(step int) {
 	acceptedThisStep := 0
 	generated := make([]Order, 0, len(e.cfg.Agents)*2)
 	for _, agent := range e.cfg.Agents {
-		orders := generateOrdersForAgent(agent, step, e.fundamentals, e.rng, &e.seq, e.accounts[agent.ID], e.runtimePriceAggression)
+		orders := generateOrdersForAgent(agent, step, e.fundamentals, e.rng, &e.seq, e.availableAccount(agent.ID), e.runtimePriceAggression)
 		for _, order := range orders {
 			e.ordersSubmitted++
 			e.metricAcc.addSubmitted(order.Class, order.Amount)
@@ -253,7 +277,8 @@ func (e *Environment) runStep(step int) {
 	e.lastStepAccepted = acceptedThisStep
 
 	sortOrdersForArrival(generated, e.agents)
-	for _, order := range generated {
+	for idx, order := range generated {
+		e.recordAcceptedOrder(order, step, idx, len(generated), fundamental)
 		switch e.cfg.Mode {
 		case ModeImmediate:
 			fills := processImmediateBook(&e.buys, &e.sells, order, step, fundamental)
@@ -278,6 +303,41 @@ func (e *Environment) runStep(step int) {
 	if spread := currentSpread(e.buys, e.sells); spread > 0 {
 		e.metricAcc.addSpread(spread)
 	}
+}
+
+func (e *Environment) availableAccount(agentID string) AccountState {
+	acct := e.accounts[agentID]
+	var reservedCash int64
+	var reservedUnits int64
+	for _, order := range e.buys {
+		if order.AgentID == agentID {
+			reservedCash += order.Price * order.Amount
+		}
+	}
+	for _, order := range e.sells {
+		if order.AgentID == agentID {
+			reservedUnits += order.Amount
+		}
+	}
+	for _, pending := range e.pending {
+		if pending.Order.AgentID != agentID {
+			continue
+		}
+		if pending.Order.Side == Buy {
+			reservedCash += pending.Order.Price * pending.Order.Amount
+		} else {
+			reservedUnits += pending.Order.Amount
+		}
+	}
+	acct.Cash -= reservedCash
+	acct.Units -= reservedUnits
+	if acct.Cash < 0 {
+		acct.Cash = 0
+	}
+	if acct.Units < 0 {
+		acct.Units = 0
+	}
+	return acct
 }
 
 func (e *Environment) flushBatch(step int) {
@@ -538,17 +598,79 @@ func (e *Environment) effectiveRiskLimits() (int64, int) {
 	return maxOrderAmount, maxOrdersPerStep
 }
 
-func generateFundamentals(steps int, seed int64) []int64 {
+func generateFundamentals(steps int, seed int64, cfg FundamentalConfig) []int64 {
 	rng := rand.New(rand.NewSource(seed))
 	values := make([]int64, steps)
-	values[0] = 50
-	for i := 1; i < steps; i++ {
-		drift := int64(1)
-		if (i/20)%2 == 1 {
-			drift = -1
+	if cfg.Base == 0 && cfg.Floor == 0 && cfg.Ceiling == 0 && cfg.RegimeLength == 0 && cfg.DriftMagnitude == 0 && cfg.ShockMin == 0 && cfg.ShockMax == 0 && cfg.ShockPersistence == 0 {
+		cfg = FundamentalConfig{
+			Base:           50,
+			Floor:          20,
+			Ceiling:        80,
+			RegimeLength:   20,
+			DriftMagnitude: 1,
+			ShockMin:       -1,
+			ShockMax:       1,
 		}
-		shock := int64(rng.Intn(3) - 1)
-		values[i] = clampInt64(values[i-1]+drift+shock, 20, 80)
+	}
+	base := cfg.Base
+	if base == 0 {
+		base = 50
+	}
+	floor := cfg.Floor
+	if floor == 0 {
+		floor = 20
+	}
+	ceiling := cfg.Ceiling
+	if ceiling == 0 {
+		ceiling = 80
+	}
+	regimeLength := cfg.RegimeLength
+	if regimeLength <= 0 {
+		regimeLength = 20
+	}
+	driftMagnitude := cfg.DriftMagnitude
+	if driftMagnitude <= 0 {
+		driftMagnitude = 1
+	}
+	shockMin := cfg.ShockMin
+	shockMax := cfg.ShockMax
+	if shockMin == 0 && shockMax == 0 {
+		shockMin = -1
+		shockMax = 1
+	}
+	if shockMin > shockMax {
+		shockMin, shockMax = shockMax, shockMin
+	}
+	persistence := cfg.ShockPersistence
+	if persistence < 0 {
+		persistence = 0
+	}
+	if persistence > 0.95 {
+		persistence = 0.95
+	}
+	values[0] = base
+	prevShock := int64(0)
+	for i := 1; i < steps; i++ {
+		drift := driftMagnitude
+		if (i/regimeLength)%2 == 1 {
+			drift = -driftMagnitude
+		}
+		span := shockMax - shockMin + 1
+		shock := int64(0)
+		if span > 0 {
+			shock = shockMin + int64(rng.Intn(int(span)))
+		}
+		if i > 1 && persistence > 0 && rng.Float64() < persistence {
+			shock = prevShock + signInt64(prevShock)*int64(rng.Intn(2))
+			if shock < shockMin {
+				shock = shockMin
+			}
+			if shock > shockMax {
+				shock = shockMax
+			}
+		}
+		prevShock = shock
+		values[i] = clampInt64(values[i-1]+drift+shock, floor, ceiling)
 	}
 	return values
 }
@@ -573,6 +695,85 @@ func currentSpread(buys, sells []Order) int64 {
 		return 1
 	}
 	return bestAsk - bestBid
+}
+
+func currentMidPrice(buys, sells []Order, fundamental int64) float64 {
+	if len(buys) == 0 || len(sells) == 0 {
+		return float64(fundamental)
+	}
+	bestBid := buys[0].Price
+	for _, buy := range buys {
+		if buy.Price > bestBid {
+			bestBid = buy.Price
+		}
+	}
+	bestAsk := sells[0].Price
+	for _, sell := range sells {
+		if sell.Price < bestAsk {
+			bestAsk = sell.Price
+		}
+	}
+	return float64(bestBid+bestAsk) / 2.0
+}
+
+func topLevelQty(orders []Order, levels int) [5]float64 {
+	var out [5]float64
+	if levels <= 0 || len(orders) == 0 {
+		return out
+	}
+	copyOrders := append([]Order(nil), orders...)
+	if len(copyOrders) > 1 {
+		if copyOrders[0].Side == Buy {
+			sortBuyBook(&copyOrders)
+		} else {
+			sortSellBook(&copyOrders)
+		}
+	}
+	levelIdx := -1
+	var lastPrice int64
+	for idx, order := range copyOrders {
+		if idx == 0 || order.Price != lastPrice {
+			levelIdx++
+			if levelIdx >= levels || levelIdx >= len(out) {
+				break
+			}
+			lastPrice = order.Price
+		}
+		out[levelIdx] += float64(order.Amount)
+	}
+	return out
+}
+
+func (e *Environment) recordAcceptedOrder(order Order, step, index, count int, fundamental int64) {
+	if count <= 0 {
+		count = 1
+	}
+	stepMs := float64(e.cfg.StepDuration.Milliseconds())
+	if stepMs <= 0 {
+		stepMs = 1
+	}
+	slotMs := stepMs / float64(count+1)
+	e.traceAcceptedOrders = append(e.traceAcceptedOrders, acceptedOrderEvent{
+		Step:           step,
+		EventTimeMs:    float64(step)*stepMs + slotMs*float64(index+1),
+		Side:           order.Side,
+		Amount:         float64(order.Amount),
+		ReferencePrice: currentMidPrice(e.buys, e.sells, fundamental),
+	})
+}
+
+func (e *Environment) recordSnapshot(step int) {
+	if step < 0 || len(e.fundamentals) == 0 {
+		return
+	}
+	fundamental := e.fundamentals[minInt(step, len(e.fundamentals)-1)]
+	e.traceSnapshots = append(e.traceSnapshots, bookSnapshot{
+		Step:     step,
+		MidPrice: currentMidPrice(e.buys, e.sells, fundamental),
+		Spread:   float64(currentSpread(e.buys, e.sells)),
+		BidQty:   topLevelQty(e.buys, 5),
+		AskQty:   topLevelQty(e.sells, 5),
+	})
 }
 
 func minInt(a, b int) int {

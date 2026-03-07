@@ -6,97 +6,97 @@ Each fit uses a standardized response surface with main effects and pairwise int
 
 ## surplus_transfer_gap
 
-- `R^2`: 0.3495
-- `RMSE`: 0.5397
+- `R^2`: 0.4028
+- `RMSE`: 0.5179
 
 | Coefficient | Value |
 |---|---:|
-| intercept | 1.2858 |
-| arb | 0.3736 |
-| retail | 0.0319 |
-| informed | 0.0358 |
-| maker | 0.1083 |
-| arb_x_retail | 0.0237 |
-| arb_x_informed | -0.0320 |
-| arb_x_maker | 0.0140 |
-| retail_x_informed | 0.0030 |
-| retail_x_maker | 0.0311 |
-| informed_x_maker | 0.0116 |
+| intercept | 1.2773 |
+| arb | 0.3942 |
+| retail | 0.0862 |
+| informed | -0.0076 |
+| maker | 0.0993 |
+| arb_x_retail | 0.0543 |
+| arb_x_informed | -0.0583 |
+| arb_x_maker | 0.0087 |
+| retail_x_informed | 0.0300 |
+| retail_x_maker | 0.0036 |
+| informed_x_maker | -0.0294 |
 
 | Effect Group | Partial R^2 |
 |---|---:|
-| arbitrageur_intensity | 0.3157 |
-| maker_quote_width | 0.0291 |
-| retail_intensity | 0.0057 |
-| informed_intensity | 0.0055 |
-| arb_x_informed | 0.0023 |
-| retail_x_maker | 0.0022 |
-| arb_x_retail | 0.0013 |
-| arb_x_maker | 0.0004 |
-| informed_x_maker | 0.0003 |
-| retail_x_informed | 0.0000 |
+| arbitrageur_intensity | 0.3602 |
+| retail_intensity | 0.0251 |
+| maker_quote_width | 0.0241 |
+| informed_intensity | 0.0116 |
+| arb_x_informed | 0.0076 |
+| arb_x_retail | 0.0066 |
+| retail_x_informed | 0.0020 |
+| informed_x_maker | 0.0019 |
+| arb_x_maker | 0.0002 |
+| retail_x_maker | 0.0000 |
 
 ## p99_latency_ms
 
-- `R^2`: 0.1020
-- `RMSE`: 38.1974
+- `R^2`: 0.0882
+- `RMSE`: 46.1190
 
 | Coefficient | Value |
 |---|---:|
-| intercept | 390.4630 |
-| arb | 1.4493 |
-| retail | -1.5593 |
-| informed | -5.3866 |
-| maker | 2.4098 |
-| arb_x_retail | 3.2838 |
-| arb_x_informed | -9.9148 |
-| arb_x_maker | 3.7910 |
-| retail_x_informed | 0.1042 |
-| retail_x_maker | 0.3819 |
-| informed_x_maker | 1.6667 |
+| intercept | 389.3518 |
+| arb | -3.6440 |
+| retail | 2.0412 |
+| informed | -4.3943 |
+| maker | 4.3376 |
+| arb_x_retail | 3.2711 |
+| arb_x_informed | -5.8956 |
+| arb_x_maker | 0.8495 |
+| retail_x_informed | -7.1528 |
+| retail_x_maker | -2.6389 |
+| informed_x_maker | -6.7708 |
 
 | Effect Group | Partial R^2 |
 |---|---:|
-| informed_intensity | 0.0801 |
-| arbitrageur_intensity | 0.0773 |
-| arb_x_informed | 0.0605 |
-| maker_quote_width | 0.0142 |
-| arb_x_maker | 0.0088 |
-| retail_intensity | 0.0082 |
-| arb_x_retail | 0.0066 |
-| informed_x_maker | 0.0017 |
-| retail_x_maker | 0.0001 |
-| retail_x_informed | 0.0000 |
+| informed_intensity | 0.0648 |
+| retail_intensity | 0.0313 |
+| maker_quote_width | 0.0310 |
+| arbitrageur_intensity | 0.0255 |
+| retail_x_informed | 0.0219 |
+| informed_x_maker | 0.0197 |
+| arb_x_informed | 0.0149 |
+| arb_x_retail | 0.0046 |
+| retail_x_maker | 0.0030 |
+| arb_x_maker | 0.0003 |
 
 ## retail_surplus_per_unit
 
-- `R^2`: 0.7061
-- `RMSE`: 0.0810
+- `R^2`: 0.7219
+- `RMSE`: 0.0730
 
 | Coefficient | Value |
 |---|---:|
-| intercept | -0.3310 |
-| arb | -0.0702 |
-| retail | 0.0315 |
-| informed | -0.0811 |
-| maker | -0.0510 |
-| arb_x_retail | 0.0147 |
-| arb_x_informed | 0.0121 |
-| arb_x_maker | 0.0025 |
-| retail_x_informed | 0.0156 |
-| retail_x_maker | -0.0068 |
-| informed_x_maker | 0.0034 |
+| intercept | -0.3201 |
+| arb | -0.0763 |
+| retail | 0.0056 |
+| informed | -0.0681 |
+| maker | -0.0483 |
+| arb_x_retail | 0.0109 |
+| arb_x_informed | 0.0247 |
+| arb_x_maker | -0.0096 |
+| retail_x_informed | 0.0051 |
+| retail_x_maker | 0.0107 |
+| informed_x_maker | 0.0071 |
 
 | Effect Group | Partial R^2 |
 |---|---:|
-| informed_intensity | 0.3121 |
-| arbitrageur_intensity | 0.2374 |
-| maker_quote_width | 0.1195 |
-| retail_intensity | 0.0672 |
-| retail_x_informed | 0.0108 |
-| arb_x_retail | 0.0097 |
-| arb_x_informed | 0.0066 |
-| retail_x_maker | 0.0021 |
-| informed_x_maker | 0.0005 |
-| arb_x_maker | 0.0003 |
+| arbitrageur_intensity | 0.3466 |
+| informed_intensity | 0.2776 |
+| maker_quote_width | 0.1352 |
+| arb_x_informed | 0.0317 |
+| retail_intensity | 0.0152 |
+| arb_x_retail | 0.0062 |
+| retail_x_maker | 0.0060 |
+| arb_x_maker | 0.0048 |
+| informed_x_maker | 0.0026 |
+| retail_x_informed | 0.0013 |
 

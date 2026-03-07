@@ -43,6 +43,7 @@ def summarize_symbol(symbol_dir: Path) -> dict:
     depth = load_json(symbol_dir / "depth_snapshots.json")
 
     spreads: list[float] = []
+    spread_bps: list[float] = []
     depth_profile: list[dict[str, float]] = []
     for snapshot in depth:
         payload = snapshot["payload"]
@@ -51,7 +52,11 @@ def summarize_symbol(symbol_dir: Path) -> dict:
         if bids and asks:
             best_bid = float(bids[0][0])
             best_ask = float(asks[0][0])
-            spreads.append(best_ask - best_bid)
+            spread = best_ask - best_bid
+            spreads.append(spread)
+            mid = (best_bid + best_ask) / 2.0
+            if mid > 0:
+                spread_bps.append((spread / mid) * 10000.0)
             levels = min(5, len(bids), len(asks))
             for level in range(levels):
                 if len(depth_profile) <= level:
@@ -93,20 +98,25 @@ def summarize_symbol(symbol_dir: Path) -> dict:
         for idx, (qty, price, sign) in enumerate(impacts_source[:-horizon]):
             future_price = impacts_source[idx + horizon][1]
             signed_impact = sign * (future_price - price)
+            signed_impact_bps = (signed_impact / price) * 10000.0 if price > 0 else 0.0
             if qty <= q25:
-                buckets["q1"].append(signed_impact)
+                buckets["q1"].append((signed_impact, signed_impact_bps))
             elif qty <= q50:
-                buckets["q2"].append(signed_impact)
+                buckets["q2"].append((signed_impact, signed_impact_bps))
             elif qty <= q75:
-                buckets["q3"].append(signed_impact)
+                buckets["q3"].append((signed_impact, signed_impact_bps))
             else:
-                buckets["q4"].append(signed_impact)
+                buckets["q4"].append((signed_impact, signed_impact_bps))
         for bucket, values in buckets.items():
+            raw_values = [value[0] for value in values]
+            bps_values = [value[1] for value in values]
             impact_curve.append(
                 {
                     "bucket": bucket,
-                    "mean_signed_impact": mean(values) if values else 0.0,
-                    "p90_signed_impact": percentile(values, 0.90) if values else 0.0,
+                    "mean_signed_impact": mean(raw_values) if raw_values else 0.0,
+                    "p90_signed_impact": percentile(raw_values, 0.90) if raw_values else 0.0,
+                    "mean_signed_impact_bps": mean(bps_values) if bps_values else 0.0,
+                    "p90_signed_impact_bps": percentile(bps_values, 0.90) if bps_values else 0.0,
                 }
             )
 
@@ -121,13 +131,22 @@ def summarize_symbol(symbol_dir: Path) -> dict:
     sq_returns = [v * v for v in returns]
 
     depth_summary = []
+    first_bid_qty = 0.0
+    first_ask_qty = 0.0
     for idx, level in enumerate(depth_profile, start=1):
         count = max(level["count"], 1.0)
+        mean_bid_qty = level["bid_qty"] / count
+        mean_ask_qty = level["ask_qty"] / count
+        if idx == 1:
+            first_bid_qty = max(mean_bid_qty, 1e-12)
+            first_ask_qty = max(mean_ask_qty, 1e-12)
         depth_summary.append(
             {
                 "level": idx,
-                "mean_bid_qty": level["bid_qty"] / count,
-                "mean_ask_qty": level["ask_qty"] / count,
+                "mean_bid_qty": mean_bid_qty,
+                "mean_ask_qty": mean_ask_qty,
+                "bid_shape_ratio": mean_bid_qty / first_bid_qty if first_bid_qty > 0 else 0.0,
+                "ask_shape_ratio": mean_ask_qty / first_ask_qty if first_ask_qty > 0 else 0.0,
             }
         )
 
@@ -140,6 +159,11 @@ def summarize_symbol(symbol_dir: Path) -> dict:
             "mean": mean(spreads) if spreads else 0.0,
             "median": median(spreads) if spreads else 0.0,
             "p90": percentile(spreads, 0.90) if spreads else 0.0,
+        },
+        "spread_distribution_bps": {
+            "mean": mean(spread_bps) if spread_bps else 0.0,
+            "median": median(spread_bps) if spread_bps else 0.0,
+            "p90": percentile(spread_bps, 0.90) if spread_bps else 0.0,
         },
         "depth_profile": depth_summary,
         "order_sign_autocorrelation": {
@@ -166,12 +190,15 @@ def profile_summary(symbols: list[dict]) -> dict:
             "symbol_count": 0,
             "trade_count_total": 0,
             "spread_mean_range": [0.0, 0.0],
+            "spread_mean_bps_range": [0.0, 0.0],
             "order_sign_lag1_range": [0.0, 0.0],
             "inter_arrival_mean_ms_range": [0.0, 0.0],
             "volatility_abs_lag1_range": [0.0, 0.0],
             "top_bucket_mean_impact_range": [0.0, 0.0],
+            "top_bucket_mean_impact_bps_range": [0.0, 0.0],
         }
     spread_means = [item["spread_distribution"]["mean"] for item in symbols]
+    spread_means_bps = [item["spread_distribution_bps"]["mean"] for item in symbols]
     sign_lag1 = [item["order_sign_autocorrelation"]["lag_1"] for item in symbols]
     inter_arrival_means = [item["inter_arrival_ms"]["mean"] for item in symbols]
     vol_abs_lag1 = [item["volatility_clustering"]["abs_return_lag_1"] for item in symbols]
@@ -181,16 +208,27 @@ def profile_summary(symbols: list[dict]) -> dict:
         for bucket in item["impact_curve"]
         if bucket["bucket"] == "q4"
     ]
+    top_bucket_impacts_bps = [
+        bucket["mean_signed_impact_bps"]
+        for item in symbols
+        for bucket in item["impact_curve"]
+        if bucket["bucket"] == "q4"
+    ]
     return {
         "symbol_count": len(symbols),
         "trade_count_total": sum(item["trade_count"] for item in symbols),
         "spread_mean_range": [min(spread_means), max(spread_means)],
+        "spread_mean_bps_range": [min(spread_means_bps), max(spread_means_bps)],
         "order_sign_lag1_range": [min(sign_lag1), max(sign_lag1)],
         "inter_arrival_mean_ms_range": [min(inter_arrival_means), max(inter_arrival_means)],
         "volatility_abs_lag1_range": [min(vol_abs_lag1), max(vol_abs_lag1)],
         "top_bucket_mean_impact_range": [
             min(top_bucket_impacts) if top_bucket_impacts else 0.0,
             max(top_bucket_impacts) if top_bucket_impacts else 0.0,
+        ],
+        "top_bucket_mean_impact_bps_range": [
+            min(top_bucket_impacts_bps) if top_bucket_impacts_bps else 0.0,
+            max(top_bucket_impacts_bps) if top_bucket_impacts_bps else 0.0,
         ],
     }
 
@@ -217,10 +255,12 @@ def write_outputs(profile_name: str, symbols: list[dict]) -> None:
         f"- symbols: `{summary['symbol_count']}`",
         f"- total trades: `{summary['trade_count_total']}`",
         f"- spread-mean range: `{summary['spread_mean_range'][0]:.6f}` -> `{summary['spread_mean_range'][1]:.6f}`",
+        f"- spread-mean bps range: `{summary['spread_mean_bps_range'][0]:.4f}` -> `{summary['spread_mean_bps_range'][1]:.4f}`",
         f"- order-sign lag1 range: `{summary['order_sign_lag1_range'][0]:.4f}` -> `{summary['order_sign_lag1_range'][1]:.4f}`",
         f"- inter-arrival mean range ms: `{summary['inter_arrival_mean_ms_range'][0]:.2f}` -> `{summary['inter_arrival_mean_ms_range'][1]:.2f}`",
         f"- volatility abs-return lag1 range: `{summary['volatility_abs_lag1_range'][0]:.4f}` -> `{summary['volatility_abs_lag1_range'][1]:.4f}`",
         f"- top impact bucket mean range: `{summary['top_bucket_mean_impact_range'][0]:.8f}` -> `{summary['top_bucket_mean_impact_range'][1]:.8f}`",
+        f"- top impact bucket mean bps range: `{summary['top_bucket_mean_impact_bps_range'][0]:.4f}` -> `{summary['top_bucket_mean_impact_bps_range'][1]:.4f}`",
         "",
     ]
     for item in symbols:
@@ -232,24 +272,25 @@ def write_outputs(profile_name: str, symbols: list[dict]) -> None:
                 f"- klines: `{item['kline_count']}`",
                 f"- depth snapshots: `{item['depth_snapshot_count']}`",
                 f"- spread mean/median/p90: `{item['spread_distribution']['mean']:.6f}` / `{item['spread_distribution']['median']:.6f}` / `{item['spread_distribution']['p90']:.6f}`",
+                f"- spread bps mean/median/p90: `{item['spread_distribution_bps']['mean']:.4f}` / `{item['spread_distribution_bps']['median']:.4f}` / `{item['spread_distribution_bps']['p90']:.4f}`",
                 f"- order-sign autocorr lag1/lag5/lag10: `{item['order_sign_autocorrelation']['lag_1']:.4f}` / `{item['order_sign_autocorrelation']['lag_5']:.4f}` / `{item['order_sign_autocorrelation']['lag_10']:.4f}`",
                 f"- inter-arrival mean/median/p90 ms: `{item['inter_arrival_ms']['mean']:.2f}` / `{item['inter_arrival_ms']['median']:.2f}` / `{item['inter_arrival_ms']['p90']:.2f}`",
                 f"- volatility clustering abs/sq lag1: `{item['volatility_clustering']['abs_return_lag_1']:.4f}` / `{item['volatility_clustering']['sq_return_lag_1']:.4f}`",
                 "",
-                "| Depth Level | Mean Bid Qty | Mean Ask Qty |",
-                "|---:|---:|---:|",
+                "| Depth Level | Mean Bid Qty | Mean Ask Qty | Bid Shape | Ask Shape |",
+                "|---:|---:|---:|---:|---:|",
             ]
         )
         for level in item["depth_profile"]:
             lines.append(
-                f"| {level['level']} | {level['mean_bid_qty']:.6f} | {level['mean_ask_qty']:.6f} |"
+                f"| {level['level']} | {level['mean_bid_qty']:.6f} | {level['mean_ask_qty']:.6f} | {level['bid_shape_ratio']:.4f} | {level['ask_shape_ratio']:.4f} |"
             )
         lines.append("")
-        lines.append("| Impact Bucket | Mean Signed Impact | p90 Signed Impact |")
-        lines.append("|---|---:|---:|")
+        lines.append("| Impact Bucket | Mean Signed Impact | p90 Signed Impact | Mean Signed Impact (bps) | p90 Signed Impact (bps) |")
+        lines.append("|---|---:|---:|---:|---:|")
         for bucket in item["impact_curve"]:
             lines.append(
-                f"| {bucket['bucket']} | {bucket['mean_signed_impact']:.8f} | {bucket['p90_signed_impact']:.8f} |"
+                f"| {bucket['bucket']} | {bucket['mean_signed_impact']:.8f} | {bucket['p90_signed_impact']:.8f} | {bucket['mean_signed_impact_bps']:.4f} | {bucket['p90_signed_impact_bps']:.4f} |"
             )
         lines.append("")
     out_md.write_text("\n".join(lines) + "\n", encoding="utf-8")

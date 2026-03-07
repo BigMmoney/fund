@@ -44,6 +44,16 @@ Computed facts:
 - `docs/benchmarks/binance_spot_<profile>_facts.json`
 - `docs/benchmarks/binance_spot_<profile>_facts.md`
 
+Calibration loop outputs:
+
+- `docs/benchmarks/simulator_calibration_target_table.json`
+- `docs/benchmarks/simulator_calibration_target_table.md`
+- `docs/benchmarks/simulator_calibrated_vs_market.json`
+- `docs/benchmarks/simulator_calibrated_vs_market.md`
+- `docs/benchmarks/simulator_calibrated_benchmark_profile.json`
+- `docs/benchmarks/simulator_calibrated_benchmark_profile.md`
+- `docs/benchmarks/simulator_calibrated_benchmark_profile.csv`
+
 Current published profiles:
 
 - `smoke`: 60-minute BTC/ETH slice for end-to-end pipeline validation
@@ -60,6 +70,42 @@ From `docs/benchmarks/binance_spot_multimarket_facts.*`, the first cross-symbol 
 - top impact-bucket mean range: `-0.00075385 -> 0.97178892`
 
 These are not final simulator targets. They are the first empirical envelope the synthetic generator must be compared against.
+
+## First Closed-Loop Calibration Pass
+
+The first published comparison loop now uses:
+
+- baseline scenario: `Calibration-Baseline`
+- tuned scenario: `Calibration-Calibrated`
+- comparison seeds: `[601, 607, 613, 617]`
+- calibrated benchmark seeds: `[701, 709, 719, 727]`
+
+Current first-pass outcome from `docs/benchmarks/simulator_calibrated_vs_market.*`:
+
+- `spread_mean_bps` moved from `326.408449` to `12.828347`, which is near the empirical upper envelope `11.217050`
+- `impact_q4_mean_bps` moved from `264.410790` to `8.472587`
+- the calibrated generator is inside the market envelope on `7 / 13` tracked summary metrics
+- the remaining misses are concentrated in:
+  - `order_sign_lag1`
+  - `inter_arrival_mean_ms`
+  - `volatility_abs_lag1`
+  - `impact_q4_mean_bps`
+  - `ask_shape_L2`
+
+The calibration pass is therefore not "finished", but it is already strong enough to replace an arbitrary synthetic generator with a versioned target-table loop.
+
+## Calibrated Benchmark Re-run
+
+The core benchmark was also re-run against the tuned generator in `docs/benchmarks/simulator_calibrated_benchmark_profile.*`.
+
+Key current observations:
+
+- all calibrated scenarios remain `zero-breach`
+- `Calibrated-Immediate-Surrogate` reaches `34.84 +/- 0.01 orders/s` with welfare gap `4.3321 +/- 0.1398`
+- `Calibrated-FBA-2s` gives up tail latency (`2000 ms`) but reduces welfare gap to `3.3927 +/- 0.1593`
+- `Calibrated-Policy-LearnedFittedQ-1-3s` reaches the best calibrated tail among the learned policies (`1000 ms`) with welfare gap `3.1301 +/- 0.1299`
+
+This is the first explicit evidence in the repo that the latency-welfare tension persists after generator retuning toward a real-data envelope.
 
 ## Calibration Loop
 

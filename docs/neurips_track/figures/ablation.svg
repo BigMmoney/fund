@@ -22,44 +22,44 @@
 <line class="err" x1="146.8" y1="221.8" x2="160.8" y2="221.8"/>
 <line class="err" x1="146.8" y1="221.8" x2="160.8" y2="221.8"/>
 <text class="value" x="153.8" y="211.8" text-anchor="middle">1190.48</text>
-<rect x="196.2" y="436.9" width="56.7" height="13.1" fill="#f472b6" rx="8"/>
-<line class="err" x1="224.6" y1="436.9" x2="224.6" y2="436.9"/>
-<line class="err" x1="217.6" y1="436.9" x2="231.6" y2="436.9"/>
-<line class="err" x1="217.6" y1="436.9" x2="231.6" y2="436.9"/>
-<text class="value" x="224.6" y="426.9" text-anchor="middle">68.53</text>
+<rect x="196.2" y="436.0" width="56.7" height="14.0" fill="#f472b6" rx="8"/>
+<line class="err" x1="224.6" y1="436.0" x2="224.6" y2="436.0"/>
+<line class="err" x1="217.6" y1="436.0" x2="231.6" y2="436.0"/>
+<line class="err" x1="217.6" y1="436.0" x2="231.6" y2="436.0"/>
+<text class="value" x="224.6" y="426.0" text-anchor="middle">73.03</text>
 <text class="label" x="196.2" y="478" text-anchor="middle">Control</text>
 <rect x="337.9" y="110.7" width="56.7" height="339.3" fill="#2dd4bf" rx="8"/>
 <line class="err" x1="366.2" y1="110.7" x2="366.2" y2="110.7"/>
 <line class="err" x1="359.2" y1="110.7" x2="373.2" y2="110.7"/>
 <line class="err" x1="359.2" y1="110.7" x2="373.2" y2="110.7"/>
 <text class="value" x="366.2" y="100.7" text-anchor="middle">1770.24</text>
-<rect x="408.8" y="407.9" width="56.7" height="42.1" fill="#f472b6" rx="8"/>
-<line class="err" x1="437.1" y1="407.9" x2="437.1" y2="407.9"/>
-<line class="err" x1="430.1" y1="407.9" x2="444.1" y2="407.9"/>
-<line class="err" x1="430.1" y1="407.9" x2="444.1" y2="407.9"/>
-<text class="value" x="437.1" y="397.9" text-anchor="middle">219.85</text>
+<rect x="408.8" y="407.0" width="56.7" height="43.0" fill="#f472b6" rx="8"/>
+<line class="err" x1="437.1" y1="407.0" x2="437.1" y2="407.0"/>
+<line class="err" x1="430.1" y1="407.0" x2="444.1" y2="407.0"/>
+<line class="err" x1="430.1" y1="407.0" x2="444.1" y2="407.0"/>
+<text class="value" x="437.1" y="397.0" text-anchor="middle">224.47</text>
 <text class="label" x="408.8" y="478" text-anchor="middle">RelaxedRisk</text>
 <rect x="550.4" y="221.8" width="56.7" height="228.2" fill="#2dd4bf" rx="8"/>
 <line class="err" x1="578.8" y1="221.8" x2="578.8" y2="221.8"/>
 <line class="err" x1="571.8" y1="221.8" x2="585.8" y2="221.8"/>
 <line class="err" x1="571.8" y1="221.8" x2="585.8" y2="221.8"/>
 <text class="value" x="578.8" y="211.8" text-anchor="middle">1190.48</text>
-<rect x="621.2" y="435.8" width="56.7" height="14.2" fill="#f472b6" rx="8"/>
-<line class="err" x1="649.6" y1="435.8" x2="649.6" y2="435.8"/>
-<line class="err" x1="642.6" y1="435.8" x2="656.6" y2="435.8"/>
-<line class="err" x1="642.6" y1="435.8" x2="656.6" y2="435.8"/>
-<text class="value" x="649.6" y="425.8" text-anchor="middle">73.85</text>
+<rect x="621.2" y="436.0" width="56.7" height="14.0" fill="#f472b6" rx="8"/>
+<line class="err" x1="649.6" y1="436.0" x2="649.6" y2="436.0"/>
+<line class="err" x1="642.6" y1="436.0" x2="656.6" y2="436.0"/>
+<line class="err" x1="642.6" y1="436.0" x2="656.6" y2="436.0"/>
+<text class="value" x="649.6" y="426.0" text-anchor="middle">73.00</text>
 <text class="label" x="621.2" y="478" text-anchor="middle">RandomTieBreak</text>
 <rect x="762.9" y="221.8" width="56.7" height="228.2" fill="#2dd4bf" rx="8"/>
 <line class="err" x1="791.2" y1="221.8" x2="791.2" y2="221.8"/>
 <line class="err" x1="784.2" y1="221.8" x2="798.2" y2="221.8"/>
 <line class="err" x1="784.2" y1="221.8" x2="798.2" y2="221.8"/>
 <text class="value" x="791.2" y="211.8" text-anchor="middle">1190.48</text>
-<rect x="833.8" y="436.9" width="56.7" height="13.1" fill="#f472b6" rx="8"/>
-<line class="err" x1="862.1" y1="436.9" x2="862.1" y2="436.9"/>
-<line class="err" x1="855.1" y1="436.9" x2="869.1" y2="436.9"/>
-<line class="err" x1="855.1" y1="436.9" x2="869.1" y2="436.9"/>
-<text class="value" x="862.1" y="426.9" text-anchor="middle">68.53</text>
+<rect x="833.8" y="436.0" width="56.7" height="14.0" fill="#f472b6" rx="8"/>
+<line class="err" x1="862.1" y1="436.0" x2="862.1" y2="436.0"/>
+<line class="err" x1="855.1" y1="436.0" x2="869.1" y2="436.0"/>
+<line class="err" x1="855.1" y1="436.0" x2="869.1" y2="436.0"/>
+<text class="value" x="862.1" y="426.0" text-anchor="middle">73.03</text>
 <text class="label" x="833.8" y="478" text-anchor="middle">NoSettlementChecks</text>
 <rect x="730" y="22" width="14" height="14" fill="#2dd4bf" rx="3"/>
 <text class="legend" x="752" y="34">Orders/s</text>

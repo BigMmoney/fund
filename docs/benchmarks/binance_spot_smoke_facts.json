@@ -7,6 +7,10 @@
       0.00999999999476131,
       0.009999999999990905
     ],
+    "spread_mean_bps_range": [
+      0.001485203705278548,
+      0.05087828641926712
+    ],
     "order_sign_lag1_range": [
       0.740866447218576,
       0.8166896249776159
@@ -22,6 +26,10 @@
     "top_bucket_mean_impact_range": [
       0.0375214972180051,
       1.1168716228806153
+    ],
+    "top_bucket_mean_impact_bps_range": [
+      0.16570842141025433,
+      0.19073450375451337
     ]
   },
   "symbols": [
@@ -35,31 +43,46 @@
         "median": 0.00999999999476131,
         "p90": 0.00999999999476131
       },
+      "spread_distribution_bps": {
+        "mean": 0.001485203705278548,
+        "median": 0.0014851747252016569,
+        "p90": 0.001485355618236767
+      },
       "depth_profile": [
         {
           "level": 1,
           "mean_bid_qty": 0.5873050000000001,
-          "mean_ask_qty": 1.6210833333333332
+          "mean_ask_qty": 1.6210833333333332,
+          "bid_shape_ratio": 1.0,
+          "ask_shape_ratio": 1.0
         },
         {
           "level": 2,
           "mean_bid_qty": 0.0007149999999999999,
-          "mean_ask_qty": 0.00016
+          "mean_ask_qty": 0.00016,
+          "bid_shape_ratio": 0.0012174253582039993,
+          "ask_shape_ratio": 9.869942939392383e-05
         },
         {
           "level": 3,
           "mean_bid_qty": 0.00014500000000000003,
-          "mean_ask_qty": 0.009120000000000001
+          "mean_ask_qty": 0.009120000000000001,
+          "bid_shape_ratio": 0.0002468904572581538,
+          "ask_shape_ratio": 0.005625867475453659
         },
         {
           "level": 4,
           "mean_bid_qty": 0.006128333333333333,
-          "mean_ask_qty": 0.020153333333333332
+          "mean_ask_qty": 0.020153333333333332,
+          "bid_shape_ratio": 0.010434669095841738,
+          "ask_shape_ratio": 0.012432015627409655
         },
         {
           "level": 5,
           "mean_bid_qty": 0.00019833333333333335,
-          "mean_ask_qty": 0.035785000000000004
+          "mean_ask_qty": 0.035785000000000004,
+          "bid_shape_ratio": 0.00033770074038758964,
+          "ask_shape_ratio": 0.02207474425538478
         }
       ],
       "order_sign_autocorrelation": {
@@ -80,22 +103,30 @@
         {
           "bucket": "q1",
           "mean_signed_impact": 1.6624388209121077,
-          "p90_signed_impact": 3.4100000000034925
+          "p90_signed_impact": 3.4100000000034925,
+          "mean_signed_impact_bps": 0.24665433837709616,
+          "p90_signed_impact_bps": 0.5059400477347671
         },
         {
           "bucket": "q2",
           "mean_signed_impact": 1.1960415175376848,
-          "p90_signed_impact": 3.209999999991851
+          "p90_signed_impact": 3.209999999991851,
+          "mean_signed_impact_bps": 0.17746133511781836,
+          "p90_signed_impact_bps": 0.47611370188584085
         },
         {
           "bucket": "q3",
           "mean_signed_impact": 1.173077822311469,
-          "p90_signed_impact": 3.0800000000017462
+          "p90_signed_impact": 3.0800000000017462,
+          "mean_signed_impact_bps": 0.17405217215865543,
+          "p90_signed_impact_bps": 0.4573748200017354
         },
         {
           "bucket": "q4",
           "mean_signed_impact": 1.1168716228806153,
-          "p90_signed_impact": 2.9900000000052387
+          "p90_signed_impact": 2.9900000000052387,
+          "mean_signed_impact_bps": 0.16570842141025433,
+          "p90_signed_impact_bps": 0.4438305695363363
         }
       ]
     },
@@ -109,31 +140,46 @@
         "median": 0.009999999999990905,
         "p90": 0.009999999999990905
       },
+      "spread_distribution_bps": {
+        "mean": 0.05087828641926712,
+        "median": 0.05087828641926712,
+        "p90": 0.05087828641926712
+      },
       "depth_profile": [
         {
           "level": 1,
           "mean_bid_qty": 27.754133333333332,
-          "mean_ask_qty": 20.089716666666668
+          "mean_ask_qty": 20.089716666666668,
+          "bid_shape_ratio": 1.0,
+          "ask_shape_ratio": 1.0
         },
         {
           "level": 2,
           "mean_bid_qty": 0.07608333333333335,
-          "mean_ask_qty": 0.9595833333333333
+          "mean_ask_qty": 0.9595833333333333,
+          "bid_shape_ratio": 0.0027413334230096667,
+          "ask_shape_ratio": 0.04776490128033994
         },
         {
           "level": 3,
           "mean_bid_qty": 0.07425000000000002,
-          "mean_ask_qty": 0.30716666666666664
+          "mean_ask_qty": 0.30716666666666664,
+          "bid_shape_ratio": 0.002675277195949193,
+          "ask_shape_ratio": 0.015289746080706296
         },
         {
           "level": 4,
           "mean_bid_qty": 0.22195,
-          "mean_ask_qty": 0.009200000000000002
+          "mean_ask_qty": 0.009200000000000002,
+          "bid_shape_ratio": 0.007997007052403006,
+          "ask_shape_ratio": 0.00045794573177156144
         },
         {
           "level": 5,
           "mean_bid_qty": 0.07165,
-          "mean_ask_qty": 0.061983333333333356
+          "mean_ask_qty": 0.061983333333333356,
+          "bid_shape_ratio": 0.0025815974557543385,
+          "ask_shape_ratio": 0.0030853264066276038
         }
       ],
       "order_sign_autocorrelation": {
@@ -154,22 +200,30 @@
         {
           "bucket": "q1",
           "mean_signed_impact": 0.06668178382464042,
-          "p90_signed_impact": 0.11000000000012733
+          "p90_signed_impact": 0.11000000000012733,
+          "mean_signed_impact_bps": 0.3389926193207394,
+          "p90_signed_impact_bps": 0.5595344673226782
         },
         {
           "bucket": "q2",
           "mean_signed_impact": 0.06704822335025562,
-          "p90_signed_impact": 0.10999999999989996
+          "p90_signed_impact": 0.10999999999989996,
+          "mean_signed_impact_bps": 0.3408561906208409,
+          "p90_signed_impact_bps": 0.5591249186722306
         },
         {
           "bucket": "q3",
           "mean_signed_impact": 0.057524652338812085,
-          "p90_signed_impact": 0.10999999999989996
+          "p90_signed_impact": 0.10999999999989996,
+          "mean_signed_impact_bps": 0.2924190116274136,
+          "p90_signed_impact_bps": 0.5589629712433875
         },
         {
           "bucket": "q4",
           "mean_signed_impact": 0.0375214972180051,
-          "p90_signed_impact": 0.10000000000013642
+          "p90_signed_impact": 0.10000000000013642,
+          "mean_signed_impact_bps": 0.19073450375451337,
+          "p90_signed_impact_bps": 0.5088126348348855
         }
       ]
     }

@@ -21,16 +21,16 @@ The next stage is not more breadth. The next stage is making the benchmark harde
 
 ### P0: Realism Moat
 
-- [ ] Build a calibrated market-data pipeline backed by real public market data.
-- [ ] Compute stylized facts from real data:
+- [x] Build a calibrated market-data pipeline backed by real public market data.
+- [x] Compute stylized facts from real data:
   - spread distribution
   - depth profile
   - order-sign autocorrelation
   - impact curve
   - volatility clustering
   - inter-arrival distribution
-- [ ] Add a calibration target bundle for the synthetic generator.
-- [ ] Show that the latency-welfare tension persists after calibration.
+- [x] Add a calibration target bundle for the synthetic generator.
+- [x] Show that the latency-welfare tension persists after calibration.
 
 Acceptance:
 
@@ -86,8 +86,8 @@ Acceptance:
 ### Step 2.5
 
 - [ ] Expand from the current 8-symbol cross-section to a wider universe profile.
-- [ ] Add calibration-to-simulator comparison tables once generator parameters are retuned.
-- [ ] Re-run the main latency-welfare experiments against the calibrated target envelope.
+- [x] Add calibration-to-simulator comparison tables once generator parameters are retuned.
+- [x] Re-run the main latency-welfare experiments against the calibrated target envelope.
 
 ### Step 3
 

@@ -6,18 +6,18 @@ Pareto axes minimize `p99 latency` and `surplus transfer gap`; `fills/s` is repo
 
 | Scenario | Category | Frontier | p99 (ms) | Welfare Gap | Fills/s |
 |---|---|:---:|---:|---:|---:|
-| Immediate-Surrogate | mechanism | yes | 10.00 +/- 0.00 | 2.0430 +/- 0.2444 | 813.12 +/- 18.47 |
-| SpeedBump-50ms | mechanism |  | 60.00 +/- 0.00 | 4.1034 +/- 0.3793 | 780.60 +/- 17.73 |
-| Policy-LearnedFittedQ-100-250ms | controller |  | 145.00 +/- 21.36 | 2.2036 +/- 0.6732 | 746.23 +/- 27.90 |
-| Policy-LearnedOnlineDQN-100-250ms | controller |  | 145.00 +/- 21.36 | 2.2472 +/- 0.7078 | 740.77 +/- 26.35 |
-| FBA-100ms | batch |  | 146.25 +/- 35.83 | 2.3947 +/- 0.6460 | 798.66 +/- 21.71 |
-| Policy-LearnedLinUCB-100-250ms | controller |  | 155.00 +/- 17.32 | 2.1694 +/- 0.7433 | 755.65 +/- 27.48 |
-| Policy-LearnedOfflineContextual-100-250ms | controller | yes | 215.00 +/- 47.25 | 1.3769 +/- 0.8055 | 762.80 +/- 36.22 |
-| Policy-LearnedTinyMLP-100-250ms | controller |  | 221.25 +/- 57.40 | 1.9719 +/- 0.8498 | 769.35 +/- 20.85 |
-| Adaptive-100-250ms | adaptive | yes | 360.00 +/- 69.38 | 0.0278 +/- 0.6078 | 714.29 +/- 22.20 |
-| FBA-250ms-Stress | batch |  | 373.75 +/- 70.24 | 0.3805 +/- 0.8714 | 900.50 +/- 23.67 |
-| Adaptive-QueueLoad-100-250ms | adaptive |  | 386.25 +/- 65.09 | 0.8310 +/- 0.6128 | 691.57 +/- 27.02 |
-| Policy-BurstAware-100-250ms | controller |  | 400.00 +/- 57.25 | 0.7579 +/- 0.7681 | 670.83 +/- 28.54 |
-| Adaptive-OrderFlow-100-250ms | adaptive |  | 406.25 +/- 46.22 | 1.0415 +/- 0.7764 | 671.43 +/- 15.81 |
-| FBA-250ms | batch |  | 452.50 +/- 16.16 | 0.8896 +/- 0.8264 | 686.41 +/- 17.80 |
-| FBA-500ms | batch |  | 835.00 +/- 84.37 | 1.8314 +/- 1.4419 | 626.90 +/- 19.72 |
+| Immediate-Surrogate | mechanism | yes | 10.00 +/- 0.00 | 2.0038 +/- 0.2862 | 808.54 +/- 17.39 |
+| SpeedBump-50ms | mechanism |  | 60.00 +/- 0.00 | 4.0049 +/- 0.4219 | 776.20 +/- 16.69 |
+| FBA-100ms | batch |  | 136.25 +/- 20.77 | 2.1907 +/- 0.8851 | 795.45 +/- 25.90 |
+| Policy-LearnedLinUCB-100-250ms | controller |  | 141.25 +/- 19.43 | 2.2936 +/- 0.8384 | 749.31 +/- 27.69 |
+| Policy-LearnedOnlineDQN-100-250ms | controller |  | 141.25 +/- 22.84 | 2.2973 +/- 0.8310 | 752.68 +/- 19.70 |
+| Policy-LearnedFittedQ-100-250ms | controller |  | 156.25 +/- 33.58 | 2.1912 +/- 0.9548 | 755.26 +/- 26.98 |
+| Policy-LearnedOfflineContextual-100-250ms | controller | yes | 283.75 +/- 57.24 | 0.5314 +/- 0.8582 | 776.69 +/- 19.61 |
+| Policy-LearnedTinyMLP-100-250ms | controller |  | 311.25 +/- 60.06 | 3.0262 +/- 0.7376 | 684.82 +/- 37.90 |
+| Adaptive-QueueLoad-100-250ms | adaptive |  | 351.25 +/- 64.95 | 0.9298 +/- 0.6985 | 686.51 +/- 30.87 |
+| FBA-250ms-Stress | batch | yes | 370.00 +/- 65.65 | 0.3754 +/- 0.7836 | 918.35 +/- 39.26 |
+| Policy-BurstAware-100-250ms | controller |  | 392.50 +/- 62.25 | 0.6877 +/- 0.8364 | 670.63 +/- 37.68 |
+| FBA-250ms | batch |  | 397.50 +/- 64.89 | 0.8338 +/- 0.7458 | 674.50 +/- 28.71 |
+| Adaptive-OrderFlow-100-250ms | adaptive |  | 413.75 +/- 44.50 | 0.7028 +/- 0.7035 | 674.11 +/- 13.84 |
+| Adaptive-100-250ms | adaptive | yes | 430.00 +/- 50.33 | -0.0342 +/- 0.7196 | 708.23 +/- 25.14 |
+| FBA-500ms | batch |  | 698.75 +/- 142.25 | 1.6878 +/- 1.3485 | 609.93 +/- 22.74 |
