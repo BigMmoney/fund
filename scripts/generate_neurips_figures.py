@@ -12,6 +12,9 @@ GRID_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_grid_profi
 CUBE_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_cube_profile.json"
 HYPER_SWEEP_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_profile.json"
 FITTEDQ_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_fittedq_learning_curve.json"
+ONLINE_DQN_CURVE_PATH = ROOT / "docs" / "benchmarks" / "simulator_online_dqn_training_curve.json"
+PARETO_PATH = ROOT / "docs" / "benchmarks" / "simulator_controller_pareto.json"
+RESPONSE_SURFACE_PATH = ROOT / "docs" / "benchmarks" / "simulator_parameter_hypercube_response_surface.json"
 FIG_DIR = ROOT / "docs" / "neurips_track" / "figures"
 
 
@@ -211,6 +214,68 @@ def heatmap_chart(
     write_svg(out_path, wrap_svg(width, height, "\n".join(body)))
 
 
+def pareto_scatter_chart(points: list[dict], out_path: Path) -> None:
+    width, height = 920, 560
+    left, right, top, bottom = 90, 40, 70, 90
+    chart_w = width - left - right
+    chart_h = height - top - bottom
+    xs = [p["mean_p99_latency_ms"] for p in points]
+    ys = [p["mean_surplus_transfer_gap"] for p in points]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    x_span = max(max_x - min_x, 1.0)
+    y_span = max(max_y - min_y, 1.0)
+    body = [f'<text class="title" x="{left}" y="38">Controller Pareto Frontier</text>']
+    body.append(f'<text class="label" x="{left}" y="{height-20}">p99 latency (ms)</text>')
+    body.append(f'<text class="label" x="10" y="{top-18}">surplus transfer gap</text>')
+    for i in range(6):
+        x = left + chart_w * i / 5
+        y = top + chart_h * i / 5
+        xv = min_x + x_span * i / 5
+        yv = max_y - y_span * i / 5
+        body.append(f'<line class="grid" x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top+chart_h}"/>')
+        body.append(f'<line class="grid" x1="{left}" y1="{y:.1f}" x2="{left+chart_w}" y2="{y:.1f}"/>')
+        body.append(f'<text class="label" x="{x:.1f}" y="{top+chart_h+28}" text-anchor="middle">{xv:.0f}</text>')
+        body.append(f'<text class="label" x="14" y="{y+4:.1f}">{yv:.2f}</text>')
+    body.append(f'<line class="axis" x1="{left}" y1="{top}" x2="{left}" y2="{top+chart_h}"/>')
+    body.append(f'<line class="axis" x1="{left}" y1="{top+chart_h}" x2="{left+chart_w}" y2="{top+chart_h}"/>')
+
+    colors = {
+        "mechanism": "#38bdf8",
+        "batch": "#f59e0b",
+        "adaptive": "#34d399",
+        "controller": "#f472b6",
+        "other": "#a78bfa",
+    }
+    frontier = [p for p in points if p["frontier"]]
+    frontier.sort(key=lambda p: p["mean_p99_latency_ms"])
+    if frontier:
+        polyline = []
+        for point in frontier:
+            x = left + (point["mean_p99_latency_ms"] - min_x) / x_span * chart_w
+            y = top + chart_h - (point["mean_surplus_transfer_gap"] - min_y) / y_span * chart_h
+            polyline.append(f"{x:.1f},{y:.1f}")
+        body.append(f'<polyline fill="none" stroke="#fef08a" stroke-width="3" points="{" ".join(polyline)}"/>')
+
+    for point in points:
+        x = left + (point["mean_p99_latency_ms"] - min_x) / x_span * chart_w
+        y = top + chart_h - (point["mean_surplus_transfer_gap"] - min_y) / y_span * chart_h
+        color = colors.get(point["category"], "#a78bfa")
+        radius = 8 if point["frontier"] else 6
+        body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" stroke="#e2e8f0" stroke-width="1.5"/>')
+        short = point["name"].replace("Policy-Learned", "").replace("-100-250ms", "").replace("Immediate-Surrogate", "Immediate").replace("Adaptive-", "Adaptive ").replace("FBA-", "FBA ").replace("SpeedBump-", "SB ")
+        body.append(f'<text class="value" x="{x+10:.1f}" y="{y-8:.1f}">{short}</text>')
+
+    legend_x = width - 230
+    for idx, (name, color) in enumerate(colors.items()):
+        ly = 34 + idx * 22
+        body.append(f'<rect x="{legend_x}" y="{ly-12}" width="14" height="14" fill="{color}" rx="3"/>')
+        body.append(f'<text class="legend" x="{legend_x+22}" y="{ly}">{name}</text>')
+    body.append(f'<line x1="{legend_x}" y1="{34 + len(colors)*22}" x2="{legend_x+16}" y2="{34 + len(colors)*22}" stroke="#fef08a" stroke-width="3"/>')
+    body.append(f'<text class="legend" x="{legend_x+22}" y="{40 + len(colors)*22}">frontier</text>')
+    write_svg(out_path, wrap_svg(width, height, "\n".join(body)))
+
+
 def generate() -> None:
     results = load_results()
     ablations = load_named_results(ABLATION_PATH)
@@ -219,6 +284,9 @@ def generate() -> None:
     cube_sweep = load_named_results(CUBE_SWEEP_PATH)
     hyper_sweep = load_named_results(HYPER_SWEEP_PATH)
     fittedq_curve = load_named_results(FITTEDQ_CURVE_PATH)
+    online_dqn_curve = load_named_results(ONLINE_DQN_CURVE_PATH)
+    pareto_points = load_named_results(PARETO_PATH)
+    response_surface = json.loads(RESPONSE_SURFACE_PATH.read_text(encoding="utf-8"))["fits"]
     label_map = {
         "Immediate-Surrogate": "Immediate",
         "SpeedBump-50ms": "SpeedBump 50",
@@ -233,6 +301,7 @@ def generate() -> None:
         "Policy-LearnedTinyMLP-100-250ms": "TinyMLP",
         "Policy-LearnedOfflineContextual-100-250ms": "OfflineCtx",
         "Policy-LearnedFittedQ-100-250ms": "FittedQ",
+        "Policy-LearnedOnlineDQN-100-250ms": "OnlineDQN",
         "FBA-250ms-Stress": "Stress",
     }
     categories = []
@@ -317,6 +386,46 @@ def generate() -> None:
         [f"Iter {r['iteration']}" for r in fittedq_curve],
         FIG_DIR / "fittedq_learning_curve.svg",
         "Held-out welfare gap",
+    )
+
+    line_chart_with_ci(
+        "Online DQN Held-Out Learning Curve",
+        [
+            (
+                "Held-out Welfare Gap",
+                "#38bdf8",
+                [r["mean_surplus_transfer_gap"] for r in online_dqn_curve],
+                [r["ci95_surplus_transfer_gap"] for r in online_dqn_curve],
+            ),
+            (
+                "Held-out p99 / 100",
+                "#f59e0b",
+                [r["mean_p99_latency_ms"] / 100 for r in online_dqn_curve],
+                [r["ci95_p99_latency_ms"] / 100 for r in online_dqn_curve],
+            ),
+        ],
+        [f"Ep {r['episode']}" for r in online_dqn_curve],
+        FIG_DIR / "online_dqn_learning_curve.svg",
+        "Held-out welfare gap / scaled p99",
+    )
+
+    pareto_scatter_chart(pareto_points, FIG_DIR / "pareto.svg")
+
+    welfare_fit = next(f for f in response_surface if f["metric"] == "surplus_transfer_gap")
+    top_effects = welfare_fit["effects"][:6]
+    bar_chart_with_ci(
+        "Response Surface: Welfare-Gap Partial R^2",
+        [
+            (
+                "Partial R^2",
+                "#a78bfa",
+                [effect["partial_r2"] for effect in top_effects],
+                [0.0 for _ in top_effects],
+            ),
+        ],
+        [effect["factor"] for effect in top_effects],
+        FIG_DIR / "response_surface_effects.svg",
+        "Explained variance contribution",
     )
 
     bar_chart_with_ci(

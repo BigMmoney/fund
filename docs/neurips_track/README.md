@@ -2,7 +2,7 @@
 
 This directory is a parallel benchmark-paper line. It does not replace the original systems-paper material in `docs/PAPER_MANUSCRIPT.md` or `docs/arxiv/`.
 
-The scope of this paper line is intentionally narrow. It is centered on one benchmark question: how mechanism and controller choices trade off latency/fills against retail outcomes and transfer-to-arbitrageur under explicit settlement constraints. In particular, this track studies how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator.
+The scope of this paper line is intentionally narrow. It is centered on one benchmark question: how mechanism and controller choices trade off latency/fills against retail outcomes and transfer-to-arbitrageur under explicit settlement constraints. In particular, this track studies how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The current line now includes offline and online learning stories, a controller Pareto frontier, and a fitted response-surface summary over the unified hypercube.
 
 ## Purpose
 
@@ -12,7 +12,7 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - multiple market-design regimes
 - a step-wise `Reset/Step/Observe/Metrics` API
 - a gym-style adapter with runtime controls for batch window, risk scale, tie-break mode, release cadence, and price aggression
-- adapter-driven policy baselines, including offline contextual and fitted-Q controllers
+- adapter-driven policy baselines, including offline contextual, fitted-Q, and online DQN-style controllers
 - a logged-trajectory training split plus held-out regime evaluation for learned policies
 - ledger-aware settlement semantics and explicit invariant checks
 - reproducible benchmark artifacts, sweeps, and appendix figures
@@ -29,7 +29,10 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_parameter_cube_profile.*`: retail x informed x maker cube
 - `docs/benchmarks/simulator_parameter_hypercube_profile.*`: arbitrage x retail x informed x maker unified sweep
 - `docs/benchmarks/simulator_parameter_hypercube_summary.*`: compact main-effect and high-low contrast summary for the unified sweep
+- `docs/benchmarks/simulator_parameter_hypercube_response_surface.*`: fitted low-order response-surface summary over the same unified sweep
 - `docs/benchmarks/simulator_heldout_policy_profile.*`: held-out regime generalization results for learned controllers
+- `docs/benchmarks/simulator_controller_pareto.*`: multiseed Pareto frontier over p99 latency vs surplus-transfer gap
+- `docs/benchmarks/simulator_online_dqn_training_curve.*`: online DQN-style held-out learning curve
 - `docs/benchmarks/simulator_fittedq_learning_curve.*`: fitted-Q training snapshots evaluated on held-out regimes
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
@@ -48,6 +51,7 @@ From `docs/benchmarks/simulator_benchmark_profile.json`:
 - `Policy-LearnedTinyMLP-100-250ms`: `1347.6 orders/s`, `p50 60 ms`, `p99 300 ms`, price impact `4.24`
 - `Policy-LearnedOfflineContextual-100-250ms`: `1349.2 orders/s`, `p50 80 ms`, `p99 200 ms`, impact `3.18`, retail adverse rate `0.4014`
 - `Policy-LearnedFittedQ-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 120 ms`, retail surplus `0.3731`, welfare gap `1.6269`
+- `Policy-LearnedOnlineDQN-100-250ms`: `1347.6 orders/s`, `p50 50 ms`, `p99 120 ms`, retail surplus `0.3731`, welfare gap `1.6269`
 - `FBA-250ms-Stress`: `1761.1 orders/s`, `p50 100 ms`, `p99 590 ms`
 
 All generated scenarios currently report:
@@ -67,6 +71,7 @@ From `docs/benchmarks/simulator_multiseed_profile.json`, aggregated over seeds `
 - `Policy-LearnedTinyMLP-100-250ms`: `1337.60 +/- 3.88 orders/s`, `769.35 +/- 20.85 fills/s`, `p99 221.25 +/- 57.40 ms`, arb `856.13 +/- 107.16`, retail surplus `-0.3128 +/- 0.1535`
 - `Policy-LearnedOfflineContextual-100-250ms`: `1337.40 +/- 3.91 orders/s`, `762.80 +/- 36.22 fills/s`, `p99 215.00 +/- 47.25 ms`, impact `4.94 +/- 0.57`, queue `0.0294 +/- 0.0156`, arb `771.25 +/- 113.73`, retail surplus `-0.1090 +/- 0.1191`
 - `Policy-LearnedFittedQ-100-250ms`: `1337.70 +/- 3.86 orders/s`, `746.23 +/- 27.90 fills/s`, `p99 145.00 +/- 21.36 ms`, queue `0.0451 +/- 0.0217`, retail surplus `0.0742 +/- 0.1690`, welfare gap `2.2036 +/- 0.6732`
+- `Policy-LearnedOnlineDQN-100-250ms`: `1337.60 +/- 3.88 orders/s`, `740.77 +/- 26.35 fills/s`, `p99 145.00 +/- 21.36 ms`, queue `0.0431 +/- 0.0219`, retail surplus `0.0662 +/- 0.1681`, welfare gap `2.2472 +/- 0.7078`
 - `FBA-250ms-Stress`: `1769.25 +/- 6.04 orders/s`, `900.50 +/- 23.67 fills/s`, `p99 373.75 +/- 70.24 ms`, arb `2057.00 +/- 235.64`
 
 Current controller interpretation:
@@ -75,6 +80,7 @@ Current controller interpretation:
 - `TinyMLP` improves fills, but still leaves retail surplus negative and keeps arbitrage capture high.
 - `OfflineContextual` is still the most balanced learned baseline in the current repo: it keeps p99 far below burst-aware, cuts price impact below both `LinUCB` and `FittedQ`, and keeps the smallest welfare gap among the learned policies.
 - `FittedQ` adds a minimal offline-RL style training story and currently pushes the best in-distribution p99 (`145.00 +/- 21.36 ms`) while staying better than `LinUCB` on held-out welfare gap in every published regime, but it still widens transfer-to-arbitrageur relative to `OfflineContextual`.
+- `OnlineDQN` reaches the same in-distribution p99 band as `FittedQ`, improves held-out fills to `986.61`, and lowers held-out welfare gap to `2.2189`, but it converges quickly toward a latency-favoring regime rather than preserving the early welfare advantage.
 
 ## Offline Training and Held-Out Generalization
 
@@ -98,12 +104,14 @@ Held-out policy summary:
 - `learned_linucb`: `978.52 fills/s`, `p99 171.25 ms`, retail surplus `0.1215`, welfare gap `2.4466`
 - `learned_offline_contextual`: `961.61 fills/s`, `p99 275.62 ms`, retail surplus `-0.0732`, welfare gap `1.9535`
 - `learned_fitted_q`: `946.78 fills/s`, `p99 159.38 ms`, retail surplus `0.1110`, welfare gap `2.3158`
+- `learned_online_dqn`: `986.61 fills/s`, `p99 172.50 ms`, retail surplus `0.0937`, welfare gap `2.2189`
 
 Most important held-out observation:
 
 - against `LinUCB`, `FittedQ` lowers both `p99` and welfare gap in `HeldOut-HighArbWideMaker`, `HeldOut-RetailBurst`, and `HeldOut-CompositeStress`
 - in `HeldOut-InformedWide`, `FittedQ` gives up some p99 (`182.50` vs `167.50 ms`) but still lowers welfare gap (`2.2994` vs `2.3765`)
 - `OfflineContextual` remains the most welfare-balanced learned baseline overall, but it is clearly slower than both `LinUCB` and `FittedQ` on held-out tails
+- `OnlineDQN` sits between `LinUCB` and `OfflineContextual`: it improves held-out fills, keeps p99 near `LinUCB`, and lowers held-out welfare gap relative to both `LinUCB` and `FittedQ`
 
 ### Fitted-Q Learning Curve
 
@@ -112,6 +120,12 @@ From `docs/benchmarks/simulator_fittedq_learning_curve.*`, evaluated on the same
 - untrained snapshot (`iteration 0`): `p99 341.25 +/- 22.97 ms`, welfare gap `3.2117 +/- 0.5538`
 - after the first Bellman update (`iteration 1`): `p99 198.75 +/- 25.39 ms`, welfare gap `2.0790 +/- 0.4767`
 - by `iteration 8`: Bellman MSE falls from `45.1571` to `6.5753`, `p99` reaches `155.62 +/- 12.84 ms`, and welfare gap stabilizes at `2.4226 +/- 0.5400`
+
+Online DQN held-out learning curve in `docs/benchmarks/simulator_online_dqn_training_curve.*`:
+
+- untrained snapshot (`episode 0`): `p99 200.00 +/- 25.46 ms`, welfare gap `1.5898 +/- 0.3869`
+- by `episode 20`: `p99 155.62 +/- 12.84 ms`, welfare gap `2.4226 +/- 0.5400`
+- later checkpoints stay on the same plateau, which is useful benchmark evidence: the online controller converges quickly toward a latency-favoring regime with higher transfer-to-arbitrageur
 
 Interpretation:
 
@@ -172,6 +186,18 @@ Retail-conditioned arbitrage deltas show the same pattern:
 - `retail x2`: `(arb=3) - (arb=0)` gives `+2157.81` arb profit and `+1.2262` welfare gap
 - `retail x3`: `(arb=3) - (arb=0)` gives `+2223.69` arb profit and `+1.2287` welfare gap
 
+5. `parameter_hypercube_response_surface`
+- `surplus_transfer_gap`: `R^2 = 0.3495`; top partial effects are `arbitrageur_intensity = 0.3157`, `maker_quote_width = 0.0291`
+- `retail_surplus_per_unit`: `R^2 = 0.7061`; top partial effects are `informed_intensity = 0.3121`, `arbitrageur_intensity = 0.2374`, `maker_quote_width = 0.1195`
+- this is the statistical compression layer for the hypercube, replacing a purely descriptive slice-only analysis
+
+6. `controller_pareto`
+- frontier points are:
+  - `Immediate-Surrogate`
+  - `Policy-LearnedOfflineContextual-100-250ms`
+  - `Adaptive-100-250ms`
+- the frontier makes the paper-facing controller trade-off visible on one chart: `p99 latency` versus `surplus-transfer gap`
+
 This effect persists across retail intensities.
 
 For reference, selected raw hypercube cells remain in `docs/benchmarks/simulator_parameter_hypercube_profile.json`:
@@ -194,6 +220,12 @@ Generated by `scripts/generate_neurips_figures.py`:
 ![Welfare and behavior comparison](figures/welfare.svg)
 
 ![Fitted-Q learning curve](figures/fittedq_learning_curve.svg)
+
+![Online DQN learning curve](figures/online_dqn_learning_curve.svg)
+
+![Controller Pareto frontier](figures/pareto.svg)
+
+![Response-surface welfare effects](figures/response_surface_effects.svg)
 
 ![Mechanism ablation snapshot](figures/ablation.svg)
 

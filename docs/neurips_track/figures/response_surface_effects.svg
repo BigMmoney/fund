@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="540" viewBox="0 0 980 540" role="img">
+<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}.err{stroke:#dbeafe; stroke-width:1.5;}</style>
+<rect class="bg" x="0" y="0" width="980" height="540" rx="18"/>
+<text class="title" x="90" y="38">Response Surface: Welfare-Gap Partial R^2</text>
+<text class="label" x="90" y="520">Explained variance contribution</text>
+<line class="grid" x1="90" y1="70.0" x2="940" y2="70.0"/>
+<text class="label" x="12" y="74.0">1.0</text>
+<line class="grid" x1="90" y1="146.0" x2="940" y2="146.0"/>
+<text class="label" x="12" y="150.0">0.8</text>
+<line class="grid" x1="90" y1="222.0" x2="940" y2="222.0"/>
+<text class="label" x="12" y="226.0">0.6</text>
+<line class="grid" x1="90" y1="298.0" x2="940" y2="298.0"/>
+<text class="label" x="12" y="302.0">0.4</text>
+<line class="grid" x1="90" y1="374.0" x2="940" y2="374.0"/>
+<text class="label" x="12" y="378.0">0.2</text>
+<line class="grid" x1="90" y1="450.0" x2="940" y2="450.0"/>
+<text class="label" x="12" y="454.0">0.0</text>
+<line class="axis" x1="90" y1="70" x2="90" y2="450"/>
+<line class="axis" x1="90" y1="450.0" x2="940" y2="450.0"/>
+<rect x="125.4" y="330.0" width="56.7" height="120.0" fill="#a78bfa" rx="8"/>
+<line class="err" x1="153.8" y1="330.0" x2="153.8" y2="330.0"/>
+<line class="err" x1="146.8" y1="330.0" x2="160.8" y2="330.0"/>
+<line class="err" x1="146.8" y1="330.0" x2="160.8" y2="330.0"/>
+<text class="value" x="153.8" y="320.0" text-anchor="middle">0.32</text>
+<text class="label" x="160.8" y="478" text-anchor="middle">arbitrageur_intensity</text>
+<rect x="267.1" y="438.9" width="56.7" height="11.1" fill="#a78bfa" rx="8"/>
+<line class="err" x1="295.4" y1="438.9" x2="295.4" y2="438.9"/>
+<line class="err" x1="288.4" y1="438.9" x2="302.4" y2="438.9"/>
+<line class="err" x1="288.4" y1="438.9" x2="302.4" y2="438.9"/>
+<text class="value" x="295.4" y="428.9" text-anchor="middle">0.03</text>
+<text class="label" x="302.5" y="478" text-anchor="middle">maker_quote_width</text>
+<rect x="408.8" y="447.8" width="56.7" height="2.2" fill="#a78bfa" rx="8"/>
+<line class="err" x1="437.1" y1="447.8" x2="437.1" y2="447.8"/>
+<line class="err" x1="430.1" y1="447.8" x2="444.1" y2="447.8"/>
+<line class="err" x1="430.1" y1="447.8" x2="444.1" y2="447.8"/>
+<text class="value" x="437.1" y="437.8" text-anchor="middle">0.01</text>
+<text class="label" x="444.2" y="478" text-anchor="middle">retail_intensity</text>
+<rect x="550.4" y="447.9" width="56.7" height="2.1" fill="#a78bfa" rx="8"/>
+<line class="err" x1="578.8" y1="447.9" x2="578.8" y2="447.9"/>
+<line class="err" x1="571.8" y1="447.9" x2="585.8" y2="447.9"/>
+<line class="err" x1="571.8" y1="447.9" x2="585.8" y2="447.9"/>
+<text class="value" x="578.8" y="437.9" text-anchor="middle">0.01</text>
+<text class="label" x="585.8" y="478" text-anchor="middle">informed_intensity</text>
+<rect x="692.1" y="449.1" width="56.7" height="0.9" fill="#a78bfa" rx="8"/>
+<line class="err" x1="720.4" y1="449.1" x2="720.4" y2="449.1"/>
+<line class="err" x1="713.4" y1="449.1" x2="727.4" y2="449.1"/>
+<line class="err" x1="713.4" y1="449.1" x2="727.4" y2="449.1"/>
+<text class="value" x="720.4" y="439.1" text-anchor="middle">0.00</text>
+<text class="label" x="727.5" y="478" text-anchor="middle">arb_x_informed</text>
+<rect x="833.7" y="449.2" width="56.7" height="0.8" fill="#a78bfa" rx="8"/>
+<line class="err" x1="862.1" y1="449.2" x2="862.1" y2="449.2"/>
+<line class="err" x1="855.1" y1="449.2" x2="869.1" y2="449.2"/>
+<line class="err" x1="855.1" y1="449.2" x2="869.1" y2="449.2"/>
+<text class="value" x="862.1" y="439.2" text-anchor="middle">0.00</text>
+<text class="label" x="869.2" y="478" text-anchor="middle">retail_x_maker</text>
+<rect x="730" y="22" width="14" height="14" fill="#a78bfa" rx="3"/>
+<text class="legend" x="752" y="34">Partial R^2</text>
+</svg>

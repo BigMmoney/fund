@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="560" viewBox="0 0 920 560" role="img">
+<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}.err{stroke:#dbeafe; stroke-width:1.5;}</style>
+<rect class="bg" x="0" y="0" width="920" height="560" rx="18"/>
+<text class="title" x="90" y="38">Controller Pareto Frontier</text>
+<text class="label" x="90" y="540">p99 latency (ms)</text>
+<text class="label" x="10" y="52">surplus transfer gap</text>
+<line class="grid" x1="90.0" y1="70" x2="90.0" y2="470"/>
+<line class="grid" x1="90" y1="70.0" x2="880" y2="70.0"/>
+<text class="label" x="90.0" y="498" text-anchor="middle">10</text>
+<text class="label" x="14" y="74.0">4.10</text>
+<line class="grid" x1="248.0" y1="70" x2="248.0" y2="470"/>
+<line class="grid" x1="90" y1="150.0" x2="880" y2="150.0"/>
+<text class="label" x="248.0" y="498" text-anchor="middle">175</text>
+<text class="label" x="14" y="154.0">3.29</text>
+<line class="grid" x1="406.0" y1="70" x2="406.0" y2="470"/>
+<line class="grid" x1="90" y1="230.0" x2="880" y2="230.0"/>
+<text class="label" x="406.0" y="498" text-anchor="middle">340</text>
+<text class="label" x="14" y="234.0">2.47</text>
+<line class="grid" x1="564.0" y1="70" x2="564.0" y2="470"/>
+<line class="grid" x1="90" y1="310.0" x2="880" y2="310.0"/>
+<text class="label" x="564.0" y="498" text-anchor="middle">505</text>
+<text class="label" x="14" y="314.0">1.66</text>
+<line class="grid" x1="722.0" y1="70" x2="722.0" y2="470"/>
+<line class="grid" x1="90" y1="390.0" x2="880" y2="390.0"/>
+<text class="label" x="722.0" y="498" text-anchor="middle">670</text>
+<text class="label" x="14" y="394.0">0.84</text>
+<line class="grid" x1="880.0" y1="70" x2="880.0" y2="470"/>
+<line class="grid" x1="90" y1="470.0" x2="880" y2="470.0"/>
+<text class="label" x="880.0" y="498" text-anchor="middle">835</text>
+<text class="label" x="14" y="474.0">0.03</text>
+<line class="axis" x1="90" y1="70" x2="90" y2="470"/>
+<line class="axis" x1="90" y1="470" x2="880" y2="470"/>
+<polyline fill="none" stroke="#fef08a" stroke-width="3" points="90.0,272.2 286.3,337.6 425.2,470.0"/>
+<circle cx="90.0" cy="272.2" r="8" fill="#38bdf8" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="100.0" y="264.2">Immediate</text>
+<circle cx="137.9" cy="70.0" r="6" fill="#38bdf8" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="147.9" y="62.0">SB 50ms</text>
+<circle cx="219.3" cy="256.5" r="6" fill="#f472b6" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="229.3" y="248.5">FittedQ</text>
+<circle cx="219.3" cy="252.2" r="6" fill="#f472b6" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="229.3" y="244.2">OnlineDQN</text>
+<circle cx="220.5" cy="237.7" r="6" fill="#f59e0b" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="230.5" y="229.7">FBA 100ms</text>
+<circle cx="228.8" cy="259.8" r="6" fill="#f472b6" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="238.8" y="251.8">LinUCB</text>
+<circle cx="286.3" cy="337.6" r="8" fill="#f472b6" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="296.3" y="329.6">OfflineContextual</text>
+<circle cx="292.3" cy="279.2" r="6" fill="#f472b6" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="302.3" y="271.2">TinyMLP</text>
+<circle cx="425.2" cy="470.0" r="8" fill="#34d399" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="435.2" y="462.0">Adaptive</text>
+<circle cx="438.3" cy="435.4" r="6" fill="#f59e0b" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="448.3" y="427.4">FBA 250ms-Stress</text>
+<circle cx="450.3" cy="391.2" r="6" fill="#34d399" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="460.3" y="383.2">Adaptive QueueLoad</text>
+<circle cx="463.5" cy="398.3" r="6" fill="#f472b6" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="473.5" y="390.3">Policy-BurstAware</text>
+<circle cx="469.4" cy="370.5" r="6" fill="#34d399" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="479.4" y="362.5">Adaptive OrderFlow</text>
+<circle cx="513.7" cy="385.4" r="6" fill="#f59e0b" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="523.7" y="377.4">FBA 250ms</text>
+<circle cx="880.0" cy="293.0" r="6" fill="#f59e0b" stroke="#e2e8f0" stroke-width="1.5"/>
+<text class="value" x="890.0" y="285.0">FBA 500ms</text>
+<rect x="690" y="22" width="14" height="14" fill="#38bdf8" rx="3"/>
+<text class="legend" x="712" y="34">mechanism</text>
+<rect x="690" y="44" width="14" height="14" fill="#f59e0b" rx="3"/>
+<text class="legend" x="712" y="56">batch</text>
+<rect x="690" y="66" width="14" height="14" fill="#34d399" rx="3"/>
+<text class="legend" x="712" y="78">adaptive</text>
+<rect x="690" y="88" width="14" height="14" fill="#f472b6" rx="3"/>
+<text class="legend" x="712" y="100">controller</text>
+<rect x="690" y="110" width="14" height="14" fill="#a78bfa" rx="3"/>
+<text class="legend" x="712" y="122">other</text>
+<line x1="690" y1="144" x2="706" y2="144" stroke="#fef08a" stroke-width="3"/>
+<text class="legend" x="712" y="150">frontier</text>
+</svg>

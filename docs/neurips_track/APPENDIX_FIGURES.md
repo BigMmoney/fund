@@ -14,6 +14,12 @@ This appendix collects the repository-hosted figure set that supplements the Neu
 
 ![Fitted-Q learning curve](figures/fittedq_learning_curve.svg)
 
+![Online DQN learning curve](figures/online_dqn_learning_curve.svg)
+
+![Controller Pareto frontier](figures/pareto.svg)
+
+![Response-surface welfare effects](figures/response_surface_effects.svg)
+
 ![Mechanism ablation snapshot](figures/ablation.svg)
 
 ![Agent and workload sweep snapshot](figures/agent_sweeps.svg)
@@ -77,6 +83,9 @@ Each hypercube slice fixes informed intensity at `x2` and renders retail intensi
 - `fairness.svg` still shows the queue-advantage and arbitrage-profit proxy layer
 - `welfare.svg` adds direct welfare/behavior signals: retail surplus per traded unit and retail adverse-selection rate
 - `fittedq_learning_curve.svg` shows the held-out welfare-gap trajectory across fitted-Q Bellman updates
+- `online_dqn_learning_curve.svg` shows the held-out online DQN trajectory across training episodes
+- `pareto.svg` compresses controller trade-offs onto the `p99 latency` vs `surplus-transfer gap` frontier
+- `response_surface_effects.svg` shows the top partial-variance contributors from the fitted hypercube response surface
 - `grid_*` isolates arbitrage intensity versus maker quote width
 - `cube_*` holds retail intensity fixed and shows how informed-flow intensity and maker quote width reshape p99 and arbitrage-profit proxy
 - `hyper_*` folds arbitrage back into the unified sweep and makes the welfare-gap surface visible under the same slice convention

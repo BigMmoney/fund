@@ -137,6 +137,21 @@ type fittedQTrainingSnapshot struct {
 	Policy     learnedFittedQPolicy
 }
 
+type learnedOnlineDQNPolicy struct {
+	Model          tinyMLPModel
+	Gamma          float64
+	Episodes       int
+	TrainingSeeds  []int64
+	HeldOutSeeds   []int64
+	HeldOutRegimes []string
+}
+
+type onlineDQNTrainingSnapshot struct {
+	Episode           int
+	MeanEpisodeReward float64
+	Policy            learnedOnlineDQNPolicy
+}
+
 type policyStepSample struct {
 	features []float64
 	hidden   []float64
@@ -159,17 +174,27 @@ type offlineTransitionSample struct {
 	done         bool
 }
 
+type dqnReplaySample struct {
+	features     []float64
+	action       int
+	reward       float64
+	nextFeatures []float64
+	done         bool
+}
+
 var learnedPolicyCache = struct {
 	sync.Mutex
-	linucb  map[string]learnedLinUCBPolicy
-	tiny    map[string]tinyMLPModel
-	offline map[string]learnedOfflineContextualPolicy
-	fittedQ map[string]learnedFittedQPolicy
+	linucb    map[string]learnedLinUCBPolicy
+	tiny      map[string]tinyMLPModel
+	offline   map[string]learnedOfflineContextualPolicy
+	fittedQ   map[string]learnedFittedQPolicy
+	onlineDQN map[string]learnedOnlineDQNPolicy
 }{
-	linucb:  make(map[string]learnedLinUCBPolicy),
-	tiny:    make(map[string]tinyMLPModel),
-	offline: make(map[string]learnedOfflineContextualPolicy),
-	fittedQ: make(map[string]learnedFittedQPolicy),
+	linucb:    make(map[string]learnedLinUCBPolicy),
+	tiny:      make(map[string]tinyMLPModel),
+	offline:   make(map[string]learnedOfflineContextualPolicy),
+	fittedQ:   make(map[string]learnedFittedQPolicy),
+	onlineDQN: make(map[string]learnedOnlineDQNPolicy),
 }
 
 func NewAdapter(cfg ScenarioConfig) *Adapter {
@@ -274,6 +299,7 @@ func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	var tiny *tinyMLPModel
 	var offline *learnedOfflineContextualPolicy
 	var fittedQ *learnedFittedQPolicy
+	var onlineDQN *learnedOnlineDQNPolicy
 	if policy == PolicyLearnedLinUCB {
 		model := cachedLinUCBPolicy(a.env.cfg)
 		linucb = &model
@@ -286,9 +312,12 @@ func (a *Adapter) RunPolicy(policy PolicyController) BenchmarkResult {
 	} else if policy == PolicyLearnedFittedQ {
 		model := cachedFittedQPolicy(a.env.cfg)
 		fittedQ = &model
+	} else if policy == PolicyLearnedOnlineDQN {
+		model := cachedOnlineDQNPolicy(a.env.cfg)
+		onlineDQN = &model
 	}
 	for !timestep.Done {
-		action := a.selectAction(policy, timestep.Observation, linucb, tiny, offline, fittedQ)
+		action := a.selectAction(policy, timestep.Observation, linucb, tiny, offline, fittedQ, onlineDQN)
 		timestep = a.Step(action)
 	}
 	result := a.env.benchmarkResult(time.Since(start))
@@ -353,7 +382,7 @@ func (a *Adapter) applyAction(action ControlAction) ControlAction {
 	return applied
 }
 
-func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel, offline *learnedOfflineContextualPolicy, fittedQ *learnedFittedQPolicy) ControlAction {
+func (a *Adapter) selectAction(policy PolicyController, observation Observation, linucb *learnedLinUCBPolicy, tiny *tinyMLPModel, offline *learnedOfflineContextualPolicy, fittedQ *learnedFittedQPolicy, onlineDQN *learnedOnlineDQNPolicy) ControlAction {
 	switch policy {
 	case PolicyBurstAware:
 		return burstAwareAction(a.ActionSpec(), observation)
@@ -377,6 +406,11 @@ func (a *Adapter) selectAction(policy PolicyController, observation Observation,
 			return ControlAction{}
 		}
 		return chooseFittedQAction(a.ActionSpec(), observation, *fittedQ)
+	case PolicyLearnedOnlineDQN:
+		if onlineDQN == nil {
+			return ControlAction{}
+		}
+		return chooseOnlineDQNAction(a.ActionSpec(), observation, *onlineDQN)
 	default:
 		return ControlAction{}
 	}
@@ -451,6 +485,8 @@ func policyScenarioName(base string, policy PolicyController) string {
 		return "Policy-LearnedOfflineContextual-100-250ms"
 	case PolicyLearnedFittedQ:
 		return "Policy-LearnedFittedQ-100-250ms"
+	case PolicyLearnedOnlineDQN:
+		return "Policy-LearnedOnlineDQN-100-250ms"
 	default:
 		return base
 	}
@@ -559,6 +595,23 @@ func cachedFittedQPolicy(cfg ScenarioConfig) learnedFittedQPolicy {
 
 	learnedPolicyCache.Lock()
 	learnedPolicyCache.fittedQ[key] = trained
+	learnedPolicyCache.Unlock()
+	return trained
+}
+
+func cachedOnlineDQNPolicy(cfg ScenarioConfig) learnedOnlineDQNPolicy {
+	key := policyCacheKey(cfg, PolicyLearnedOnlineDQN)
+	learnedPolicyCache.Lock()
+	if cached, ok := learnedPolicyCache.onlineDQN[key]; ok {
+		learnedPolicyCache.Unlock()
+		return cached
+	}
+	learnedPolicyCache.Unlock()
+
+	trained := trainLearnedOnlineDQNPolicy(cfg)
+
+	learnedPolicyCache.Lock()
+	learnedPolicyCache.onlineDQN[key] = trained
 	learnedPolicyCache.Unlock()
 	return trained
 }
@@ -705,6 +758,123 @@ func trainLearnedFittedQPolicyTrace(cfg ScenarioConfig) []fittedQTrainingSnapsho
 				HeldOutRegimes: append([]string(nil), basePolicy.HeldOutRegimes...),
 			},
 		})
+	}
+	return trace
+}
+
+func trainLearnedOnlineDQNPolicy(cfg ScenarioConfig) learnedOnlineDQNPolicy {
+	trace := trainLearnedOnlineDQNPolicyTrace(cfg)
+	return trace[len(trace)-1].Policy
+}
+
+func trainLearnedOnlineDQNPolicyTrace(cfg ScenarioConfig) []onlineDQNTrainingSnapshot {
+	trainingSeeds := []int64{307, 311, 313, 317, 331, 337}
+	heldOutSeeds := []int64{223, 227, 229, 233}
+	spec := NewAdapter(cfg).ActionSpec()
+	actions := candidateBanditActions(spec)
+	inputDim := len(observationFeatures(Observation{}))
+	rng := rand.New(rand.NewSource(trainingRandomSeed(cfg) + 907))
+	model := initTinyMLPModel(actions, inputDim, 10, rng)
+	targetModel := copyTinyMLPModel(model)
+
+	policy := learnedOnlineDQNPolicy{
+		Model:         copyTinyMLPModel(model),
+		Gamma:         0.97,
+		Episodes:      160,
+		TrainingSeeds: append([]int64(nil), trainingSeeds...),
+		HeldOutSeeds:  append([]int64(nil), heldOutSeeds...),
+		HeldOutRegimes: []string{
+			"HeldOut-HighArbWideMaker",
+			"HeldOut-RetailBurst",
+			"HeldOut-InformedWide",
+			"HeldOut-CompositeStress",
+		},
+	}
+
+	trace := make([]onlineDQNTrainingSnapshot, 0, 9)
+	trace = append(trace, onlineDQNTrainingSnapshot{
+		Episode:           0,
+		MeanEpisodeReward: 0,
+		Policy: learnedOnlineDQNPolicy{
+			Model:          copyTinyMLPModel(policy.Model),
+			Gamma:          policy.Gamma,
+			Episodes:       policy.Episodes,
+			TrainingSeeds:  append([]int64(nil), policy.TrainingSeeds...),
+			HeldOutSeeds:   append([]int64(nil), policy.HeldOutSeeds...),
+			HeldOutRegimes: append([]string(nil), policy.HeldOutRegimes...),
+		},
+	})
+
+	replay := make([]dqnReplaySample, 0, 6000)
+	recentRewards := make([]float64, 0, 20)
+	totalSteps := 0
+	for episode := 1; episode <= policy.Episodes; episode++ {
+		seedBase := trainingSeeds[(episode-1)%len(trainingSeeds)]
+		seedOffset := int64((episode - 1) / len(trainingSeeds))
+		trainingCfg := cfg
+		trainingCfg.Seed = seedBase + seedOffset*997
+		adapter := NewAdapter(trainingCfg)
+		timestep := adapter.Reset()
+		episodeReward := 0.0
+		epsilon := 0.25 - (0.22 * float64(episode-1) / float64(maxInt(policy.Episodes-1, 1)))
+		if epsilon < 0.03 {
+			epsilon = 0.03
+		}
+		for !timestep.Done {
+			features := observationFeatures(timestep.Observation)
+			actionIdx := 0
+			if rng.Float64() < epsilon {
+				actionIdx = rng.Intn(len(model.Actions))
+			} else {
+				actionIdx = argmaxFloats(qValuesFromTinyMLP(model, features))
+			}
+			next := adapter.Step(model.Actions[actionIdx].Action)
+			replay = append(replay, dqnReplaySample{
+				features:     append([]float64(nil), features...),
+				action:       actionIdx,
+				reward:       next.Reward,
+				nextFeatures: append([]float64(nil), observationFeatures(next.Observation)...),
+				done:         next.Done,
+			})
+			if len(replay) > 6000 {
+				replay = replay[len(replay)-6000:]
+			}
+			episodeReward += next.Reward
+			totalSteps++
+			if len(replay) >= 48 {
+				for update := 0; update < 4; update++ {
+					sample := replay[rng.Intn(len(replay))]
+					target := sample.reward
+					if !sample.done {
+						target += policy.Gamma * maxLogit(qValuesFromTinyMLP(targetModel, sample.nextFeatures))
+					}
+					target = clampFloat(target, -30, 30)
+					applyTinyMLPQUpdate(&model, sample.features, sample.action, target, 0.0035, 1e-4)
+				}
+			}
+			if totalSteps%250 == 0 {
+				targetModel = copyTinyMLPModel(model)
+			}
+			timestep = next
+		}
+		recentRewards = append(recentRewards, episodeReward)
+		if len(recentRewards) > 20 {
+			recentRewards = recentRewards[1:]
+		}
+		if episode%20 == 0 || episode == policy.Episodes {
+			trace = append(trace, onlineDQNTrainingSnapshot{
+				Episode:           episode,
+				MeanEpisodeReward: meanFloatSlice(recentRewards),
+				Policy: learnedOnlineDQNPolicy{
+					Model:          copyTinyMLPModel(model),
+					Gamma:          policy.Gamma,
+					Episodes:       policy.Episodes,
+					TrainingSeeds:  append([]int64(nil), policy.TrainingSeeds...),
+					HeldOutSeeds:   append([]int64(nil), policy.HeldOutSeeds...),
+					HeldOutRegimes: append([]string(nil), policy.HeldOutRegimes...),
+				},
+			})
+		}
 	}
 	return trace
 }
@@ -1146,6 +1316,11 @@ func forwardTinyMLP(model tinyMLPModel, features []float64) ([]float64, []float6
 	return hidden, logits, softmax(logits)
 }
 
+func qValuesFromTinyMLP(model tinyMLPModel, features []float64) []float64 {
+	_, logits, _ := forwardTinyMLP(model, features)
+	return logits
+}
+
 func applyTinyMLPGradients(model *tinyMLPModel, features, hidden, dlogits []float64, lr, l2 float64) {
 	hiddenGrad := make([]float64, model.HiddenDim)
 	for h := 0; h < model.HiddenDim; h++ {
@@ -1167,6 +1342,18 @@ func applyTinyMLPGradients(model *tinyMLPModel, features, hidden, dlogits []floa
 		}
 		model.B1[h] += lr * hiddenGrad[h]
 	}
+}
+
+func applyTinyMLPQUpdate(model *tinyMLPModel, features []float64, action int, target, lr, l2 float64) float64 {
+	hidden, logits, _ := forwardTinyMLP(*model, features)
+	if action < 0 || action >= len(logits) {
+		return 0
+	}
+	dlogits := make([]float64, len(logits))
+	tdError := clampFloat(target-logits[action], -10, 10)
+	dlogits[action] = tdError
+	applyTinyMLPGradients(model, features, hidden, dlogits, lr, l2)
+	return tdError
 }
 
 func softmax(logits []float64) []float64 {
@@ -1274,6 +1461,18 @@ func chooseFittedQAction(spec ActionSpec, observation Observation, policy learne
 	return policy.Actions[bestIdx].Action
 }
 
+func chooseOnlineDQNAction(spec ActionSpec, observation Observation, policy learnedOnlineDQNPolicy) ControlAction {
+	if len(policy.Model.Actions) == 0 {
+		return fallbackBanditAction(spec)
+	}
+	qValues := qValuesFromTinyMLP(policy.Model, observationFeatures(observation))
+	bestIdx := argmaxFloats(qValues)
+	if bestIdx < 0 || bestIdx >= len(policy.Model.Actions) {
+		return fallbackBanditAction(spec)
+	}
+	return policy.Model.Actions[bestIdx].Action
+}
+
 func fallbackBanditAction(spec ActionSpec) ControlAction {
 	mid := minInt(spec.MaxBatchWindowSteps, spec.MinBatchWindowSteps+10)
 	cadence := minInt(spec.MaxReleaseCadenceSteps, maxInt(0, spec.MinBatchWindowSteps+5))
@@ -1287,15 +1486,7 @@ func fallbackBanditAction(spec ActionSpec) ControlAction {
 }
 
 func chooseTinyMLPAction(spec ActionSpec, observation Observation, model tinyMLPModel) ControlAction {
-	_, logits, _ := forwardTinyMLP(model, observationFeatures(observation))
-	bestIdx := 0
-	bestScore := math.Inf(-1)
-	for out, score := range logits {
-		if score > bestScore {
-			bestScore = score
-			bestIdx = out
-		}
-	}
+	bestIdx := argmaxFloats(qValuesFromTinyMLP(model, observationFeatures(observation)))
 	if bestIdx < 0 || bestIdx >= len(model.Actions) {
 		return fallbackBanditAction(spec)
 	}
@@ -1429,6 +1620,20 @@ func copyMatrix(src [][]float64) [][]float64 {
 	return dst
 }
 
+func copyTinyMLPModel(src tinyMLPModel) tinyMLPModel {
+	dst := tinyMLPModel{
+		Actions:    append([]learnedActionCandidate(nil), src.Actions...),
+		InputDim:   src.InputDim,
+		HiddenDim:  src.HiddenDim,
+		W1:         copyMatrix(src.W1),
+		B1:         append([]float64(nil), src.B1...),
+		W2:         copyMatrix(src.W2),
+		B2:         append([]float64(nil), src.B2...),
+		TrainScore: src.TrainScore,
+	}
+	return dst
+}
+
 func copyLinearArmModels(src []linearArmModel) []linearArmModel {
 	dst := make([]linearArmModel, len(src))
 	for i := range src {
@@ -1555,6 +1760,42 @@ func maxFloat(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+func maxLogit(values []float64) float64 {
+	best := math.Inf(-1)
+	for _, value := range values {
+		if value > best {
+			best = value
+		}
+	}
+	if best == math.Inf(-1) {
+		return 0
+	}
+	return best
+}
+
+func argmaxFloats(values []float64) int {
+	bestIdx := 0
+	bestValue := math.Inf(-1)
+	for idx, value := range values {
+		if value > bestValue {
+			bestValue = value
+			bestIdx = idx
+		}
+	}
+	return bestIdx
+}
+
+func meanFloatSlice(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, value := range values {
+		sum += value
+	}
+	return sum / float64(len(values))
 }
 
 func clampFloat(v, minV, maxV float64) float64 {

@@ -226,6 +226,57 @@ type fittedQLearningCurvePoint struct {
 	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
 }
 
+type onlineDQNLearningCurvePoint struct {
+	Episode                        int     `json:"episode"`
+	MeanEpisodeReward              float64 `json:"mean_episode_reward"`
+	Runs                           int     `json:"runs"`
+	MeanFillsPerSec                float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec                float64 `json:"ci95_fills_per_sec"`
+	MeanP99LatencyMs               float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs               float64 `json:"ci95_p99_latency_ms"`
+	MeanRetailSurplusPerUnit       float64 `json:"mean_retail_surplus_per_unit"`
+	CI95RetailSurplusPerUnit       float64 `json:"ci95_retail_surplus_per_unit"`
+	MeanRetailAdverseSelectionRate float64 `json:"mean_retail_adverse_selection_rate"`
+	CI95RetailAdverseSelectionRate float64 `json:"ci95_retail_adverse_selection_rate"`
+	MeanSurplusTransferGap         float64 `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap         float64 `json:"ci95_surplus_transfer_gap"`
+}
+
+type paretoPoint struct {
+	Name                   string  `json:"name"`
+	Category               string  `json:"category"`
+	MeanP99LatencyMs       float64 `json:"mean_p99_latency_ms"`
+	CI95P99LatencyMs       float64 `json:"ci95_p99_latency_ms"`
+	MeanSurplusTransferGap float64 `json:"mean_surplus_transfer_gap"`
+	CI95SurplusTransferGap float64 `json:"ci95_surplus_transfer_gap"`
+	MeanFillsPerSec        float64 `json:"mean_fills_per_sec"`
+	CI95FillsPerSec        float64 `json:"ci95_fills_per_sec"`
+	Frontier               bool    `json:"frontier"`
+}
+
+type responseSurfaceCoefficient struct {
+	Name        string  `json:"name"`
+	Coefficient float64 `json:"coefficient"`
+}
+
+type responseSurfaceEffect struct {
+	Factor    string  `json:"factor"`
+	PartialR2 float64 `json:"partial_r2"`
+}
+
+type responseSurfaceFit struct {
+	Metric       string                       `json:"metric"`
+	R2           float64                      `json:"r2"`
+	RMSE         float64                      `json:"rmse"`
+	Coefficients []responseSurfaceCoefficient `json:"coefficients"`
+	Effects      []responseSurfaceEffect      `json:"effects"`
+}
+
+type hypercubeResponseSurfaceSummary struct {
+	Seeds []int64              `json:"seeds"`
+	Fits  []responseSurfaceFit `json:"fits"`
+}
+
 func simulatorScenarios() []ScenarioConfig {
 	return []ScenarioConfig{
 		{
@@ -384,6 +435,21 @@ func simulatorScenarios() []ScenarioConfig {
 			Name:                   "Policy-LearnedFittedQ-100-250ms",
 			Mode:                   ModeAdaptiveBatch,
 			PolicyController:       PolicyLearnedFittedQ,
+			AdaptivePolicy:         AdaptiveBalanced,
+			AdaptiveMinWindowSteps: 10,
+			AdaptiveMaxWindowSteps: 25,
+			AdaptiveOrderThreshold: 10,
+			AdaptiveQueueThreshold: 12,
+			StepDuration:           10 * time.Millisecond,
+			TotalSteps:             125,
+			Seed:                   42,
+			Agents:                 DefaultPopulation(),
+			Risk:                   RiskConfig{MaxOrderAmount: 8, MaxOrdersPerStep: 24},
+		},
+		{
+			Name:                   "Policy-LearnedOnlineDQN-100-250ms",
+			Mode:                   ModeAdaptiveBatch,
+			PolicyController:       PolicyLearnedOnlineDQN,
 			AdaptivePolicy:         AdaptiveBalanced,
 			AdaptiveMinWindowSteps: 10,
 			AdaptiveMaxWindowSteps: 25,
@@ -725,6 +791,7 @@ func heldOutPolicies() []PolicyController {
 		PolicyLearnedTinyMLP,
 		PolicyLearnedOfflineContextual,
 		PolicyLearnedFittedQ,
+		PolicyLearnedOnlineDQN,
 	}
 }
 
@@ -925,6 +992,19 @@ func TestFittedQPolicyProducesNamedResult(t *testing.T) {
 	}
 }
 
+func TestOnlineDQNPolicyProducesNamedResult(t *testing.T) {
+	result := runScenario(scenarioByName(t, "Policy-LearnedOnlineDQN-100-250ms"))
+	if result.Name != "Policy-LearnedOnlineDQN-100-250ms" {
+		t.Fatalf("expected online DQN policy result name, got %+v", result)
+	}
+	if result.AdaptiveWindowMeanMs <= 0 {
+		t.Fatalf("expected online DQN controller to record adaptive window stats, got %+v", result)
+	}
+	if result.NegativeBalanceViolations != 0 || result.ConservationBreaches != 0 {
+		t.Fatalf("expected online DQN controller to preserve invariants, got %+v", result)
+	}
+}
+
 func TestGenerateSimulatorBenchmarkArtifacts(t *testing.T) {
 	t.Helper()
 	if os.Getenv("RUN_SIM_BENCH") != "1" {
@@ -996,6 +1076,9 @@ func TestGenerateSimulatorMultiSeedArtifacts(t *testing.T) {
 
 	if err := writeSimulatorMultiSeedArtifacts(aggregates, seeds); err != nil {
 		t.Fatalf("write multi-seed artifacts: %v", err)
+	}
+	if err := writeSimulatorParetoArtifacts(summarizeParetoFrontier(aggregates), seeds); err != nil {
+		t.Fatalf("write pareto artifacts: %v", err)
 	}
 }
 
@@ -1161,6 +1244,9 @@ func TestGenerateSimulatorParameterHypercubeArtifacts(t *testing.T) {
 	if err := writeSimulatorHypercubeSummaryArtifacts(summarizeHypercubeCompact(hyperResults, seeds)); err != nil {
 		t.Fatalf("write hypercube summary artifacts: %v", err)
 	}
+	if err := writeSimulatorHypercubeResponseSurfaceArtifacts(summarizeHypercubeResponseSurface(hyperResults, seeds)); err != nil {
+		t.Fatalf("write hypercube response-surface artifacts: %v", err)
+	}
 }
 
 func TestGenerateSimulatorHeldOutPolicyArtifacts(t *testing.T) {
@@ -1228,6 +1314,39 @@ func TestGenerateSimulatorFittedQLearningCurveArtifacts(t *testing.T) {
 	}
 }
 
+func TestGenerateSimulatorOnlineDQNTrainingArtifacts(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SIM_ONLINE_DQN") != "1" {
+		t.Skip("set RUN_SIM_ONLINE_DQN=1 to generate online-DQN training artifacts")
+	}
+
+	base := scenarioByName(t, "Policy-LearnedOnlineDQN-100-250ms")
+	trace := trainLearnedOnlineDQNPolicyTrace(base)
+	regimes := heldOutRegimeScenarios()
+	points := make([]onlineDQNLearningCurvePoint, 0, len(trace))
+	for _, snapshot := range trace {
+		runs := make([]BenchmarkResult, 0, len(regimes)*len(snapshot.Policy.HeldOutSeeds))
+		for _, regime := range regimes {
+			for _, seed := range snapshot.Policy.HeldOutSeeds {
+				cfg := regime
+				cfg.Seed = seed
+				runs = append(runs, runScenarioWithOnlineDQNPolicy(cfg, snapshot.Policy))
+			}
+		}
+		points = append(points, summarizeOnlineDQNLearningCurvePoint(snapshot, runs))
+	}
+
+	if len(points) < 2 {
+		t.Fatalf("expected multiple online-DQN learning points, got %+v", points)
+	}
+	if points[len(points)-1].MeanP99LatencyMs >= points[0].MeanP99LatencyMs {
+		t.Fatalf("expected online DQN training to improve held-out p99 over the untrained baseline, start=%+v end=%+v", points[0], points[len(points)-1])
+	}
+	if err := writeSimulatorOnlineDQNLearningCurveArtifacts(points, trace[len(trace)-1].Policy.TrainingSeeds, trace[len(trace)-1].Policy.HeldOutSeeds, trace[len(trace)-1].Policy.HeldOutRegimes); err != nil {
+		t.Fatalf("write online-DQN learning-curve artifacts: %v", err)
+	}
+}
+
 func runScenarioWithFittedQPolicy(cfg ScenarioConfig, policy learnedFittedQPolicy) BenchmarkResult {
 	start := time.Now()
 	adapter := NewAdapter(cfg)
@@ -1238,6 +1357,19 @@ func runScenarioWithFittedQPolicy(cfg ScenarioConfig, policy learnedFittedQPolic
 	}
 	result := adapter.env.benchmarkResult(time.Since(start))
 	result.Name = policyScenarioName(result.Name, PolicyLearnedFittedQ)
+	return result
+}
+
+func runScenarioWithOnlineDQNPolicy(cfg ScenarioConfig, policy learnedOnlineDQNPolicy) BenchmarkResult {
+	start := time.Now()
+	adapter := NewAdapter(cfg)
+	timestep := adapter.Reset()
+	for !timestep.Done {
+		action := chooseOnlineDQNAction(adapter.ActionSpec(), timestep.Observation, policy)
+		timestep = adapter.Step(action)
+	}
+	result := adapter.env.benchmarkResult(time.Since(start))
+	result.Name = policyScenarioName(result.Name, PolicyLearnedOnlineDQN)
 	return result
 }
 
@@ -1323,6 +1455,101 @@ func writeSimulatorFittedQLearningCurveArtifacts(points []fittedQLearningCurvePo
 	for _, point := range points {
 		csv.WriteString(fmt.Sprintf("%d,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
 			point.Iteration, point.MeanBellmanMSE, point.Runs,
+			point.MeanFillsPerSec, point.CI95FillsPerSec,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
+			point.MeanRetailAdverseSelectionRate, point.CI95RetailAdverseSelectionRate,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func summarizeOnlineDQNLearningCurvePoint(snapshot onlineDQNTrainingSnapshot, runs []BenchmarkResult) onlineDQNLearningCurvePoint {
+	fills := make([]float64, 0, len(runs))
+	p99 := make([]float64, 0, len(runs))
+	retailSurplus := make([]float64, 0, len(runs))
+	retailAdverse := make([]float64, 0, len(runs))
+	surplusGap := make([]float64, 0, len(runs))
+	for _, run := range runs {
+		fills = append(fills, run.FillsPerSec)
+		p99 = append(p99, run.P99LatencyMs)
+		retailSurplus = append(retailSurplus, run.RetailSurplusPerUnit)
+		retailAdverse = append(retailAdverse, run.RetailAdverseSelectionRate)
+		surplusGap = append(surplusGap, run.SurplusTransferGap)
+	}
+	meanFills, ciFills := meanCI95(fills)
+	meanP99, ciP99 := meanCI95(p99)
+	meanRetailSurplus, ciRetailSurplus := meanCI95(retailSurplus)
+	meanRetailAdverse, ciRetailAdverse := meanCI95(retailAdverse)
+	meanGap, ciGap := meanCI95(surplusGap)
+	return onlineDQNLearningCurvePoint{
+		Episode:                        snapshot.Episode,
+		MeanEpisodeReward:              snapshot.MeanEpisodeReward,
+		Runs:                           len(runs),
+		MeanFillsPerSec:                meanFills,
+		CI95FillsPerSec:                ciFills,
+		MeanP99LatencyMs:               meanP99,
+		CI95P99LatencyMs:               ciP99,
+		MeanRetailSurplusPerUnit:       meanRetailSurplus,
+		CI95RetailSurplusPerUnit:       ciRetailSurplus,
+		MeanRetailAdverseSelectionRate: meanRetailAdverse,
+		CI95RetailAdverseSelectionRate: ciRetailAdverse,
+		MeanSurplusTransferGap:         meanGap,
+		CI95SurplusTransferGap:         ciGap,
+	}
+}
+
+func writeSimulatorOnlineDQNLearningCurveArtifacts(points []onlineDQNLearningCurvePoint, trainingSeeds []int64, heldOutSeeds []int64, heldOutRegimes []string) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_online_dqn_training_curve.json")
+	mdPath := filepath.Join(base, "simulator_online_dqn_training_curve.md")
+	csvPath := filepath.Join(base, "simulator_online_dqn_training_curve.csv")
+
+	payload := map[string]any{
+		"training_seeds":  trainingSeeds,
+		"heldout_seeds":   heldOutSeeds,
+		"heldout_regimes": heldOutRegimes,
+		"results":         points,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Online DQN Training Curve\n\n")
+	md.WriteString(fmt.Sprintf("Training seeds: `%v`\n\n", trainingSeeds))
+	md.WriteString(fmt.Sprintf("Held-out seeds: `%v`\n\n", heldOutSeeds))
+	md.WriteString(fmt.Sprintf("Held-out regimes: `%s`\n\n", strings.Join(heldOutRegimes, ", ")))
+	md.WriteString("Each row evaluates an online DQN-style checkpoint on the held-out regime set.\n\n")
+	md.WriteString("| Episode | Mean Train Reward | Runs | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |\n")
+	md.WriteString("|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, point := range points {
+		md.WriteString(fmt.Sprintf("| %d | %.4f | %d | %.2f +/- %.2f | %.2f +/- %.2f | %.4f +/- %.4f | %.4f +/- %.4f | %.4f +/- %.4f |\n",
+			point.Episode, point.MeanEpisodeReward, point.Runs,
+			point.MeanFillsPerSec, point.CI95FillsPerSec,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
+			point.MeanRetailAdverseSelectionRate, point.CI95RetailAdverseSelectionRate,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap))
+	}
+
+	var csv strings.Builder
+	csv.WriteString("episode,mean_episode_reward,runs,mean_fills_per_sec,ci95_fills_per_sec,mean_p99_latency_ms,ci95_p99_latency_ms,mean_retail_surplus_per_unit,ci95_retail_surplus_per_unit,mean_retail_adverse_selection_rate,ci95_retail_adverse_selection_rate,mean_surplus_transfer_gap,ci95_surplus_transfer_gap\n")
+	for _, point := range points {
+		csv.WriteString(fmt.Sprintf("%d,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+			point.Episode, point.MeanEpisodeReward, point.Runs,
 			point.MeanFillsPerSec, point.CI95FillsPerSec,
 			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
 			point.MeanRetailSurplusPerUnit, point.CI95RetailSurplusPerUnit,
@@ -1542,6 +1769,118 @@ func writeSimulatorMultiSeedArtifacts(results []aggregateResult, seeds []int64) 
 			fmt.Sprintf("%d", r.RiskRejectionsTotal),
 		}
 		csv.WriteString(strings.Join(fields, ",") + "\n")
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func summarizeParetoFrontier(results []aggregateResult) []paretoPoint {
+	points := make([]paretoPoint, 0, len(results))
+	for _, result := range results {
+		points = append(points, paretoPoint{
+			Name:                   result.Name,
+			Category:               paretoCategory(result.Name),
+			MeanP99LatencyMs:       result.MeanP99LatencyMs,
+			CI95P99LatencyMs:       result.CI95P99LatencyMs,
+			MeanSurplusTransferGap: result.MeanSurplusTransferGap,
+			CI95SurplusTransferGap: result.CI95SurplusTransferGap,
+			MeanFillsPerSec:        result.MeanFillsPerSec,
+			CI95FillsPerSec:        result.CI95FillsPerSec,
+		})
+	}
+	for idx := range points {
+		dominated := false
+		for jdx := range points {
+			if idx == jdx {
+				continue
+			}
+			other := points[jdx]
+			if other.MeanP99LatencyMs <= points[idx].MeanP99LatencyMs &&
+				other.MeanSurplusTransferGap <= points[idx].MeanSurplusTransferGap &&
+				(other.MeanP99LatencyMs < points[idx].MeanP99LatencyMs || other.MeanSurplusTransferGap < points[idx].MeanSurplusTransferGap) {
+				dominated = true
+				break
+			}
+		}
+		points[idx].Frontier = !dominated
+	}
+	sort.Slice(points, func(i, j int) bool {
+		if points[i].MeanP99LatencyMs == points[j].MeanP99LatencyMs {
+			return points[i].MeanSurplusTransferGap < points[j].MeanSurplusTransferGap
+		}
+		return points[i].MeanP99LatencyMs < points[j].MeanP99LatencyMs
+	})
+	return points
+}
+
+func paretoCategory(name string) string {
+	switch {
+	case strings.HasPrefix(name, "Policy-"):
+		return "controller"
+	case strings.HasPrefix(name, "Adaptive-"):
+		return "adaptive"
+	case strings.HasPrefix(name, "FBA-"):
+		return "batch"
+	case strings.HasPrefix(name, "SpeedBump"):
+		return "mechanism"
+	case strings.HasPrefix(name, "Immediate"):
+		return "mechanism"
+	default:
+		return "other"
+	}
+}
+
+func writeSimulatorParetoArtifacts(points []paretoPoint, seeds []int64) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_controller_pareto.json")
+	mdPath := filepath.Join(base, "simulator_controller_pareto.md")
+	csvPath := filepath.Join(base, "simulator_controller_pareto.csv")
+
+	payload := map[string]any{
+		"seeds":   seeds,
+		"results": points,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Controller Pareto Frontier\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", seeds))
+	md.WriteString("Pareto axes minimize `p99 latency` and `surplus transfer gap`; `fills/s` is reported as a third axis for interpretation.\n\n")
+	md.WriteString("| Scenario | Category | Frontier | p99 (ms) | Welfare Gap | Fills/s |\n")
+	md.WriteString("|---|---|:---:|---:|---:|---:|\n")
+	for _, point := range points {
+		flag := ""
+		if point.Frontier {
+			flag = "yes"
+		}
+		md.WriteString(fmt.Sprintf("| %s | %s | %s | %.2f +/- %.2f | %.4f +/- %.4f | %.2f +/- %.2f |\n",
+			point.Name, point.Category, flag,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap,
+			point.MeanFillsPerSec, point.CI95FillsPerSec))
+	}
+
+	var csv strings.Builder
+	csv.WriteString("scenario,category,frontier,mean_p99_latency_ms,ci95_p99_latency_ms,mean_surplus_transfer_gap,ci95_surplus_transfer_gap,mean_fills_per_sec,ci95_fills_per_sec\n")
+	for _, point := range points {
+		csv.WriteString(fmt.Sprintf("%s,%s,%t,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+			point.Name, point.Category, point.Frontier,
+			point.MeanP99LatencyMs, point.CI95P99LatencyMs,
+			point.MeanSurplusTransferGap, point.CI95SurplusTransferGap,
+			point.MeanFillsPerSec, point.CI95FillsPerSec))
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
@@ -1877,6 +2216,182 @@ func summarizeHypercubeCompact(results []hypercubeSweepResult, seeds []int64) hy
 		HighLowContrasts:           contrasts,
 		RetailConditionedArbitrage: retailEffects,
 	}
+}
+
+func summarizeHypercubeResponseSurface(results []hypercubeSweepResult, seeds []int64) hypercubeResponseSurfaceSummary {
+	return hypercubeResponseSurfaceSummary{
+		Seeds: seeds,
+		Fits: []responseSurfaceFit{
+			fitHypercubeResponseSurface("surplus_transfer_gap", results, func(r hypercubeSweepResult) float64 { return r.MeanSurplusTransferGap }),
+			fitHypercubeResponseSurface("p99_latency_ms", results, func(r hypercubeSweepResult) float64 { return r.MeanP99LatencyMs }),
+			fitHypercubeResponseSurface("retail_surplus_per_unit", results, func(r hypercubeSweepResult) float64 { return r.MeanRetailSurplusPerUnit }),
+		},
+	}
+}
+
+func fitHypercubeResponseSurface(metric string, results []hypercubeSweepResult, selector func(hypercubeSweepResult) float64) responseSurfaceFit {
+	featureNames := []string{
+		"intercept",
+		"arb",
+		"retail",
+		"informed",
+		"maker",
+		"arb_x_retail",
+		"arb_x_informed",
+		"arb_x_maker",
+		"retail_x_informed",
+		"retail_x_maker",
+		"informed_x_maker",
+	}
+	groupColumns := []struct {
+		name    string
+		columns []int
+	}{
+		{name: "arbitrageur_intensity", columns: []int{1, 5, 6, 7}},
+		{name: "retail_intensity", columns: []int{2, 5, 8, 9}},
+		{name: "informed_intensity", columns: []int{3, 6, 8, 10}},
+		{name: "maker_quote_width", columns: []int{4, 7, 9, 10}},
+		{name: "arb_x_retail", columns: []int{5}},
+		{name: "arb_x_informed", columns: []int{6}},
+		{name: "arb_x_maker", columns: []int{7}},
+		{name: "retail_x_informed", columns: []int{8}},
+		{name: "retail_x_maker", columns: []int{9}},
+		{name: "informed_x_maker", columns: []int{10}},
+	}
+
+	rows := make([][]float64, 0, len(results))
+	target := make([]float64, 0, len(results))
+	for _, result := range results {
+		arb := standardizeArbitrage(result.ArbitrageurIntensityMultiplier)
+		retail := standardizeThreeLevel(result.RetailIntensityMultiplier)
+		informed := standardizeThreeLevel(result.InformedIntensityMultiplier)
+		maker := standardizeThreeLevel(result.MakerQuoteWidthMultiplier)
+		rows = append(rows, []float64{
+			1.0,
+			arb,
+			retail,
+			informed,
+			maker,
+			arb * retail,
+			arb * informed,
+			arb * maker,
+			retail * informed,
+			retail * maker,
+			informed * maker,
+		})
+		target = append(target, selector(result))
+	}
+
+	beta, predictions, sse, sst := fitLinearModel(rows, target, nil)
+	r2 := 0.0
+	if sst > 0 {
+		r2 = 1.0 - sse/sst
+	}
+	if r2 < 0 {
+		r2 = 0
+	}
+	coefficients := make([]responseSurfaceCoefficient, 0, len(featureNames))
+	for idx, name := range featureNames {
+		coefficients = append(coefficients, responseSurfaceCoefficient{
+			Name:        name,
+			Coefficient: beta[idx],
+		})
+	}
+	effects := make([]responseSurfaceEffect, 0, len(groupColumns))
+	for _, group := range groupColumns {
+		reducedBeta, _, reducedSSE, _ := fitLinearModel(rows, target, group.columns)
+		_ = reducedBeta
+		partial := 0.0
+		if sst > 0 {
+			partial = (reducedSSE - sse) / sst
+		}
+		if partial < 0 {
+			partial = 0
+		}
+		effects = append(effects, responseSurfaceEffect{
+			Factor:    group.name,
+			PartialR2: partial,
+		})
+	}
+	sort.Slice(effects, func(i, j int) bool {
+		return effects[i].PartialR2 > effects[j].PartialR2
+	})
+
+	rmse := 0.0
+	if len(predictions) > 0 {
+		rmse = math.Sqrt(sse / float64(len(predictions)))
+	}
+	return responseSurfaceFit{
+		Metric:       metric,
+		R2:           r2,
+		RMSE:         rmse,
+		Coefficients: coefficients,
+		Effects:      effects,
+	}
+}
+
+func fitLinearModel(rows [][]float64, target []float64, dropColumns []int) ([]float64, []float64, float64, float64) {
+	keep := make([]int, 0, len(rows[0]))
+	drop := make(map[int]bool, len(dropColumns))
+	for _, idx := range dropColumns {
+		drop[idx] = true
+	}
+	for idx := range rows[0] {
+		if !drop[idx] {
+			keep = append(keep, idx)
+		}
+	}
+
+	design := make([][]float64, len(rows))
+	for i, row := range rows {
+		design[i] = make([]float64, 0, len(keep))
+		for _, idx := range keep {
+			design[i] = append(design[i], row[idx])
+		}
+	}
+	xtx := make([][]float64, len(keep))
+	xty := make([]float64, len(keep))
+	for i := range xtx {
+		xtx[i] = make([]float64, len(keep))
+		xtx[i][i] = 1e-6
+	}
+	for rowIdx, row := range design {
+		for i := range row {
+			xty[i] += row[i] * target[rowIdx]
+			for j := range row {
+				xtx[i][j] += row[i] * row[j]
+			}
+		}
+	}
+	reducedBeta := solveLinearSystem(xtx, xty)
+	fullBeta := make([]float64, len(rows[0]))
+	for i, idx := range keep {
+		fullBeta[idx] = reducedBeta[i]
+	}
+	predictions := make([]float64, len(rows))
+	targetMean, _ := meanStd(target)
+	sse := 0.0
+	sst := 0.0
+	for i, row := range rows {
+		pred := 0.0
+		for j, value := range row {
+			pred += fullBeta[j] * value
+		}
+		predictions[i] = pred
+		err := target[i] - pred
+		sse += err * err
+		centered := target[i] - targetMean
+		sst += centered * centered
+	}
+	return fullBeta, predictions, sse, sst
+}
+
+func standardizeArbitrage(level int) float64 {
+	return (float64(level) - 1.5) / math.Sqrt(1.25)
+}
+
+func standardizeThreeLevel(level int) float64 {
+	return (float64(level) - 2.0) / math.Sqrt(2.0/3.0)
 }
 
 func summarizeHeldOutPolicyRuns(regime string, policy PolicyController, runs []BenchmarkResult) heldOutPolicyResult {
@@ -2350,6 +2865,62 @@ func writeSimulatorHypercubeSummaryArtifacts(summary hypercubeCompactSummary) er
 			effect.RetailIntensityMultiplier,
 			effect.DeltaOrdersPerSec, effect.DeltaP99LatencyMs, effect.DeltaLatencyArbitrageProfit,
 			effect.DeltaRetailSurplusPerUnit, effect.DeltaRetailAdverseSelection, effect.DeltaSurplusTransferGap))
+	}
+
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorHypercubeResponseSurfaceArtifacts(summary hypercubeResponseSurfaceSummary) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+
+	jsonPath := filepath.Join(base, "simulator_parameter_hypercube_response_surface.json")
+	mdPath := filepath.Join(base, "simulator_parameter_hypercube_response_surface.md")
+	csvPath := filepath.Join(base, "simulator_parameter_hypercube_response_surface.csv")
+
+	raw, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Parameter Hypercube Response Surface\n\n")
+	md.WriteString(fmt.Sprintf("Seeds: `%v`\n\n", summary.Seeds))
+	md.WriteString("Each fit uses a standardized response surface with main effects and pairwise interactions over `arb`, `retail`, `informed`, and `maker` factors.\n\n")
+	for _, fit := range summary.Fits {
+		md.WriteString(fmt.Sprintf("## %s\n\n", fit.Metric))
+		md.WriteString(fmt.Sprintf("- `R^2`: %.4f\n", fit.R2))
+		md.WriteString(fmt.Sprintf("- `RMSE`: %.4f\n\n", fit.RMSE))
+		md.WriteString("| Coefficient | Value |\n|---|---:|\n")
+		for _, coefficient := range fit.Coefficients {
+			md.WriteString(fmt.Sprintf("| %s | %.4f |\n", coefficient.Name, coefficient.Coefficient))
+		}
+		md.WriteString("\n| Effect Group | Partial R^2 |\n|---|---:|\n")
+		for _, effect := range fit.Effects {
+			md.WriteString(fmt.Sprintf("| %s | %.4f |\n", effect.Factor, effect.PartialR2))
+		}
+		md.WriteString("\n")
+	}
+
+	var csv strings.Builder
+	csv.WriteString("metric,section,name,value\n")
+	for _, fit := range summary.Fits {
+		csv.WriteString(fmt.Sprintf("%s,fit,r2,%.6f\n", fit.Metric, fit.R2))
+		csv.WriteString(fmt.Sprintf("%s,fit,rmse,%.6f\n", fit.Metric, fit.RMSE))
+		for _, coefficient := range fit.Coefficients {
+			csv.WriteString(fmt.Sprintf("%s,coefficient,%s,%.6f\n", fit.Metric, coefficient.Name, coefficient.Coefficient))
+		}
+		for _, effect := range fit.Effects {
+			csv.WriteString(fmt.Sprintf("%s,effect,%s,%.6f\n", fit.Metric, effect.Factor, effect.PartialR2))
+		}
 	}
 
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {

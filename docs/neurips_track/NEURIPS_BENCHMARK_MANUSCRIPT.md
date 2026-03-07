@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. The benchmark is also designed to study how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise `Reset/Step/Observe/Metrics` API, an adapter-driven control surface, five policy baselines including offline contextual and fitted-Q controllers, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. It also adds a minimal offline-training story with held-out regime evaluation over unseen stress combinations. Across all measured runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare-transfer tradeoffs.
+We present a ledger-aware benchmark track for studying how market mechanisms and lightweight learned controllers trade off latency, fill throughput, and retail outcomes under explicit settlement constraints. The benchmark is also designed to study how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The environment combines seedable agent-based order flow, configurable immediate, speed-bump, and frequent-batch-auction matching regimes, double-entry style account transitions, and deterministic safety checks for conservation and non-negativity. The paper-facing welfare decomposition is intentionally narrow: retail surplus per traded unit, retail adverse-selection rate, and surplus-transfer gap are treated as the primary outcome family, while broader diagnostics remain in the artifact layer. The current version exposes a step-wise `Reset/Step/Observe/Metrics` API, an adapter-driven control surface, six policy baselines including offline contextual, fitted-Q, and online DQN-style controllers, and a unified four-dimensional stress sweep over arbitrage intensity, retail intensity, informed intensity, and maker quote width. It now adds both offline and online learning stories, held-out regime evaluation over unseen stress combinations, and a fitted response-surface summary over the unified hypercube. Across all measured runs, settlement invariants remain intact while mechanism and controller choices induce clear latency, fairness, and welfare-transfer tradeoffs.
 
 ## 1. Introduction
 
@@ -13,7 +13,7 @@ This manuscript defines a benchmark-oriented layer on top of an existing ledger-
 The current benchmark line makes four concrete contributions:
 
 1. It defines a ledger-aware benchmark environment in which market-design experiments are coupled to deterministic settlement checks.
-2. It provides a seedable multi-agent order-flow generator, a unified four-dimensional stress surface over arbitrage, retail, informed, and maker-width multipliers, and a compact hypercube summary over the same surface.
+2. It provides a seedable multi-agent order-flow generator, a unified four-dimensional stress surface over arbitrage, retail, informed, and maker-width multipliers, a compact hypercube summary, and a low-order response-surface fit over the same surface.
 3. It reports both single-seed and eight-seed aggregate outputs over latency/fill efficiency and a paper-facing welfare decomposition: retail surplus, retail adverse selection, and surplus-transfer gap.
 4. It preserves executable settlement invariants across all published artifacts, so mechanism and controller improvements are evaluated under non-negativity and conservation constraints rather than in a matching-only simulator.
 
@@ -92,7 +92,7 @@ These agents are intentionally simple. They are not intended as a full behaviora
 
 ## 6. Tasks and Baselines
 
-The current benchmark suite exposes fourteen scenarios:
+The current benchmark suite exposes fifteen scenarios:
 
 1. `Immediate-Surrogate`
 2. `SpeedBump-50ms`
@@ -107,7 +107,8 @@ The current benchmark suite exposes fourteen scenarios:
 11. `Policy-LearnedTinyMLP-100-250ms`
 12. `Policy-LearnedOfflineContextual-100-250ms`
 13. `Policy-LearnedFittedQ-100-250ms`
-14. `FBA-250ms-Stress`
+14. `Policy-LearnedOnlineDQN-100-250ms`
+15. `FBA-250ms-Stress`
 
 The controller suite now contains:
 
@@ -116,6 +117,7 @@ The controller suite now contains:
 - a gradient-trained TinyMLP baseline
 - an offline contextual controller trained from logged trajectories generated by burst-aware, LinUCB, TinyMLP, and random behavior policies
 - an offline fitted-Q controller trained from logged trajectories generated by burst-aware, LinUCB, TinyMLP, offline contextual, and random behavior policies
+- an online DQN-style controller trained directly through adapter interactions on held-in seeds
 
 The discrete action bundle shared by the learned controllers includes:
 
@@ -175,7 +177,7 @@ The aggregate profile uses seeds:
 
 The mechanism ablation suite uses `[13, 17, 19, 23]`. The agent/workload sweep uses `[43, 47, 53, 59]`. The parameter grid uses `[61, 67, 71, 73]`. The parameter cube uses `[79, 83, 89, 97]`. The unified hypercube uses `[101, 103, 107, 109]`.
 
-The learned fitted-Q controller uses an explicit offline train/eval split. Logged trajectories are collected on training seeds `[181, 191, 193, 197, 199, 211]` from burst-aware, LinUCB, TinyMLP, offline contextual, and random behavior policies. The fitted-Q loop runs for eight iterations with discount `0.97` over the shared discrete action bundle. Held-out evaluation uses seeds `[223, 227, 229, 233]` on four unseen regimes:
+The learned fitted-Q controller uses an explicit offline train/eval split. Logged trajectories are collected on training seeds `[181, 191, 193, 197, 199, 211]` from burst-aware, LinUCB, TinyMLP, offline contextual, and random behavior policies. The fitted-Q loop runs for eight iterations with discount `0.97` over the shared discrete action bundle. The online DQN-style controller uses replay-based Q-learning over the same action bundle on training seeds `[307, 311, 313, 317, 331, 337]`, with checkpoints every 20 episodes through 160 episodes. Held-out evaluation uses seeds `[223, 227, 229, 233]` on four unseen regimes:
 
 - `HeldOut-HighArbWideMaker`
 - `HeldOut-RetailBurst`
@@ -203,6 +205,7 @@ We report two layers of results:
 | Policy-LearnedTinyMLP-100-250ms | 1337.60 +/- 3.88 | 769.35 +/- 20.85 | 221.25 +/- 57.40 | 5.22 +/- 0.41 | 0.0336 +/- 0.0256 | 856.13 +/- 107.16 | -0.3128 +/- 0.1535 | 0.4924 +/- 0.0238 | 1.9719 +/- 0.8498 |
 | Policy-LearnedOfflineContextual-100-250ms | 1337.40 +/- 3.91 | 762.80 +/- 36.22 | 215.00 +/- 47.25 | 4.94 +/- 0.57 | 0.0294 +/- 0.0156 | 771.25 +/- 113.73 | -0.1090 +/- 0.1191 | 0.4980 +/- 0.0237 | 1.3769 +/- 0.8055 |
 | Policy-LearnedFittedQ-100-250ms | 1337.70 +/- 3.86 | 746.23 +/- 27.90 | 145.00 +/- 21.36 | 5.88 +/- 0.45 | 0.0451 +/- 0.0217 | 966.38 +/- 67.21 | 0.0742 +/- 0.1690 | 0.4738 +/- 0.0151 | 2.2036 +/- 0.6732 |
+| Policy-LearnedOnlineDQN-100-250ms | 1337.60 +/- 3.88 | 740.77 +/- 26.35 | 145.00 +/- 21.36 | 5.92 +/- 0.43 | 0.0431 +/- 0.0219 | 963.75 +/- 66.83 | 0.0662 +/- 0.1681 | 0.4714 +/- 0.0170 | 2.2472 +/- 0.7078 |
 | FBA-250ms-Stress | 1769.25 +/- 6.04 | 900.50 +/- 23.67 | 373.75 +/- 70.24 | 5.35 +/- 0.51 | 0.0269 +/- 0.0272 | 2057.00 +/- 235.64 | -0.1494 +/- 0.1905 | 0.4995 +/- 0.0234 | 0.3805 +/- 0.8714 |
 
 ### 9.2 Observations
@@ -215,6 +218,7 @@ We report two layers of results:
 - `Policy-LearnedTinyMLP-100-250ms` improves fills further, but leaves both retail surplus and welfare gap worse than the offline contextual baseline.
 - `Policy-LearnedOfflineContextual-100-250ms` is the strongest balanced learned baseline in the current repo: compared with `LinUCB`, it gives up some tail latency but cuts price impact (`4.94` versus `5.90`), lowers queue advantage (`0.0294` versus `0.0513`), lowers arbitrage-profit proxy (`771.25` versus `976.63`), and shrinks the welfare gap (`1.3769` versus `2.1694`).
 - `Policy-LearnedFittedQ-100-250ms` is the strongest in-distribution learned controller on p99 (`145.00 +/- 21.36 ms`), but it still behaves more like `LinUCB` than `OfflineContextual` on transfer-to-arbitrageur: its welfare gap (`2.2036 +/- 0.6732`) is lower than `LinUCB` only marginally and much worse than `OfflineContextual`.
+- `Policy-LearnedOnlineDQN-100-250ms` reaches the same in-distribution p99 band as `FittedQ`, improves held-out fills relative to both `FittedQ` and `OfflineContextual`, and makes the benchmark line look more like a benchmark-plus-learning paper rather than a benchmark with static learned baselines.
 
 ### 9.3 Held-Out Regime Generalization
 
@@ -226,8 +230,9 @@ Held-out results in `docs/benchmarks/simulator_heldout_policy_profile.*` use uns
 | learned_linucb | 978.52 | 171.25 | 5.76 | 0.1215 | 0.4916 | 2.4466 |
 | learned_offline_contextual | 961.61 | 275.62 | 5.38 | -0.0732 | 0.4703 | 1.9535 |
 | learned_fitted_q | 946.78 | 159.38 | 5.92 | 0.1110 | 0.4952 | 2.3158 |
+| learned_online_dqn | 986.61 | 172.50 | 5.70 | 0.0937 | 0.4910 | 2.2189 |
 
-The held-out picture is materially different from the in-distribution aggregate. `FittedQ` lowers both `p99` and welfare gap relative to `LinUCB` in `HeldOut-HighArbWideMaker`, `HeldOut-RetailBurst`, and `HeldOut-CompositeStress`. In `HeldOut-InformedWide`, it gives up some tail latency (`182.50` versus `167.50 ms`) but still lowers welfare gap (`2.2994` versus `2.3765`). `OfflineContextual` remains the most welfare-balanced learned baseline overall, but it is materially slower than both `LinUCB` and `FittedQ` on held-out tails.
+The held-out picture is materially different from the in-distribution aggregate. `FittedQ` lowers both `p99` and welfare gap relative to `LinUCB` in `HeldOut-HighArbWideMaker`, `HeldOut-RetailBurst`, and `HeldOut-CompositeStress`. In `HeldOut-InformedWide`, it gives up some tail latency (`182.50` versus `167.50 ms`) but still lowers welfare gap (`2.2994` versus `2.3765`). `OfflineContextual` remains the most welfare-balanced learned baseline overall, but it is materially slower than both `LinUCB` and `FittedQ` on held-out tails. `OnlineDQN` sits between them: averaged over the four held-out regimes it improves fills to `986.61`, keeps p99 at `172.50 ms`, and lowers welfare gap to `2.2189`, which is better than both `LinUCB` and `FittedQ` on the held-out aggregate.
 
 ### 9.4 Fitted-Q Learning Curve
 
@@ -243,7 +248,23 @@ The new fitted-Q learning-curve artifact in `docs/benchmarks/simulator_fittedq_l
 
 The pattern is useful rather than cosmetic. The first Bellman update captures most of the welfare-gap improvement over the untrained snapshot, while later iterations keep reducing Bellman error and held-out p99. The final controller is therefore faster on tail latency than the early snapshot, but it gives back part of the early welfare improvement. That is exactly the kind of benchmark-plus-learning tradeoff this track is meant to expose.
 
-### 9.5 Visual Summary
+### 9.5 Online DQN Learning Curve
+
+The online DQN-style controller now adds a second, explicitly online training story in `docs/benchmarks/simulator_online_dqn_training_curve.*`. The untrained snapshot begins at `p99 200.00 +/- 25.46 ms` and welfare gap `1.5898 +/- 0.3869`. By episode `20`, held-out p99 falls to `155.62 +/- 12.84 ms`, while welfare gap rises to `2.4226 +/- 0.5400`. Later checkpoints stay on the same plateau. In other words, the controller converges quickly toward a latency-favoring regime, and the benchmark exposes that this gain comes with a welfare-transfer cost.
+
+![Online DQN learning curve](figures/online_dqn_learning_curve.svg)
+
+### 9.6 Pareto Frontier
+
+The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controller_pareto.*` uses `p99 latency` and `surplus-transfer gap` as the two minimized axes, with `fills/s` kept as a third interpretation axis.
+
+- `Immediate-Surrogate` is the fastest frontier point, but it sits at a high welfare gap (`2.0430`).
+- `Policy-LearnedOfflineContextual-100-250ms` is the strongest balanced learned frontier point: slower than `LinUCB`, `FittedQ`, and `OnlineDQN`, but much lower on welfare gap (`1.3769`).
+- `Adaptive-100-250ms` is the low-gap frontier point (`0.0278`), but it gives up substantial latency tail.
+
+![Controller Pareto frontier](figures/pareto.svg)
+
+### 9.7 Visual Summary
 
 ![Throughput comparison](figures/throughput.svg)
 
@@ -324,13 +345,17 @@ This summary removes the need to interpret the hypercube only through slice fami
 
 Retail-conditioned arbitrage deltas reinforce the same point. Averaged over informed intensity and maker width, moving from `arb=0` to `arb=3` widens the welfare gap by `1.1748`, `1.2262`, and `1.2287` at retail intensities `x1`, `x2`, and `x3`, respectively. This effect persists across retail intensities. Higher retail flow does not neutralize transfer-to-arbitrageur.
 
+The new response-surface fit in `docs/benchmarks/simulator_parameter_hypercube_response_surface.*` compresses the same hypercube into standardized main effects and pairwise interactions. For `surplus_transfer_gap`, the fitted model reaches `R^2 = 0.3495`, with `arbitrageur_intensity` dominating partial variance explained (`0.3157`) and `maker_quote_width` the next largest effect (`0.0291`). For `retail_surplus_per_unit`, the fit reaches `R^2 = 0.7061`; here `informed_intensity` (`0.3121`) and `arbitrageur_intensity` (`0.2374`) dominate the effect ranking. This moves the paper beyond purely descriptive slice analysis.
+
+![Response-surface welfare effects](figures/response_surface_effects.svg)
+
 ## 10. Limitations
 
 The current artifact is stronger than the earlier benchmark draft, but it is still short of a mature top-tier benchmark submission. The most important limitations are:
 
 - the learned-controller family is still lightweight and discrete-action, even after adding the fitted-Q baseline
 - welfare metrics are derived from a synthetic fundamental rather than real market replay
-- the hypercube is summarized by low-order main effects and contrasts rather than by a fully fitted statistical model
+- the response surface is still low-order and pairwise; it is not yet a richer non-linear interaction model
 - the agent behaviors are stylized and do not yet include richer strategic adaptation
 
 ## 11. Related Work
@@ -347,6 +372,6 @@ This NeurIPS-track benchmark line now supports a tighter benchmark narrative tha
 
 To push this track further:
 
-1. replace the current fitted-Q and offline contextual baselines with a stronger offline-RL or compact policy-network training loop on the same action space
+1. strengthen the current online-DQN and offline fitted-Q baselines into a fuller learning section
 2. add richer agent behavior and adaptation beyond the current stylized generators
-3. replace the current compact hypercube contrasts with a fuller fitted interaction model
+3. replace the current pairwise response surface with a richer fitted interaction model

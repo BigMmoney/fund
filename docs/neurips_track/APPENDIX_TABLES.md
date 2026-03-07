@@ -13,6 +13,7 @@ Source: `docs/benchmarks/simulator_multiseed_profile.*`
 | Policy-LearnedTinyMLP-100-250ms | 1337.60 | 769.35 | 150.00 | 221.25 | 5.22 | 0.0336 | 856.13 | -0.3128 | 0.4924 | 1.9719 |
 | Policy-LearnedOfflineContextual-100-250ms | 1337.40 | 762.80 | 138.59 | 215.00 | 4.94 | 0.0294 | 771.25 | -0.1090 | 0.4980 | 1.3769 |
 | Policy-LearnedFittedQ-100-250ms | 1337.70 | 746.23 | 100.58 | 145.00 | 5.88 | 0.0451 | 966.38 | 0.0742 | 0.4738 | 2.2036 |
+| Policy-LearnedOnlineDQN-100-250ms | 1337.60 | 740.77 | 100.00 | 145.00 | 5.92 | 0.0431 | 963.75 | 0.0662 | 0.4714 | 2.2472 |
 
 Interpretation:
 
@@ -20,6 +21,7 @@ Interpretation:
 - `TinyMLP` still improves fills, but it remains welfare-weak on retail surplus.
 - `OfflineContextual` is the most balanced learned baseline in the current repo: it keeps p99 and fills close to the learned policies while cutting impact, queue advantage, arbitrage-profit proxy, and welfare gap.
 - `FittedQ` now provides the clearest offline-learning training story and the strongest in-distribution p99, but it still behaves more like `LinUCB` than `OfflineContextual` on surplus-transfer gap.
+- `OnlineDQN` reaches the same in-distribution p99 band as `FittedQ`, but on held-out regimes it behaves more like a fast controller than a welfare-balanced one.
 
 ## Held-Out Policy Generalization
 
@@ -31,12 +33,14 @@ Source: `docs/benchmarks/simulator_heldout_policy_profile.*`
 | learned_linucb | 4 | 1930.41 | 978.52 | 171.25 | 5.76 | 0.1215 | 0.4916 | 2.4466 |
 | learned_offline_contextual | 4 | 1930.85 | 961.61 | 275.62 | 5.38 | -0.0732 | 0.4703 | 1.9535 |
 | learned_fitted_q | 4 | 1930.65 | 946.78 | 159.38 | 5.92 | 0.1110 | 0.4952 | 2.3158 |
+| learned_online_dqn | 4 | 1930.70 | 986.61 | 172.50 | 5.70 | 0.0937 | 0.4910 | 2.2189 |
 
 Interpretation:
 
 - `FittedQ` improves on `LinUCB` on both `p99` and welfare gap in `HeldOut-HighArbWideMaker`, `HeldOut-RetailBurst`, and `HeldOut-CompositeStress`.
 - In `HeldOut-InformedWide`, `FittedQ` gives up some tail latency versus `LinUCB` but still lowers welfare gap.
 - `OfflineContextual` remains the most welfare-balanced learned baseline on held-out regimes, but it is materially slower on tail latency than both `LinUCB` and `FittedQ`.
+- `OnlineDQN` adds the strongest held-out fills in the current repo, but that gain comes with a larger welfare gap than `OfflineContextual`.
 
 ## Fitted-Q Learning Curve
 
@@ -53,6 +57,22 @@ Interpretation:
 - the first Bellman update captures most of the held-out welfare-gap gain
 - later iterations continue to reduce Bellman error and held-out p99
 - the later controller is faster on tail latency, but it gives back some of the earliest welfare improvement
+
+## Online DQN Learning Curve
+
+Source: `docs/benchmarks/simulator_online_dqn_training_curve.*`
+
+| Episode | Mean Train Reward | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0.0000 | 1014.48 +/- 187.09 | 200.00 +/- 25.46 | -0.1220 +/- 0.1360 | 0.4814 +/- 0.0215 | 1.5898 +/- 0.3869 |
+| 20 | 935.6874 | 944.25 +/- 176.56 | 155.62 +/- 12.84 | 0.1177 +/- 0.1193 | 0.4961 +/- 0.0154 | 2.4226 +/- 0.5400 |
+| 160 | 923.9582 | 944.25 +/- 176.56 | 155.62 +/- 12.84 | 0.1177 +/- 0.1193 | 0.4961 +/- 0.0154 | 2.4226 +/- 0.5400 |
+
+Interpretation:
+
+- the online controller converges quickly, with most of the movement complete by episode `20`
+- the converged controller is faster on held-out tail latency than the untrained checkpoint
+- the same convergence also widens the surplus-transfer gap, which is exactly the benchmark-plus-learning trade-off the paper now exposes
 
 ## Mechanism Ablation
 
@@ -120,6 +140,7 @@ Selected cells:
 
 Source: `docs/benchmarks/simulator_parameter_hypercube_profile.*`
 Compact summary source: `docs/benchmarks/simulator_parameter_hypercube_summary.*`
+Response-surface source: `docs/benchmarks/simulator_parameter_hypercube_response_surface.*`
 
 Hypercube definition:
 
@@ -143,6 +164,28 @@ Interpretation:
 - adding arbitrage pressure widens the welfare gap even when throughput rises
 - higher retail intensity is mostly a throughput and fill-rate lever; it does not neutralize adverse selection on its own
 - the unified hypercube makes it possible to separate "high activity" from "high transfer-to-arbitrageur" regimes under one artifact family
+
+## Hypercube Response Surface
+
+This response surface fits standardized main effects and pairwise interactions over the unified `arb x retail x informed x maker` hypercube.
+
+### Welfare-Gap Fit
+
+| Metric | R^2 | RMSE | Top Partial Effects |
+|---|---:|---:|---|
+| surplus_transfer_gap | 0.3495 | 0.5397 | `arbitrageur_intensity = 0.3157`, `maker_quote_width = 0.0291`, `retail_intensity = 0.0057`, `informed_intensity = 0.0055` |
+
+### Retail-Surplus Fit
+
+| Metric | R^2 | RMSE | Top Partial Effects |
+|---|---:|---:|---|
+| retail_surplus_per_unit | 0.7061 | 0.0810 | `informed_intensity = 0.3121`, `arbitrageur_intensity = 0.2374`, `maker_quote_width = 0.1195`, `retail_intensity = 0.0672` |
+
+Interpretation:
+
+- the response surface confirms that arbitrage pressure is the dominant welfare-gap driver
+- retail surplus is more strongly shaped by informed-flow and arbitrage intensity than by retail-flow itself
+- this is the paper's compact statistical layer, beyond purely descriptive slice analysis
 
 ## Compact Hypercube Summary
 
