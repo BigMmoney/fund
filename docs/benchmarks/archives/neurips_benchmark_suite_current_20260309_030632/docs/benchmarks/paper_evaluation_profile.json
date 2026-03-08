@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-03-06T13:18:59Z",
+  "scenarios": [
+    {
+      "label": "Immediate Surrogate",
+      "mode": "immediate",
+      "batch_window_ms": 0,
+      "orders": 400,
+      "fills": 400,
+      "duration_ms": 2.7635,
+      "orders_per_sec": 144743.98407816177,
+      "fills_per_sec": 144743.98407816177,
+      "p50_latency_ms": 1.7144000000000001,
+      "p95_latency_ms": 2.7635,
+      "p99_latency_ms": 2.7635
+    },
+    {
+      "label": "FBA-100ms",
+      "mode": "batch",
+      "batch_window_ms": 100,
+      "orders": 400,
+      "fills": 400,
+      "duration_ms": 80.353,
+      "orders_per_sec": 4978.034423108036,
+      "fills_per_sec": 4978.034423108036,
+      "p50_latency_ms": 80.353,
+      "p95_latency_ms": 80.353,
+      "p99_latency_ms": 80.353
+    },
+    {
+      "label": "FBA-250ms",
+      "mode": "batch",
+      "batch_window_ms": 250,
+      "orders": 400,
+      "fills": 400,
+      "duration_ms": 230.38739999999999,
+      "orders_per_sec": 1736.2060598800108,
+      "fills_per_sec": 1736.2060598800108,
+      "p50_latency_ms": 230.38739999999999,
+      "p95_latency_ms": 230.38739999999999,
+      "p99_latency_ms": 230.38739999999999
+    },
+    {
+      "label": "FBA-500ms",
+      "mode": "batch",
+      "batch_window_ms": 500,
+      "orders": 400,
+      "fills": 400,
+      "duration_ms": 479.9585,
+      "orders_per_sec": 833.4053881741859,
+      "fills_per_sec": 833.4053881741859,
+      "p50_latency_ms": 479.9585,
+      "p95_latency_ms": 479.9585,
+      "p99_latency_ms": 479.9585
+    }
+  ]
+}

@@ -4,10 +4,10 @@
   "runs_per_cell": 4,
   "steps_per_run": 125,
   "step_duration_ms": 10,
-  "wall_seconds": 9.9036272,
+  "wall_seconds": 17.8689661,
   "total_steps": 54000,
-  "steps_per_second": 5452.547729179466,
-  "estimated_total_order_events": 993026.7857142857,
-  "estimated_order_events_per_second": 100268.99899001505,
-  "estimated_fills_per_second": 46753.85378957298
+  "steps_per_second": 3021.999129541132,
+  "estimated_total_order_events": 993026.7857142859,
+  "estimated_order_events_per_second": 55572.705222955556,
+  "estimated_fills_per_second": 25826.178223853865
 }

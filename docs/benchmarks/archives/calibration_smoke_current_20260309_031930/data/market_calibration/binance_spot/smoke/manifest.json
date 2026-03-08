@@ -1,0 +1,26 @@
+{
+  "profile_name": "smoke",
+  "venue": "binance_spot",
+  "downloaded_at": "2026-03-07T21:39:08.800166+00:00",
+  "base_urls": [
+    "https://data-api.binance.vision",
+    "https://api1.binance.com",
+    "https://api2.binance.com"
+  ],
+  "start_time_utc": "2026-03-07T20:39:08.800147+00:00",
+  "end_time_utc": "2026-03-07T21:39:08.800147+00:00",
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "agg_trades": 22748,
+      "klines": 60,
+      "depth_snapshots": 6
+    },
+    {
+      "symbol": "ETHUSDT",
+      "agg_trades": 15828,
+      "klines": 60,
+      "depth_snapshots": 6
+    }
+  ]
+}

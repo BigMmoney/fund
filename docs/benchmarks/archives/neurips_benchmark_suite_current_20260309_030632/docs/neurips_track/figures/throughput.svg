@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="540" viewBox="0 0 980 540" role="img">
+<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}.err{stroke:#dbeafe; stroke-width:1.5;}</style>
+<rect class="bg" x="0" y="0" width="980" height="540" rx="18"/>
+<text class="title" x="90" y="38">Throughput Comparison (95% CI)</text>
+<text class="label" x="90" y="520">Mean throughput</text>
+<line class="grid" x1="90" y1="70.0" x2="940" y2="70.0"/>
+<text class="label" x="12" y="74.0">1988.3</text>
+<line class="grid" x1="90" y1="146.0" x2="940" y2="146.0"/>
+<text class="label" x="12" y="150.0">1590.7</text>
+<line class="grid" x1="90" y1="222.0" x2="940" y2="222.0"/>
+<text class="label" x="12" y="226.0">1193.0</text>
+<line class="grid" x1="90" y1="298.0" x2="940" y2="298.0"/>
+<text class="label" x="12" y="302.0">795.3</text>
+<line class="grid" x1="90" y1="374.0" x2="940" y2="374.0"/>
+<text class="label" x="12" y="378.0">397.7</text>
+<line class="grid" x1="90" y1="450.0" x2="940" y2="450.0"/>
+<text class="label" x="12" y="454.0">0.0</text>
+<line class="axis" x1="90" y1="70" x2="90" y2="450"/>
+<line class="axis" x1="90" y1="450.0" x2="940" y2="450.0"/>
+<rect x="99.4" y="192.3" width="15.1" height="257.7" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="107.0" y1="191.6" x2="107.0" y2="193.1"/>
+<line class="err" x1="100.0" y1="191.6" x2="114.0" y2="191.6"/>
+<line class="err" x1="100.0" y1="193.1" x2="114.0" y2="193.1"/>
+<text class="value" x="107.0" y="181.6" text-anchor="middle">1348.23</text>
+<rect x="118.3" y="295.5" width="15.1" height="154.5" fill="#38bdf8" rx="8"/>
+<line class="err" x1="125.9" y1="292.2" x2="125.9" y2="298.8"/>
+<line class="err" x1="118.9" y1="292.2" x2="132.9" y2="292.2"/>
+<line class="err" x1="118.9" y1="298.8" x2="132.9" y2="298.8"/>
+<text class="value" x="125.9" y="282.2" text-anchor="middle">808.54</text>
+<text class="label" x="118.3" y="478" text-anchor="middle">Immediate</text>
+<rect x="156.1" y="202.6" width="15.1" height="247.4" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="163.7" y1="201.9" x2="163.7" y2="203.4"/>
+<line class="err" x1="156.7" y1="201.9" x2="170.7" y2="201.9"/>
+<line class="err" x1="156.7" y1="203.4" x2="170.7" y2="203.4"/>
+<text class="value" x="163.7" y="191.9" text-anchor="middle">1294.30</text>
+<rect x="175.0" y="301.7" width="15.1" height="148.3" fill="#38bdf8" rx="8"/>
+<line class="err" x1="182.6" y1="298.5" x2="182.6" y2="304.8"/>
+<line class="err" x1="175.6" y1="298.5" x2="189.6" y2="298.5"/>
+<line class="err" x1="175.6" y1="304.8" x2="189.6" y2="304.8"/>
+<text class="value" x="182.6" y="288.5" text-anchor="middle">776.20</text>
+<text class="label" x="175.0" y="478" text-anchor="middle">SpeedBump 50</text>
+<rect x="212.8" y="194.5" width="15.1" height="255.5" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="220.3" y1="193.7" x2="220.3" y2="195.2"/>
+<line class="err" x1="213.3" y1="193.7" x2="227.3" y2="193.7"/>
+<line class="err" x1="213.3" y1="195.2" x2="227.3" y2="195.2"/>
+<text class="value" x="220.3" y="183.7" text-anchor="middle">1337.09</text>
+<rect x="231.7" y="298.0" width="15.1" height="152.0" fill="#38bdf8" rx="8"/>
+<line class="err" x1="239.2" y1="293.0" x2="239.2" y2="302.9"/>
+<line class="err" x1="232.2" y1="293.0" x2="246.2" y2="293.0"/>
+<line class="err" x1="232.2" y1="302.9" x2="246.2" y2="302.9"/>
+<text class="value" x="239.2" y="283.0" text-anchor="middle">795.45</text>
+<text class="label" x="231.7" y="478" text-anchor="middle">FBA-100</text>
+<rect x="269.4" y="194.4" width="15.1" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="277.0" y1="193.6" x2="277.0" y2="195.1"/>
+<line class="err" x1="270.0" y1="193.6" x2="284.0" y2="193.6"/>
+<line class="err" x1="270.0" y1="195.1" x2="284.0" y2="195.1"/>
+<text class="value" x="277.0" y="183.6" text-anchor="middle">1337.60</text>
+<rect x="288.3" y="321.1" width="15.1" height="128.9" fill="#38bdf8" rx="8"/>
+<line class="err" x1="295.9" y1="315.6" x2="295.9" y2="326.6"/>
+<line class="err" x1="288.9" y1="315.6" x2="302.9" y2="315.6"/>
+<line class="err" x1="288.9" y1="326.6" x2="302.9" y2="326.6"/>
+<text class="value" x="295.9" y="305.6" text-anchor="middle">674.50</text>
+<text class="label" x="288.3" y="478" text-anchor="middle">FBA-250</text>
+<rect x="326.1" y="194.1" width="15.1" height="255.9" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="333.7" y1="193.5" x2="333.7" y2="194.7"/>
+<line class="err" x1="326.7" y1="193.5" x2="340.7" y2="193.5"/>
+<line class="err" x1="326.7" y1="194.7" x2="340.7" y2="194.7"/>
+<text class="value" x="333.7" y="183.5" text-anchor="middle">1338.82</text>
+<rect x="345.0" y="333.4" width="15.1" height="116.6" fill="#38bdf8" rx="8"/>
+<line class="err" x1="352.6" y1="329.1" x2="352.6" y2="337.8"/>
+<line class="err" x1="345.6" y1="329.1" x2="359.6" y2="329.1"/>
+<line class="err" x1="345.6" y1="337.8" x2="359.6" y2="337.8"/>
+<text class="value" x="352.6" y="319.1" text-anchor="middle">609.93</text>
+<text class="label" x="345.0" y="478" text-anchor="middle">FBA-500</text>
+<rect x="382.8" y="194.4" width="15.1" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="390.3" y1="193.6" x2="390.3" y2="195.1"/>
+<line class="err" x1="383.3" y1="193.6" x2="397.3" y2="193.6"/>
+<line class="err" x1="383.3" y1="195.1" x2="397.3" y2="195.1"/>
+<text class="value" x="390.3" y="183.6" text-anchor="middle">1337.60</text>
+<rect x="401.7" y="314.6" width="15.1" height="135.4" fill="#38bdf8" rx="8"/>
+<line class="err" x1="409.2" y1="309.8" x2="409.2" y2="319.4"/>
+<line class="err" x1="402.2" y1="309.8" x2="416.2" y2="309.8"/>
+<line class="err" x1="402.2" y1="319.4" x2="416.2" y2="319.4"/>
+<text class="value" x="409.2" y="299.8" text-anchor="middle">708.23</text>
+<text class="label" x="401.7" y="478" text-anchor="middle">Adaptive B</text>
+<rect x="439.4" y="194.4" width="15.1" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="447.0" y1="193.6" x2="447.0" y2="195.1"/>
+<line class="err" x1="440.0" y1="193.6" x2="454.0" y2="193.6"/>
+<line class="err" x1="440.0" y1="195.1" x2="454.0" y2="195.1"/>
+<text class="value" x="447.0" y="183.6" text-anchor="middle">1337.60</text>
+<rect x="458.3" y="321.2" width="15.1" height="128.8" fill="#38bdf8" rx="8"/>
+<line class="err" x1="465.9" y1="318.5" x2="465.9" y2="323.8"/>
+<line class="err" x1="458.9" y1="318.5" x2="472.9" y2="318.5"/>
+<line class="err" x1="458.9" y1="323.8" x2="472.9" y2="323.8"/>
+<text class="value" x="465.9" y="308.5" text-anchor="middle">674.11</text>
+<text class="label" x="458.3" y="478" text-anchor="middle">Adaptive OF</text>
+<rect x="496.1" y="194.4" width="15.1" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="503.7" y1="193.6" x2="503.7" y2="195.1"/>
+<line class="err" x1="496.7" y1="193.6" x2="510.7" y2="193.6"/>
+<line class="err" x1="496.7" y1="195.1" x2="510.7" y2="195.1"/>
+<text class="value" x="503.7" y="183.6" text-anchor="middle">1337.60</text>
+<rect x="515.0" y="318.8" width="15.1" height="131.2" fill="#38bdf8" rx="8"/>
+<line class="err" x1="522.6" y1="312.9" x2="522.6" y2="324.7"/>
+<line class="err" x1="515.6" y1="312.9" x2="529.6" y2="312.9"/>
+<line class="err" x1="515.6" y1="324.7" x2="529.6" y2="324.7"/>
+<text class="value" x="522.6" y="302.9" text-anchor="middle">686.51</text>
+<text class="label" x="515.0" y="478" text-anchor="middle">Adaptive QL</text>
+<rect x="552.8" y="194.5" width="15.1" height="255.5" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="560.3" y1="193.9" x2="560.3" y2="195.2"/>
+<line class="err" x1="553.3" y1="193.9" x2="567.3" y2="193.9"/>
+<line class="err" x1="553.3" y1="195.2" x2="567.3" y2="195.2"/>
+<text class="value" x="560.3" y="183.9" text-anchor="middle">1336.71</text>
+<rect x="571.7" y="321.8" width="15.1" height="128.2" fill="#38bdf8" rx="8"/>
+<line class="err" x1="579.2" y1="314.6" x2="579.2" y2="329.0"/>
+<line class="err" x1="572.2" y1="314.6" x2="586.2" y2="314.6"/>
+<line class="err" x1="572.2" y1="329.0" x2="586.2" y2="329.0"/>
+<text class="value" x="579.2" y="304.6" text-anchor="middle">670.63</text>
+<text class="label" x="571.7" y="478" text-anchor="middle">BurstAware</text>
+<rect x="609.4" y="194.4" width="15.1" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="617.0" y1="193.6" x2="617.0" y2="195.1"/>
+<line class="err" x1="610.0" y1="193.6" x2="624.0" y2="193.6"/>
+<line class="err" x1="610.0" y1="195.1" x2="624.0" y2="195.1"/>
+<text class="value" x="617.0" y="183.6" text-anchor="middle">1337.60</text>
+<rect x="628.3" y="306.8" width="15.1" height="143.2" fill="#38bdf8" rx="8"/>
+<line class="err" x1="635.9" y1="301.5" x2="635.9" y2="312.1"/>
+<line class="err" x1="628.9" y1="301.5" x2="642.9" y2="301.5"/>
+<line class="err" x1="628.9" y1="312.1" x2="642.9" y2="312.1"/>
+<text class="value" x="635.9" y="291.5" text-anchor="middle">749.31</text>
+<text class="label" x="628.3" y="478" text-anchor="middle">LinUCB</text>
+<rect x="666.1" y="194.5" width="15.1" height="255.5" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="673.7" y1="194.0" x2="673.7" y2="194.9"/>
+<line class="err" x1="666.7" y1="194.0" x2="680.7" y2="194.0"/>
+<line class="err" x1="666.7" y1="194.9" x2="680.7" y2="194.9"/>
+<text class="value" x="673.7" y="184.0" text-anchor="middle">1337.10</text>
+<rect x="685.0" y="319.1" width="15.1" height="130.9" fill="#38bdf8" rx="8"/>
+<line class="err" x1="692.6" y1="311.9" x2="692.6" y2="326.4"/>
+<line class="err" x1="685.6" y1="311.9" x2="699.6" y2="311.9"/>
+<line class="err" x1="685.6" y1="326.4" x2="699.6" y2="326.4"/>
+<text class="value" x="692.6" y="301.9" text-anchor="middle">684.82</text>
+<text class="label" x="685.0" y="478" text-anchor="middle">TinyMLP</text>
+<rect x="722.8" y="194.1" width="15.1" height="255.9" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="730.3" y1="193.6" x2="730.3" y2="194.7"/>
+<line class="err" x1="723.3" y1="193.6" x2="737.3" y2="193.6"/>
+<line class="err" x1="723.3" y1="194.7" x2="737.3" y2="194.7"/>
+<text class="value" x="730.3" y="183.6" text-anchor="middle">1338.79</text>
+<rect x="741.7" y="301.6" width="15.1" height="148.4" fill="#38bdf8" rx="8"/>
+<line class="err" x1="749.2" y1="297.8" x2="749.2" y2="305.3"/>
+<line class="err" x1="742.2" y1="297.8" x2="756.2" y2="297.8"/>
+<line class="err" x1="742.2" y1="305.3" x2="756.2" y2="305.3"/>
+<text class="value" x="749.2" y="287.8" text-anchor="middle">776.69</text>
+<text class="label" x="741.7" y="478" text-anchor="middle">OfflineCtx</text>
+<rect x="779.4" y="194.4" width="15.1" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="787.0" y1="193.6" x2="787.0" y2="195.1"/>
+<line class="err" x1="780.0" y1="193.6" x2="794.0" y2="193.6"/>
+<line class="err" x1="780.0" y1="195.1" x2="794.0" y2="195.1"/>
+<text class="value" x="787.0" y="183.6" text-anchor="middle">1337.60</text>
+<rect x="798.3" y="305.7" width="15.1" height="144.3" fill="#38bdf8" rx="8"/>
+<line class="err" x1="805.9" y1="300.5" x2="805.9" y2="310.8"/>
+<line class="err" x1="798.9" y1="300.5" x2="812.9" y2="300.5"/>
+<line class="err" x1="798.9" y1="310.8" x2="812.9" y2="310.8"/>
+<text class="value" x="805.9" y="290.5" text-anchor="middle">755.26</text>
+<text class="label" x="798.3" y="478" text-anchor="middle">FittedQ</text>
+<rect x="836.1" y="194.4" width="15.1" height="255.6" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="843.7" y1="193.6" x2="843.7" y2="195.1"/>
+<line class="err" x1="836.7" y1="193.6" x2="850.7" y2="193.6"/>
+<line class="err" x1="836.7" y1="195.1" x2="850.7" y2="195.1"/>
+<text class="value" x="843.7" y="183.6" text-anchor="middle">1337.60</text>
+<rect x="855.0" y="306.2" width="15.1" height="143.8" fill="#38bdf8" rx="8"/>
+<line class="err" x1="862.6" y1="302.4" x2="862.6" y2="309.9"/>
+<line class="err" x1="855.6" y1="302.4" x2="869.6" y2="302.4"/>
+<line class="err" x1="855.6" y1="309.9" x2="869.6" y2="309.9"/>
+<text class="value" x="862.6" y="292.4" text-anchor="middle">752.68</text>
+<text class="label" x="855.0" y="478" text-anchor="middle">OnlineDQN</text>
+<rect x="892.8" y="111.9" width="15.1" height="338.1" fill="#2dd4bf" rx="8"/>
+<line class="err" x1="900.3" y1="110.7" x2="900.3" y2="113.0"/>
+<line class="err" x1="893.3" y1="110.7" x2="907.3" y2="110.7"/>
+<line class="err" x1="893.3" y1="113.0" x2="907.3" y2="113.0"/>
+<text class="value" x="900.3" y="100.7" text-anchor="middle">1769.25</text>
+<rect x="911.7" y="274.5" width="15.1" height="175.5" fill="#38bdf8" rx="8"/>
+<line class="err" x1="919.2" y1="267.0" x2="919.2" y2="282.0"/>
+<line class="err" x1="912.2" y1="267.0" x2="926.2" y2="267.0"/>
+<line class="err" x1="912.2" y1="282.0" x2="926.2" y2="282.0"/>
+<text class="value" x="919.2" y="257.0" text-anchor="middle">918.35</text>
+<text class="label" x="911.7" y="478" text-anchor="middle">Stress</text>
+<rect x="730" y="22" width="14" height="14" fill="#2dd4bf" rx="3"/>
+<text class="legend" x="752" y="34">Orders/s</text>
+<rect x="730" y="44" width="14" height="14" fill="#38bdf8" rx="3"/>
+<text class="legend" x="752" y="56">Fills/s</text>
+</svg>

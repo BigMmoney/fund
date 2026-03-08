@@ -1,0 +1,10 @@
+experiment,left,right,metric,direction,paired_samples,left_mean,right_mean,mean_difference,ci95_difference,aligned_effect,cohens_d,exact_sign_flip_p_value,left_wins,right_wins,ties
+multiseed_core,Immediate-Surrogate,FBA-250ms,surplus_transfer_gap,lower_is_better,8,2.003823,0.833764,1.170059,0.563275,-1.170059,-1.439455,0.01562500,1,7,0
+multiseed_core,Adaptive-100-250ms,Immediate-Surrogate,surplus_transfer_gap,lower_is_better,8,-0.034193,2.003823,-2.038016,0.564530,2.038016,2.501679,0.00781250,8,0,0
+multiseed_core,Adaptive-100-250ms,Immediate-Surrogate,p99_latency_ms,lower_is_better,8,430.000000,10.000000,420.000000,50.329465,-420.000000,-5.782798,0.00781250,0,8,0
+multiseed_core,Policy-LearnedOfflineContextual-100-250ms,Policy-LearnedLinUCB-100-250ms,surplus_transfer_gap,lower_is_better,8,0.531373,2.293634,-1.762262,0.533156,1.762262,2.290485,0.00781250,8,0,0
+multiseed_core,Policy-LearnedOfflineContextual-100-250ms,Policy-LearnedLinUCB-100-250ms,average_price_impact,lower_is_better,8,4.215479,5.916811,-1.701333,0.664132,1.701333,1.775195,0.01562500,7,1,0
+heldout_generalization,learned_fitted_q,learned_linucb,surplus_transfer_gap,lower_is_better,16,2.448135,2.258379,0.189756,0.319368,-0.189756,-0.291140,0.27813721,7,9,0
+heldout_generalization,learned_fitted_q,learned_linucb,p99_latency_ms,lower_is_better,16,176.250000,197.500000,-21.250000,34.163008,21.250000,0.304789,0.33178711,7,8,1
+calibrated_protocol,iql,ppo_clip,surplus_transfer_gap,lower_is_better,16,3.960219,6.658955,-2.698736,0.232779,2.698736,5.680849,0.00003052,16,0,0
+calibrated_protocol,iql,ppo_clip,p99_latency_ms,lower_is_better,16,1500.000000,6000.000000,-4500.000000,245.000000,4500.000000,9.000000,0.00003052,16,0,0

@@ -1,0 +1,158 @@
+{
+  "heldout_regimes": [
+    "HeldOut-HighArbWideMaker",
+    "HeldOut-RetailBurst",
+    "HeldOut-InformedWide",
+    "HeldOut-CompositeStress"
+  ],
+  "heldout_seeds": [
+    223,
+    227,
+    229,
+    233
+  ],
+  "profiles": [
+    {
+      "name": "default",
+      "reward_weights": {
+        "fill_weight": 1,
+        "spread_penalty": 0.25,
+        "price_impact_penalty": 1.5,
+        "queue_penalty": 12,
+        "arbitrage_penalty": 0.005,
+        "retail_surplus_weight": 18,
+        "adverse_penalty": 10,
+        "welfare_penalty": 2,
+        "surplus_gap_penalty": 3,
+        "risk_reject_penalty": 0.5,
+        "conservation_penalty": 10
+      }
+    },
+    {
+      "name": "latency_heavy",
+      "reward_weights": {
+        "fill_weight": 2,
+        "spread_penalty": 0.1,
+        "price_impact_penalty": 0.2,
+        "queue_penalty": 4,
+        "arbitrage_penalty": 0.0005,
+        "retail_surplus_weight": 1,
+        "adverse_penalty": 1,
+        "welfare_penalty": 0.1,
+        "surplus_gap_penalty": 0.1,
+        "risk_reject_penalty": 0.2,
+        "conservation_penalty": 10
+      }
+    },
+    {
+      "name": "welfare_heavy",
+      "reward_weights": {
+        "fill_weight": 0.1,
+        "spread_penalty": 0.5,
+        "price_impact_penalty": 4,
+        "queue_penalty": 20,
+        "arbitrage_penalty": 0.05,
+        "retail_surplus_weight": 40,
+        "adverse_penalty": 30,
+        "welfare_penalty": 8,
+        "surplus_gap_penalty": 12,
+        "risk_reject_penalty": 1,
+        "conservation_penalty": 10
+      }
+    }
+  ],
+  "results": [
+    {
+      "profile_name": "default",
+      "reward_weights": {
+        "fill_weight": 1,
+        "spread_penalty": 0.25,
+        "price_impact_penalty": 1.5,
+        "queue_penalty": 12,
+        "arbitrage_penalty": 0.005,
+        "retail_surplus_weight": 18,
+        "adverse_penalty": 10,
+        "welfare_penalty": 2,
+        "surplus_gap_penalty": 3,
+        "risk_reject_penalty": 0.5,
+        "conservation_penalty": 10
+      },
+      "mean_train_episode_reward": 880.7281974705144,
+      "runs": 16,
+      "mean_fills_per_sec": 933.4325396825396,
+      "ci95_fills_per_sec": 176.88149922077633,
+      "mean_p99_latency_ms": 163.125,
+      "ci95_p99_latency_ms": 13.936898809903873,
+      "mean_retail_surplus_per_unit": 0.04327587149697804,
+      "ci95_retail_surplus_per_unit": 0.12467716722703984,
+      "mean_retail_adverse_selection_rate": 0.505773826066598,
+      "ci95_retail_adverse_selection_rate": 0.014609610438510957,
+      "mean_surplus_transfer_gap": 2.5657359727297697,
+      "ci95_surplus_transfer_gap": 0.5203600391573536
+    },
+    {
+      "profile_name": "latency_heavy",
+      "reward_weights": {
+        "fill_weight": 2,
+        "spread_penalty": 0.1,
+        "price_impact_penalty": 0.2,
+        "queue_penalty": 4,
+        "arbitrage_penalty": 0.0005,
+        "retail_surplus_weight": 1,
+        "adverse_penalty": 1,
+        "welfare_penalty": 0.1,
+        "surplus_gap_penalty": 0.1,
+        "risk_reject_penalty": 0.2,
+        "conservation_penalty": 10
+      },
+      "mean_train_episode_reward": 1881.668844409493,
+      "runs": 16,
+      "mean_fills_per_sec": 954.9107142857144,
+      "ci95_fills_per_sec": 179.47755297285138,
+      "mean_p99_latency_ms": 156.875,
+      "ci95_p99_latency_ms": 16.317694335827596,
+      "mean_retail_surplus_per_unit": 0.10479134486848452,
+      "ci95_retail_surplus_per_unit": 0.10539818528641856,
+      "mean_retail_adverse_selection_rate": 0.4878139168773657,
+      "ci95_retail_adverse_selection_rate": 0.012361554492410913,
+      "mean_surplus_transfer_gap": 2.2164327872722076,
+      "ci95_surplus_transfer_gap": 0.47194988711160013
+    },
+    {
+      "profile_name": "welfare_heavy",
+      "reward_weights": {
+        "fill_weight": 0.1,
+        "spread_penalty": 0.5,
+        "price_impact_penalty": 4,
+        "queue_penalty": 20,
+        "arbitrage_penalty": 0.05,
+        "retail_surplus_weight": 40,
+        "adverse_penalty": 30,
+        "welfare_penalty": 8,
+        "surplus_gap_penalty": 12,
+        "risk_reject_penalty": 1,
+        "conservation_penalty": 10
+      },
+      "mean_train_episode_reward": -106.67615765389363,
+      "runs": 16,
+      "mean_fills_per_sec": 933.4325396825396,
+      "ci95_fills_per_sec": 176.88149922077633,
+      "mean_p99_latency_ms": 163.125,
+      "ci95_p99_latency_ms": 13.936898809903873,
+      "mean_retail_surplus_per_unit": 0.04327587149697804,
+      "ci95_retail_surplus_per_unit": 0.12467716722703984,
+      "mean_retail_adverse_selection_rate": 0.505773826066598,
+      "ci95_retail_adverse_selection_rate": 0.014609610438510957,
+      "mean_surplus_transfer_gap": 2.5657359727297697,
+      "ci95_surplus_transfer_gap": 0.5203600391573536
+    }
+  ],
+  "training_seeds": [
+    307,
+    311,
+    313,
+    317,
+    331,
+    337
+  ]
+}

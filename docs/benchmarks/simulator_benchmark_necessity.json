@@ -1,0 +1,276 @@
+{
+  "score_components": [
+    "z(fills_per_sec)",
+    "-z(p99_latency_ms)",
+    "+z(retail_surplus_per_unit)",
+    "-z(retail_adverse_selection_rate)",
+    "-z(surplus_transfer_gap)"
+  ],
+  "variants": [
+    {
+      "variant": "control",
+      "base_scenario": "Calibrated-Protocol-Adaptive-1-3s",
+      "heldout_regimes": [
+        "Calibrated-HeldOut-CompositeStress",
+        "Calibrated-HeldOut-HighArbWideMaker",
+        "Calibrated-HeldOut-InformedWide",
+        "Calibrated-HeldOut-RetailBurst"
+      ],
+      "policies": [
+        {
+          "variant": "control",
+          "policy": "iql",
+          "mean_fills_per_sec": 58.859277546777555,
+          "mean_p99_latency_ms": 1500,
+          "mean_retail_surplus_per_unit": 0.09928851256075939,
+          "mean_retail_adverse_selection_rate": 0.4170260410601145,
+          "mean_surplus_transfer_gap": 3.960219006484916,
+          "benchmark_score": 3.7179234853608922,
+          "rank": 1
+        },
+        {
+          "variant": "control",
+          "policy": "fitted_q",
+          "mean_fills_per_sec": 56.864085239085234,
+          "mean_p99_latency_ms": 2625,
+          "mean_retail_surplus_per_unit": 0.18305310769252675,
+          "mean_retail_adverse_selection_rate": 0.4206006949577267,
+          "mean_surplus_transfer_gap": 3.960213744141741,
+          "benchmark_score": 1.816957982771902,
+          "rank": 2
+        },
+        {
+          "variant": "control",
+          "policy": "burst_aware",
+          "mean_fills_per_sec": 47.15722453222455,
+          "mean_p99_latency_ms": 6000,
+          "mean_retail_surplus_per_unit": 1.246312008227515,
+          "mean_retail_adverse_selection_rate": 0.4248218785835802,
+          "mean_surplus_transfer_gap": 5.832151762835309,
+          "benchmark_score": -2.169479303619363,
+          "rank": 3
+        },
+        {
+          "variant": "control",
+          "policy": "ppo_clip",
+          "mean_fills_per_sec": 40.53664241164242,
+          "mean_p99_latency_ms": 6000,
+          "mean_retail_surplus_per_unit": 1.102262430202602,
+          "mean_retail_adverse_selection_rate": 0.42286744610243004,
+          "mean_surplus_transfer_gap": 6.658954750219817,
+          "benchmark_score": -3.36540216451339,
+          "rank": 4
+        }
+      ]
+    },
+    {
+      "variant": "matching_only",
+      "base_scenario": "Calibrated-MatchingOnly-Immediate",
+      "heldout_regimes": [
+        "HeldOut-CompositeStress",
+        "HeldOut-HighArbWideMaker",
+        "HeldOut-InformedWide",
+        "HeldOut-RetailBurst"
+      ],
+      "policies": [
+        {
+          "variant": "matching_only",
+          "policy": "ppo_clip",
+          "mean_fills_per_sec": 32.39088541666667,
+          "mean_p99_latency_ms": 1000,
+          "mean_retail_surplus_per_unit": -0.464728483773866,
+          "mean_retail_adverse_selection_rate": 0.43971576258500567,
+          "mean_surplus_transfer_gap": 5.2043455685711155,
+          "benchmark_score": 0.4051190761987128,
+          "rank": 1
+        },
+        {
+          "variant": "matching_only",
+          "policy": "burst_aware",
+          "mean_fills_per_sec": 32.390234375,
+          "mean_p99_latency_ms": 1000,
+          "mean_retail_surplus_per_unit": -0.46655712608648897,
+          "mean_retail_adverse_selection_rate": 0.4398933312446878,
+          "mean_surplus_transfer_gap": 5.213187661640424,
+          "benchmark_score": 0.31114652620742855,
+          "rank": 2
+        },
+        {
+          "variant": "matching_only",
+          "policy": "iql",
+          "mean_fills_per_sec": 32.70924479166667,
+          "mean_p99_latency_ms": 1000,
+          "mean_retail_surplus_per_unit": -0.5730431806103019,
+          "mean_retail_adverse_selection_rate": 0.4704597757185646,
+          "mean_surplus_transfer_gap": 4.5771925450633875,
+          "benchmark_score": 0.065696536460075,
+          "rank": 3
+        },
+        {
+          "variant": "matching_only",
+          "policy": "fitted_q",
+          "mean_fills_per_sec": 32.326041666666676,
+          "mean_p99_latency_ms": 1000,
+          "mean_retail_surplus_per_unit": -0.5038922968948113,
+          "mean_retail_adverse_selection_rate": 0.44431532435636784,
+          "mean_surplus_transfer_gap": 5.074455369751385,
+          "benchmark_score": -0.7819621388661128,
+          "rank": 4
+        }
+      ]
+    },
+    {
+      "variant": "no_settlement",
+      "base_scenario": "Calibrated-NoSettlement-1-3s",
+      "heldout_regimes": [
+        "HeldOut-CompositeStress",
+        "HeldOut-HighArbWideMaker",
+        "HeldOut-InformedWide",
+        "HeldOut-RetailBurst"
+      ],
+      "policies": [
+        {
+          "variant": "no_settlement",
+          "policy": "iql",
+          "mean_fills_per_sec": 58.859277546777555,
+          "mean_p99_latency_ms": 1500,
+          "mean_retail_surplus_per_unit": 0.09928851256075939,
+          "mean_retail_adverse_selection_rate": 0.4170260410601145,
+          "mean_surplus_transfer_gap": 3.960219006484916,
+          "benchmark_score": 3.7179234853608922,
+          "rank": 1
+        },
+        {
+          "variant": "no_settlement",
+          "policy": "fitted_q",
+          "mean_fills_per_sec": 56.864085239085234,
+          "mean_p99_latency_ms": 2625,
+          "mean_retail_surplus_per_unit": 0.18305310769252675,
+          "mean_retail_adverse_selection_rate": 0.4206006949577267,
+          "mean_surplus_transfer_gap": 3.960213744141741,
+          "benchmark_score": 1.816957982771902,
+          "rank": 2
+        },
+        {
+          "variant": "no_settlement",
+          "policy": "burst_aware",
+          "mean_fills_per_sec": 47.15722453222455,
+          "mean_p99_latency_ms": 6000,
+          "mean_retail_surplus_per_unit": 1.246312008227515,
+          "mean_retail_adverse_selection_rate": 0.4248218785835802,
+          "mean_surplus_transfer_gap": 5.832151762835309,
+          "benchmark_score": -2.169479303619363,
+          "rank": 3
+        },
+        {
+          "variant": "no_settlement",
+          "policy": "ppo_clip",
+          "mean_fills_per_sec": 40.53664241164242,
+          "mean_p99_latency_ms": 6000,
+          "mean_retail_surplus_per_unit": 1.102262430202602,
+          "mean_retail_adverse_selection_rate": 0.42286744610243004,
+          "mean_surplus_transfer_gap": 6.658954750219817,
+          "benchmark_score": -3.36540216451339,
+          "rank": 4
+        }
+      ]
+    },
+    {
+      "variant": "no_welfare_reward",
+      "base_scenario": "Calibrated-Protocol-Adaptive-1-3s",
+      "heldout_regimes": [
+        "Calibrated-HeldOut-CompositeStress",
+        "Calibrated-HeldOut-HighArbWideMaker",
+        "Calibrated-HeldOut-InformedWide",
+        "Calibrated-HeldOut-RetailBurst"
+      ],
+      "policies": [
+        {
+          "variant": "no_welfare_reward",
+          "policy": "iql",
+          "mean_fills_per_sec": 59.07991164241163,
+          "mean_p99_latency_ms": 1687.5,
+          "mean_retail_surplus_per_unit": 0.10946409538979157,
+          "mean_retail_adverse_selection_rate": 0.4164716066243533,
+          "mean_surplus_transfer_gap": 3.91658646055675,
+          "benchmark_score": 2.8481146641959176,
+          "rank": 1
+        },
+        {
+          "variant": "no_welfare_reward",
+          "policy": "ppo_clip",
+          "mean_fills_per_sec": 54.488955301455306,
+          "mean_p99_latency_ms": 3312.5,
+          "mean_retail_surplus_per_unit": 0.5256287625546661,
+          "mean_retail_adverse_selection_rate": 0.4191256495807955,
+          "mean_surplus_transfer_gap": 3.3873998898225626,
+          "benchmark_score": 1.4295936966989566,
+          "rank": 2
+        },
+        {
+          "variant": "no_welfare_reward",
+          "policy": "fitted_q",
+          "mean_fills_per_sec": 56.864085239085234,
+          "mean_p99_latency_ms": 2625,
+          "mean_retail_surplus_per_unit": 0.18305310769252675,
+          "mean_retail_adverse_selection_rate": 0.4206006949577267,
+          "mean_surplus_transfer_gap": 3.960213744141741,
+          "benchmark_score": 0.520638307536957,
+          "rank": 3
+        },
+        {
+          "variant": "no_welfare_reward",
+          "policy": "burst_aware",
+          "mean_fills_per_sec": 47.15722453222455,
+          "mean_p99_latency_ms": 6000,
+          "mean_retail_surplus_per_unit": 1.246312008227515,
+          "mean_retail_adverse_selection_rate": 0.4248218785835802,
+          "mean_surplus_transfer_gap": 5.832151762835309,
+          "benchmark_score": -4.798346668431865,
+          "rank": 4
+        }
+      ]
+    }
+  ],
+  "rank_shifts": [
+    {
+      "variant": "matching_only",
+      "relative_to": "control",
+      "common_policies": [
+        "burst_aware",
+        "fitted_q",
+        "iql",
+        "ppo_clip"
+      ],
+      "kendall_tau": -0.6666666666666666,
+      "frontier_overlap": 1,
+      "policies_with_rank_change": 4
+    },
+    {
+      "variant": "no_settlement",
+      "relative_to": "control",
+      "common_policies": [
+        "burst_aware",
+        "fitted_q",
+        "iql",
+        "ppo_clip"
+      ],
+      "kendall_tau": 1,
+      "frontier_overlap": 2,
+      "policies_with_rank_change": 0
+    },
+    {
+      "variant": "no_welfare_reward",
+      "relative_to": "control",
+      "common_policies": [
+        "burst_aware",
+        "fitted_q",
+        "iql",
+        "ppo_clip"
+      ],
+      "kendall_tau": 0.3333333333333333,
+      "frontier_overlap": 1,
+      "policies_with_rank_change": 3
+    }
+  ]
+}

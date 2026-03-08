@@ -1,0 +1,62 @@
+{
+  "profile_name": "multimarket",
+  "venue": "binance_spot",
+  "downloaded_at": "2026-03-07T21:42:32.947561+00:00",
+  "base_urls": [
+    "https://data-api.binance.vision",
+    "https://api1.binance.com",
+    "https://api2.binance.com"
+  ],
+  "start_time_utc": "2026-03-07T15:42:32.947544+00:00",
+  "end_time_utc": "2026-03-07T21:42:32.947544+00:00",
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "agg_trades": 171582,
+      "klines": 360,
+      "depth_snapshots": 8
+    },
+    {
+      "symbol": "ETHUSDT",
+      "agg_trades": 117841,
+      "klines": 360,
+      "depth_snapshots": 8
+    },
+    {
+      "symbol": "SOLUSDT",
+      "agg_trades": 30387,
+      "klines": 360,
+      "depth_snapshots": 8
+    },
+    {
+      "symbol": "BNBUSDT",
+      "agg_trades": 38882,
+      "klines": 360,
+      "depth_snapshots": 8
+    },
+    {
+      "symbol": "XRPUSDT",
+      "agg_trades": 21842,
+      "klines": 360,
+      "depth_snapshots": 8
+    },
+    {
+      "symbol": "ADAUSDT",
+      "agg_trades": 5728,
+      "klines": 360,
+      "depth_snapshots": 8
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "agg_trades": 13730,
+      "klines": 360,
+      "depth_snapshots": 8
+    },
+    {
+      "symbol": "AVAXUSDT",
+      "agg_trades": 2763,
+      "klines": 360,
+      "depth_snapshots": 8
+    }
+  ]
+}

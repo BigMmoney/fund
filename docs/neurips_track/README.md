@@ -52,6 +52,10 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_calibrated_benchmark_profile.*`: latency-welfare benchmark rerun under the tuned generator
 - `docs/benchmarks/simulator_calibrated_policy_protocol.*`: formal calibrated train/validation/held-out protocol for PPO- and IQL-style baselines
 - `docs/benchmarks/simulator_counterfactual_controls.*`: matching-only, no-settlement, and no-welfare-reward controls
+- `docs/benchmarks/simulator_statistical_review.*`: paired significance/effect-size table for the main benchmark claims
+- `docs/benchmarks/simulator_benchmark_necessity.*`: ranking-shift artifact for control vs matching-only / no-settlement / no-welfare variants
+- `docs/benchmarks/simulator_welfare_robustness.*`: welfare-metric correlation and rank-stability artifact across base vs strategic populations
+- `docs/benchmarks/simulator_policy_leaderboard.*`: standardized calibrated held-out leaderboard with shared budget metadata
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
 - `CALIBRATION_PROTOCOL.md`: realism-upgrade protocol and target envelope
@@ -421,6 +425,18 @@ Full appendix figure set: `APPENDIX_FIGURES.md`
 
 ## Regeneration
 
+One-shot regeneration:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_neurips_benchmark_suite.ps1
+```
+
+Reviewer-focused artifacts only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_neurips_benchmark_suite.ps1 -ReviewerOnly
+```
+
 ```powershell
 $env:RUN_SIM_BENCH="1"
 go test ./simulator -run TestGenerateSimulatorBenchmarkArtifacts -v
@@ -443,11 +459,32 @@ go test ./simulator -run TestGenerateSimulatorParameterCubeArtifacts -v
 $env:RUN_SIM_HYPER="1"
 go test ./simulator -run TestGenerateSimulatorParameterHypercubeArtifacts -v
 
+$env:RUN_SIM_RUNTIME="1"
+go test ./simulator -run TestGenerateSimulatorRuntimeProfileArtifacts -v
+
 $env:RUN_SIM_HELDOUT="1"
 go test ./simulator -run TestGenerateSimulatorHeldOutPolicyArtifacts -v
 
 $env:RUN_SIM_FITTEDQ_CURVE="1"
 go test ./simulator -run TestGenerateSimulatorFittedQLearningCurveArtifacts -v
+
+$env:RUN_SIM_CALIBRATED_PROTOCOL="1"
+go test ./simulator -run TestGenerateSimulatorCalibratedLearningProtocolArtifacts -v
+
+$env:RUN_SIM_COUNTERFACTUAL="1"
+go test ./simulator -run TestGenerateSimulatorCounterfactualControlArtifacts -v
+
+$env:RUN_SIM_STATS="1"
+go test ./simulator -run TestGenerateSimulatorStatisticalReviewArtifacts -v
+
+$env:RUN_SIM_NECESSITY="1"
+go test ./simulator -run TestGenerateSimulatorNecessityArtifacts -v
+
+$env:RUN_SIM_WELFARE_ROBUSTNESS="1"
+go test ./simulator -run TestGenerateSimulatorWelfareRobustnessArtifacts -v
+
+$env:RUN_SIM_LEADERBOARD="1"
+go test ./simulator -run TestGenerateSimulatorLeaderboardArtifacts -v
 
 python scripts/generate_neurips_figures.py
 ```

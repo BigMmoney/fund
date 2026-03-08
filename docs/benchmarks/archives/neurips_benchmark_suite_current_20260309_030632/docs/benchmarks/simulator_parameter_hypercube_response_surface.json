@@ -1,0 +1,289 @@
+{
+  "seeds": [
+    101,
+    103,
+    107,
+    109
+  ],
+  "fits": [
+    {
+      "metric": "surplus_transfer_gap",
+      "r2": 0.40278679620115376,
+      "rmse": 0.5179315741274476,
+      "coefficients": [
+        {
+          "name": "intercept",
+          "coefficient": 1.2773293170378648
+        },
+        {
+          "name": "arb",
+          "coefficient": 0.39416525107660716
+        },
+        {
+          "name": "retail",
+          "coefficient": 0.08624577595675344
+        },
+        {
+          "name": "informed",
+          "coefficient": -0.007613707221061323
+        },
+        {
+          "name": "maker",
+          "coefficient": 0.09931093554978794
+        },
+        {
+          "name": "arb_x_retail",
+          "coefficient": 0.054265434751734676
+        },
+        {
+          "name": "arb_x_informed",
+          "coefficient": -0.05833770291724862
+        },
+        {
+          "name": "arb_x_maker",
+          "coefficient": 0.008668913759388488
+        },
+        {
+          "name": "retail_x_informed",
+          "coefficient": 0.02995104112203443
+        },
+        {
+          "name": "retail_x_maker",
+          "coefficient": 0.0036179951259871545
+        },
+        {
+          "name": "informed_x_maker",
+          "coefficient": -0.02937910833096849
+        }
+      ],
+      "effects": [
+        {
+          "factor": "arbitrageur_intensity",
+          "partial_r2": 0.36019257261172805
+        },
+        {
+          "factor": "retail_intensity",
+          "partial_r2": 0.025142164007275095
+        },
+        {
+          "factor": "maker_quote_width",
+          "partial_r2": 0.024075336190995753
+        },
+        {
+          "factor": "informed_intensity",
+          "partial_r2": 0.011624546170832951
+        },
+        {
+          "factor": "arb_x_informed",
+          "partial_r2": 0.007576755685050118
+        },
+        {
+          "factor": "arb_x_retail",
+          "partial_r2": 0.006555883206371647
+        },
+        {
+          "factor": "retail_x_informed",
+          "partial_r2": 0.0019971398676450623
+        },
+        {
+          "factor": "informed_x_maker",
+          "partial_r2": 0.0019215949810103728
+        },
+        {
+          "factor": "arb_x_maker",
+          "partial_r2": 0.00016730695669287934
+        },
+        {
+          "factor": "retail_x_maker",
+          "partial_r2": 0.00002914208290821901
+        }
+      ]
+    },
+    {
+      "metric": "p99_latency_ms",
+      "r2": 0.08819069892018105,
+      "rmse": 46.11898656112155,
+      "coefficients": [
+        {
+          "name": "intercept",
+          "coefficient": 389.3518482467422
+        },
+        {
+          "name": "arb",
+          "coefficient": -3.6439625962592235
+        },
+        {
+          "name": "retail",
+          "coefficient": 2.041241433418923
+        },
+        {
+          "name": "informed",
+          "coefficient": -4.394339196943534
+        },
+        {
+          "name": "maker",
+          "coefficient": 4.337638046015226
+        },
+        {
+          "name": "arb_x_retail",
+          "coefficient": 3.271120799256583
+        },
+        {
+          "name": "arb_x_informed",
+          "coefficient": -5.895624696334551
+        },
+        {
+          "name": "arb_x_maker",
+          "coefficient": 0.8494771067836866
+        },
+        {
+          "name": "retail_x_informed",
+          "coefficient": -7.152777711548354
+        },
+        {
+          "name": "retail_x_maker",
+          "coefficient": -2.6388888644547297
+        },
+        {
+          "name": "informed_x_maker",
+          "coefficient": -6.77083327064043
+        }
+      ],
+      "effects": [
+        {
+          "factor": "informed_intensity",
+          "partial_r2": 0.0647645235478748
+        },
+        {
+          "factor": "retail_intensity",
+          "partial_r2": 0.03129139346672323
+        },
+        {
+          "factor": "maker_quote_width",
+          "partial_r2": 0.031013503642257464
+        },
+        {
+          "factor": "arbitrageur_intensity",
+          "partial_r2": 0.025489416871259885
+        },
+        {
+          "factor": "retail_x_informed",
+          "partial_r2": 0.021932794651651728
+        },
+        {
+          "factor": "informed_x_maker",
+          "partial_r2": 0.01965299549036315
+        },
+        {
+          "factor": "arb_x_informed",
+          "partial_r2": 0.014900614332338653
+        },
+        {
+          "factor": "arb_x_retail",
+          "partial_r2": 0.004587094426720581
+        },
+        {
+          "factor": "retail_x_maker",
+          "partial_r2": 0.0029852913070961442
+        },
+        {
+          "factor": "arb_x_maker",
+          "partial_r2": 0.0003093483997585641
+        }
+      ]
+    },
+    {
+      "metric": "retail_surplus_per_unit",
+      "r2": 0.7218975380045283,
+      "rmse": 0.07298249426075169,
+      "coefficients": [
+        {
+          "name": "intercept",
+          "coefficient": -0.3201184752467132
+        },
+        {
+          "name": "arb",
+          "coefficient": -0.07628141591483532
+        },
+        {
+          "name": "retail",
+          "coefficient": 0.005587547692909803
+        },
+        {
+          "name": "informed",
+          "coefficient": -0.06807431063406938
+        },
+        {
+          "name": "maker",
+          "coefficient": -0.04828512301962409
+        },
+        {
+          "name": "arb_x_retail",
+          "coefficient": 0.010937440879798237
+        },
+        {
+          "name": "arb_x_informed",
+          "coefficient": 0.02465628464956814
+        },
+        {
+          "name": "arb_x_maker",
+          "coefficient": -0.009620579265679021
+        },
+        {
+          "name": "retail_x_informed",
+          "coefficient": 0.005051755991912471
+        },
+        {
+          "name": "retail_x_maker",
+          "coefficient": 0.010735375889028252
+        },
+        {
+          "name": "informed_x_maker",
+          "coefficient": 0.0070600497396044485
+        }
+      ],
+      "effects": [
+        {
+          "factor": "arbitrageur_intensity",
+          "partial_r2": 0.346631591101472
+        },
+        {
+          "factor": "informed_intensity",
+          "partial_r2": 0.2776306937979788
+        },
+        {
+          "factor": "maker_quote_width",
+          "partial_r2": 0.1351812544143166
+        },
+        {
+          "factor": "arb_x_informed",
+          "partial_r2": 0.031741153730297726
+        },
+        {
+          "factor": "retail_intensity",
+          "partial_r2": 0.015225796892382546
+        },
+        {
+          "factor": "arb_x_retail",
+          "partial_r2": 0.006245955347960988
+        },
+        {
+          "factor": "retail_x_maker",
+          "partial_r2": 0.006017303943816676
+        },
+        {
+          "factor": "arb_x_maker",
+          "partial_r2": 0.004832477964966876
+        },
+        {
+          "factor": "informed_x_maker",
+          "partial_r2": 0.0026024533874040834
+        },
+        {
+          "factor": "retail_x_informed",
+          "partial_r2": 0.001332453827173769
+        }
+      ]
+    }
+  ]
+}

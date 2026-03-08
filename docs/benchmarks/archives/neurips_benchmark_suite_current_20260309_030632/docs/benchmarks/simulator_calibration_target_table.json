@@ -1,0 +1,180 @@
+{
+  "market_profile": "multimarket",
+  "market_summary": {
+    "symbol_count": 8,
+    "trade_count_total": 402755,
+    "spread_mean_range": [
+      0.000009999999999996123,
+      0.010000000000090381
+    ],
+    "spread_mean_bps_range": [
+      0.0014846222548977712,
+      11.217049915871888
+    ],
+    "order_sign_lag1_range": [
+      0.2830934602500368,
+      0.8056482795151894
+    ],
+    "inter_arrival_mean_ms_range": [
+      125.88465506087503,
+      7808.869297610428
+    ],
+    "volatility_abs_lag1_range": [
+      0.05218148920046467,
+      0.3891675246194802
+    ],
+    "top_bucket_mean_impact_range": [
+      -0.0007538461538461842,
+      0.9717889187163845
+    ],
+    "top_bucket_mean_impact_bps_range": [
+      -0.8461417819903648,
+      0.6487304172498984
+    ]
+  },
+  "rows": [
+    {
+      "metric": "spread_mean_bps",
+      "market_low": 0.0014846222548977712,
+      "market_high": 11.217049915871888,
+      "baseline_value": 326.40844854188833,
+      "calibrated_value": 12.828346808387618,
+      "baseline_within": false,
+      "calibrated_within": false,
+      "baseline_distance_to_range": 315.19139862601645,
+      "calibrated_distance_to_range": 1.61129689251573
+    },
+    {
+      "metric": "order_sign_lag1",
+      "market_low": 0.2830934602500368,
+      "market_high": 0.8056482795151894,
+      "baseline_value": 0.8858622738718479,
+      "calibrated_value": 0.9494219207141787,
+      "baseline_within": false,
+      "calibrated_within": false,
+      "baseline_distance_to_range": 0.08021399435665855,
+      "calibrated_distance_to_range": 0.1437736411989894
+    },
+    {
+      "metric": "inter_arrival_mean_ms",
+      "market_low": 125.88465506087503,
+      "market_high": 7808.869297610428,
+      "baseline_value": 78.54764499401404,
+      "calibrated_value": 35.05817023981153,
+      "baseline_within": false,
+      "calibrated_within": false,
+      "baseline_distance_to_range": 47.337010066861,
+      "calibrated_distance_to_range": 90.8264848210635
+    },
+    {
+      "metric": "volatility_abs_lag1",
+      "market_low": 0.05218148920046467,
+      "market_high": 0.3891675246194802,
+      "baseline_value": 0.11189383891578522,
+      "calibrated_value": -0.022844494422288864,
+      "baseline_within": true,
+      "calibrated_within": false,
+      "baseline_distance_to_range": 0,
+      "calibrated_distance_to_range": 0.07502598362275353
+    },
+    {
+      "metric": "impact_q4_mean_bps",
+      "market_low": -0.8461417819903648,
+      "market_high": 0.6487304172498984,
+      "baseline_value": 264.4107902447515,
+      "calibrated_value": 8.472587263215459,
+      "baseline_within": false,
+      "calibrated_within": false,
+      "baseline_distance_to_range": 263.7620598275016,
+      "calibrated_distance_to_range": 7.823856845965561
+    },
+    {
+      "metric": "bid_shape_L2",
+      "market_low": 0.0033473033214039064,
+      "market_high": 4.495481643584851,
+      "baseline_value": 4.264303449786122,
+      "calibrated_value": 3.8185418511735696,
+      "baseline_within": true,
+      "calibrated_within": true,
+      "baseline_distance_to_range": 0,
+      "calibrated_distance_to_range": 0
+    },
+    {
+      "metric": "ask_shape_L2",
+      "market_low": 0.0036995672204383637,
+      "market_high": 2.1616660128214833,
+      "baseline_value": 6.7941472833673755,
+      "calibrated_value": 3.508540865778208,
+      "baseline_within": false,
+      "calibrated_within": false,
+      "baseline_distance_to_range": 4.632481270545892,
+      "calibrated_distance_to_range": 1.3468748529567245
+    },
+    {
+      "metric": "bid_shape_L3",
+      "market_low": 0.0024685944004172442,
+      "market_high": 11.547024618469422,
+      "baseline_value": 6.38355470604635,
+      "calibrated_value": 4.29996589326927,
+      "baseline_within": true,
+      "calibrated_within": true,
+      "baseline_distance_to_range": 0,
+      "calibrated_distance_to_range": 0
+    },
+    {
+      "metric": "ask_shape_L3",
+      "market_low": 0.014894248220019543,
+      "market_high": 3.577371684321353,
+      "baseline_value": 9.851515763028992,
+      "calibrated_value": 3.4415995496881013,
+      "baseline_within": false,
+      "calibrated_within": true,
+      "baseline_distance_to_range": 6.274144078707639,
+      "calibrated_distance_to_range": 0
+    },
+    {
+      "metric": "bid_shape_L4",
+      "market_low": 0.04795714656858052,
+      "market_high": 11.611028183134678,
+      "baseline_value": 8.671814188542454,
+      "calibrated_value": 4.538896590775289,
+      "baseline_within": true,
+      "calibrated_within": true,
+      "baseline_distance_to_range": 0,
+      "calibrated_distance_to_range": 0
+    },
+    {
+      "metric": "ask_shape_L4",
+      "market_low": 0.0009772441714365491,
+      "market_high": 5.1583849565545234,
+      "baseline_value": 12.31333515376591,
+      "calibrated_value": 2.9794836617828206,
+      "baseline_within": false,
+      "calibrated_within": true,
+      "baseline_distance_to_range": 7.154950197211387,
+      "calibrated_distance_to_range": 0
+    },
+    {
+      "metric": "bid_shape_L5",
+      "market_low": 0.002984319080806179,
+      "market_high": 28.786342876239278,
+      "baseline_value": 9.943669660957724,
+      "calibrated_value": 5.471234679556127,
+      "baseline_within": true,
+      "calibrated_within": true,
+      "baseline_distance_to_range": 0,
+      "calibrated_distance_to_range": 0
+    },
+    {
+      "metric": "ask_shape_L5",
+      "market_low": 0.00037123418202298465,
+      "market_high": 4.030671985086285,
+      "baseline_value": 14.323489363276966,
+      "calibrated_value": 2.6558160709326515,
+      "baseline_within": false,
+      "calibrated_within": true,
+      "baseline_distance_to_range": 10.29281737819068,
+      "calibrated_distance_to_range": 0
+    }
+  ]
+}

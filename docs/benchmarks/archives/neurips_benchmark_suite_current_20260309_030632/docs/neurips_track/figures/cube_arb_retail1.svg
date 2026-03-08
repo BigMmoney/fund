@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="540" viewBox="0 0 880 540" role="img">
+<style>.title{font:700 20px Arial; fill:#f3f7ff;}.label{font:12px Arial; fill:#cbd8f0;}.value{font:11px Arial; fill:#eef5ff;}.axis{stroke:#4d6387; stroke-width:1;}.grid{stroke:#20324d; stroke-width:1; opacity:.8;}.legend{font:12px Arial; fill:#d7e7ff;}.bg{fill:#071423;}.err{stroke:#dbeafe; stroke-width:1.5;}</style>
+<rect class="bg" x="0" y="0" width="880" height="540" rx="18"/>
+<text class="title" x="150" y="38">Parameter Cube: Arbitrage Heatmap (Retail x1)</text>
+<text class="label" x="150" y="520">Rows: informed-flow intensity, columns: maker quote width</text>
+<text class="legend" x="225.0" y="72" text-anchor="middle">Maker x1</text>
+<text class="legend" x="375.0" y="72" text-anchor="middle">Maker x2</text>
+<text class="legend" x="525.0" y="72" text-anchor="middle">Maker x3</text>
+<text class="legend" x="130" y="139.0" text-anchor="end">Arb x1</text>
+<rect x="150" y="90" width="142" height="82" fill="#f24a78" rx="12" opacity="0.88"/>
+<text class="value" x="221.0" y="125.0" text-anchor="middle">552.8</text>
+<text class="label" x="221.0" y="148.0" text-anchor="middle">+/- 185.7</text>
+<rect x="300" y="90" width="142" height="82" fill="#a57093" rx="12" opacity="0.88"/>
+<text class="value" x="371.0" y="125.0" text-anchor="middle">508.5</text>
+<text class="label" x="371.0" y="148.0" text-anchor="middle">+/- 166.2</text>
+<rect x="450" y="90" width="142" height="82" fill="#16b8c8" rx="12" opacity="0.88"/>
+<text class="value" x="521.0" y="125.0" text-anchor="middle">426.0</text>
+<text class="label" x="521.0" y="148.0" text-anchor="middle">+/- 157.8</text>
+<text class="legend" x="130" y="229.0" text-anchor="end">Arb x2</text>
+<rect x="150" y="180" width="142" height="82" fill="#8b7d9d" rx="12" opacity="0.88"/>
+<text class="value" x="221.0" y="215.0" text-anchor="middle">493.8</text>
+<text class="label" x="221.0" y="238.0" text-anchor="middle">+/- 163.0</text>
+<rect x="300" y="180" width="142" height="82" fill="#5299b1" rx="12" opacity="0.88"/>
+<text class="value" x="371.0" y="215.0" text-anchor="middle">461.0</text>
+<text class="label" x="371.0" y="238.0" text-anchor="middle">+/- 146.6</text>
+<rect x="450" y="180" width="142" height="82" fill="#4d9cb3" rx="12" opacity="0.88"/>
+<text class="value" x="521.0" y="215.0" text-anchor="middle">458.0</text>
+<text class="label" x="521.0" y="238.0" text-anchor="middle">+/- 179.5</text>
+<text class="legend" x="130" y="319.0" text-anchor="end">Arb x3</text>
+<rect x="150" y="270" width="142" height="82" fill="#7f83a1" rx="12" opacity="0.88"/>
+<text class="value" x="221.0" y="305.0" text-anchor="middle">486.8</text>
+<text class="label" x="221.0" y="328.0" text-anchor="middle">+/- 174.3</text>
+<rect x="300" y="270" width="142" height="82" fill="#519ab2" rx="12" opacity="0.88"/>
+<text class="value" x="371.0" y="305.0" text-anchor="middle">460.0</text>
+<text class="label" x="371.0" y="328.0" text-anchor="middle">+/- 134.7</text>
+<rect x="450" y="270" width="142" height="82" fill="#39a6bb" rx="12" opacity="0.88"/>
+<text class="value" x="521.0" y="305.0" text-anchor="middle">446.2</text>
+<text class="label" x="521.0" y="328.0" text-anchor="middle">+/- 174.5</text>
+</svg>

@@ -1,0 +1,8 @@
+scenario,mode,mean_orders_per_sec,mean_fills_per_sec,mean_p99_latency_ms,mean_average_price_impact,mean_queue_priority_advantage,mean_latency_arbitrage_profit
+AgentAblation-Control,batch,1343.2540,661.3095,377.5000,5.4009,0.039965,718.2500
+AgentAblation-NoArbitrageurs,batch,1276.5873,649.0079,392.5000,5.3780,-0.601565,0.0000
+AgentAblation-NoInformed,batch,1257.1429,608.3333,352.5000,5.4284,0.032691,748.0000
+AgentSweep-RetailBurst,batch,2532.9365,1339.6825,325.0000,5.5503,0.054876,797.0000
+AgentSweep-ArbIntensityHigh,batch,1409.9206,717.0635,405.0000,5.7632,0.038262,1811.7500
+AgentSweep-InformedIntensityHigh,batch,1426.7857,754.1667,397.5000,5.5898,0.032953,716.0000
+AgentSweep-MakersWide,batch,1343.2540,577.3810,397.5000,5.6073,0.040801,733.7500

@@ -33,6 +33,9 @@ logs/
 data/
 *.db
 *.sqlite
+!docs/benchmarks/archives/**/data/
+!docs/benchmarks/archives/**/data/**/
+!docs/benchmarks/archives/**/data/**/manifest.json
 
 # Environment files
 .env
@@ -57,6 +60,11 @@ Desktop.ini
 tmp/
 temp/
 *.tmp
+.codex_tmp/
+
+# Local deliverables and mutable archive aliases
+deliverables/
+docs/benchmarks/archives/*_latest/
 
 # Node modules (for frontend)
 node_modules/

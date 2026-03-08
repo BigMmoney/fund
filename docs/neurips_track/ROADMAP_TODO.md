@@ -41,13 +41,13 @@ Acceptance:
 
 ### P1: Formal Learning Protocol
 
-- [ ] Add PPO baseline.
-- [ ] Add one stronger offline-RL baseline:
+- [x] Add PPO baseline.
+- [x] Add one stronger offline-RL baseline:
   - [ ] CQL
-  - [ ] IQL
-- [ ] Freeze benchmark train / validation / held-out splits.
-- [ ] Freeze observation schema, action bundle, and budget.
-- [ ] Produce leaderboard-style comparison tables.
+  - [x] IQL
+- [x] Freeze benchmark train / validation / held-out splits.
+- [x] Freeze observation schema, action bundle, and budget.
+- [x] Produce leaderboard-style comparison tables.
 
 Acceptance:
 
@@ -56,8 +56,8 @@ Acceptance:
 
 ### P2: Counterfactual Controls
 
-- [ ] Add matching-only / no-settlement control.
-- [ ] Add no-welfare-objective reward control.
+- [x] Add matching-only / no-settlement control.
+- [x] Add no-welfare-objective reward control.
 - [ ] Add calibrated-synthetic vs replay-like slice control.
 
 Acceptance:
@@ -91,9 +91,17 @@ Acceptance:
 
 ### Step 3
 
-- [ ] Implement PPO baseline
-- [ ] Implement one offline-RL baseline
-- [ ] Publish protocol table in manuscript and appendix
+- [x] Implement PPO baseline
+- [x] Implement one offline-RL baseline
+- [x] Publish protocol table in manuscript and appendix
+
+### Step 4
+
+- [x] Add runtime-profile generation code for the published throughput artifact
+- [x] Add paired statistical review artifacts for the main claims
+- [x] Add benchmark-necessity ranking-shift artifacts
+- [x] Add welfare-robustness correlation and rank-stability artifacts
+- [x] Add a one-shot regeneration script for the full benchmark suite
 
 ## Design Constraints
 

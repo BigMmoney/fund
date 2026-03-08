@@ -1,0 +1,5 @@
+scenario,mode,batch_window_ms,orders,fills,orders_per_sec,fills_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms
+Immediate Surrogate,immediate,0,400,400,144743.9841,144743.9841,1.7144,2.7635,2.7635
+FBA-100ms,batch,100,400,400,4978.0344,4978.0344,80.3530,80.3530,80.3530
+FBA-250ms,batch,250,400,400,1736.2061,1736.2061,230.3874,230.3874,230.3874
+FBA-500ms,batch,500,400,400,833.4054,833.4054,479.9585,479.9585,479.9585

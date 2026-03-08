@@ -1,0 +1,5 @@
+rank,policy,family,training_budget,benchmark_score,frontier,safety_passed,mean_fills_per_sec,mean_p99_latency_ms,mean_average_price_impact,mean_retail_surplus_per_unit,mean_retail_adverse_selection_rate,mean_surplus_transfer_gap
+1,iql,offline_value,6 iql iterations (expectile 0.70, beta 0.80),3.717923,true,true,58.859278,1500.000000,5.287345,0.099289,0.417026,3.960219
+2,fitted_q,offline_value,8 fitted-q iterations,1.816958,true,true,56.864085,2625.000000,5.475037,0.183053,0.420601,3.960214
+3,burst_aware,heuristic,no_training,-2.169479,false,true,47.157225,6000.000000,8.923740,1.246312,0.424822,5.832152
+4,ppo_clip,online_policy,80 episodes x 3 epochs,-3.365402,false,true,40.536642,6000.000000,10.074119,1.102262,0.422867,6.658955

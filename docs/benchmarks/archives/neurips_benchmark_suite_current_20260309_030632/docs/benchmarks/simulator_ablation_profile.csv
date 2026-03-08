@@ -1,0 +1,5 @@
+scenario,mode,mean_orders_per_sec,mean_fills_per_sec,mean_p99_latency_ms,mean_queue_priority_advantage,mean_latency_arbitrage_profit,risk_rejections_total,negative_balance_violations_total,conservation_breaches_total
+Ablation-Control,batch,1190.4762,586.3095,372.5000,-0.050348,730.2500,2922,0,0
+Ablation-RelaxedRisk,batch,1770.2381,943.2540,282.5000,0.040410,2244.7500,0,0,0
+Ablation-RandomTieBreak,batch,1190.4762,591.8651,382.5000,-0.054355,730.0000,2927,0,0
+Ablation-NoSettlementChecks,batch,1190.4762,586.3095,372.5000,-0.050348,730.2500,2922,0,0

@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-03-06T11:41:25Z",
+  "scenarios": [
+    {
+      "batch_window_ms": 100,
+      "orders": 400,
+      "fills": 400,
+      "duration_ms": 80.6645,
+      "orders_per_sec": 4958.810877151659,
+      "fills_per_sec": 4958.810877151659,
+      "p50_latency_ms": 80.6645,
+      "p99_latency_ms": 80.6645
+    },
+    {
+      "batch_window_ms": 500,
+      "orders": 400,
+      "fills": 400,
+      "duration_ms": 480.2942,
+      "orders_per_sec": 832.8228823083851,
+      "fills_per_sec": 832.8228823083851,
+      "p50_latency_ms": 480.2942,
+      "p99_latency_ms": 480.2942
+    },
+    {
+      "batch_window_ms": 1000,
+      "orders": 400,
+      "fills": 400,
+      "duration_ms": 981.8548000000001,
+      "orders_per_sec": 407.3922131867156,
+      "fills_per_sec": 407.3922131867156,
+      "p50_latency_ms": 981.8548000000001,
+      "p99_latency_ms": 981.8548000000001
+    }
+  ]
+}

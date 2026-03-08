@@ -1,0 +1,189 @@
+{
+  "summaries": [
+    {
+      "suite": "base_heldout",
+      "policy": "burst_aware",
+      "runs": 16,
+      "mean_p99_latency_ms": 426.875,
+      "mean_average_price_impact": 5.37429331390292,
+      "mean_queue_priority_advantage": 0.03373800350042922,
+      "mean_latency_arbitrage_profit": 1051.0625,
+      "mean_retail_surplus_per_unit": -0.41794505332986664,
+      "mean_retail_adverse_selection_rate": 0.5254920288757143,
+      "mean_surplus_transfer_gap": 1.695395868123945
+    },
+    {
+      "suite": "base_heldout",
+      "policy": "learned_fitted_q",
+      "runs": 16,
+      "mean_p99_latency_ms": 176.25,
+      "mean_average_price_impact": 5.939531827040229,
+      "mean_queue_priority_advantage": 0.05573772635207825,
+      "mean_latency_arbitrage_profit": 1492.5,
+      "mean_retail_surplus_per_unit": 0.04711548706548688,
+      "mean_retail_adverse_selection_rate": 0.504372741887198,
+      "mean_surplus_transfer_gap": 2.448135432727804
+    },
+    {
+      "suite": "base_heldout",
+      "policy": "learned_linucb",
+      "runs": 16,
+      "mean_p99_latency_ms": 197.5,
+      "mean_average_price_impact": 5.589883008495279,
+      "mean_queue_priority_advantage": 0.047397316975080574,
+      "mean_latency_arbitrage_profit": 1484.4375,
+      "mean_retail_surplus_per_unit": 0.018954520616833403,
+      "mean_retail_adverse_selection_rate": 0.4899367088247495,
+      "mean_surplus_transfer_gap": 2.2583790002190938
+    },
+    {
+      "suite": "base_heldout",
+      "policy": "learned_offline_contextual",
+      "runs": 16,
+      "mean_p99_latency_ms": 286.25,
+      "mean_average_price_impact": 5.216393193208312,
+      "mean_queue_priority_advantage": 0.04059313179049979,
+      "mean_latency_arbitrage_profit": 1151.75,
+      "mean_retail_surplus_per_unit": -0.13131229899248076,
+      "mean_retail_adverse_selection_rate": 0.4920200667565994,
+      "mean_surplus_transfer_gap": 1.1497092402008249
+    },
+    {
+      "suite": "base_heldout",
+      "policy": "learned_online_dqn",
+      "runs": 16,
+      "mean_p99_latency_ms": 163.125,
+      "mean_average_price_impact": 6.059796456603604,
+      "mean_queue_priority_advantage": 0.05921190272752233,
+      "mean_latency_arbitrage_profit": 1556.4375,
+      "mean_retail_surplus_per_unit": 0.04327587149697804,
+      "mean_retail_adverse_selection_rate": 0.505773826066598,
+      "mean_surplus_transfer_gap": 2.5657359727297697
+    },
+    {
+      "suite": "strategic_population",
+      "policy": "burst_aware",
+      "runs": 12,
+      "mean_p99_latency_ms": 370.8333333333333,
+      "mean_average_price_impact": 4.9387859555897275,
+      "mean_queue_priority_advantage": 0.08706574021158194,
+      "mean_latency_arbitrage_profit": 3832.4166666666665,
+      "mean_retail_surplus_per_unit": -0.3028245889412213,
+      "mean_retail_adverse_selection_rate": 0.4562665477783734,
+      "mean_surplus_transfer_gap": 2.0130938447636795
+    },
+    {
+      "suite": "strategic_population",
+      "policy": "learned_fitted_q",
+      "runs": 12,
+      "mean_p99_latency_ms": 179.16666666666666,
+      "mean_average_price_impact": 4.88788339429956,
+      "mean_queue_priority_advantage": 0.1706798330231083,
+      "mean_latency_arbitrage_profit": 4994.75,
+      "mean_retail_surplus_per_unit": -0.008388982810202601,
+      "mean_retail_adverse_selection_rate": 0.4754311125758613,
+      "mean_surplus_transfer_gap": 2.8204921989154266
+    },
+    {
+      "suite": "strategic_population",
+      "policy": "learned_linucb",
+      "runs": 12,
+      "mean_p99_latency_ms": 184.16666666666666,
+      "mean_average_price_impact": 4.796530492802075,
+      "mean_queue_priority_advantage": 0.13744232721771918,
+      "mean_latency_arbitrage_profit": 4879.5,
+      "mean_retail_surplus_per_unit": 0.049418557912707196,
+      "mean_retail_adverse_selection_rate": 0.47947782672523465,
+      "mean_surplus_transfer_gap": 2.6577472137215206
+    },
+    {
+      "suite": "strategic_population",
+      "policy": "learned_offline_contextual",
+      "runs": 12,
+      "mean_p99_latency_ms": 266.6666666666667,
+      "mean_average_price_impact": 4.176314668750545,
+      "mean_queue_priority_advantage": 0.15208959620380327,
+      "mean_latency_arbitrage_profit": 3846.4166666666665,
+      "mean_retail_surplus_per_unit": 0.0015127138104065834,
+      "mean_retail_adverse_selection_rate": 0.4737403950316665,
+      "mean_surplus_transfer_gap": 1.9261539637839753
+    },
+    {
+      "suite": "strategic_population",
+      "policy": "learned_online_dqn",
+      "runs": 12,
+      "mean_p99_latency_ms": 182.5,
+      "mean_average_price_impact": 4.784816260578853,
+      "mean_queue_priority_advantage": 0.12066240058670923,
+      "mean_latency_arbitrage_profit": 4799.583333333333,
+      "mean_retail_surplus_per_unit": 0.015491617460667371,
+      "mean_retail_adverse_selection_rate": 0.474645109211875,
+      "mean_surplus_transfer_gap": 2.633015344728165
+    }
+  ],
+  "correlations": [
+    {
+      "target": "surplus_transfer_gap",
+      "metric": "queue_priority_advantage",
+      "samples": 140,
+      "pearson": 0.3305391423071382,
+      "spearman": 0.31539781983577697
+    },
+    {
+      "target": "surplus_transfer_gap",
+      "metric": "latency_arbitrage_profit",
+      "samples": 140,
+      "pearson": 0.16568917390901017,
+      "spearman": 0.31029890598408566
+    },
+    {
+      "target": "surplus_transfer_gap",
+      "metric": "average_price_impact",
+      "samples": 140,
+      "pearson": 0.3416519645908826,
+      "spearman": 0.37132548299275103
+    },
+    {
+      "target": "retail_surplus_per_unit",
+      "metric": "retail_adverse_selection_rate",
+      "samples": 140,
+      "pearson": -0.38831641306206144,
+      "spearman": -0.37161850406184055
+    },
+    {
+      "target": "retail_surplus_per_unit",
+      "metric": "surplus_transfer_gap",
+      "samples": 140,
+      "pearson": -0.08108242431486774,
+      "spearman": -0.061212976022567
+    }
+  ],
+  "rank_stability": [
+    {
+      "left_suite": "base_heldout",
+      "right_suite": "strategic_population",
+      "metric": "surplus_transfer_gap",
+      "common_policies": [
+        "burst_aware",
+        "learned_fitted_q",
+        "learned_linucb",
+        "learned_offline_contextual",
+        "learned_online_dqn"
+      ],
+      "kendall_tau": 0.6
+    },
+    {
+      "left_suite": "base_heldout",
+      "right_suite": "strategic_population",
+      "metric": "retail_surplus_per_unit",
+      "common_policies": [
+        "burst_aware",
+        "learned_fitted_q",
+        "learned_linucb",
+        "learned_offline_contextual",
+        "learned_online_dqn"
+      ],
+      "kendall_tau": 0.2
+    }
+  ]
+}

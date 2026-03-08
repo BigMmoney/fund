@@ -62,6 +62,7 @@ Key outputs:
 - `docs/benchmarks/simulator_online_dqn_training_curve.*`
 - `docs/benchmarks/simulator_double_dqn_training_curve.*`
 - `docs/benchmarks/simulator_controller_pareto.*`
+- `docs/benchmarks/simulator_runtime_profile.*`
 - `docs/benchmarks/simulator_strategic_agent_profile.*`
 - `docs/benchmarks/binance_spot_smoke_facts.*`
 - `docs/benchmarks/binance_spot_multimarket_facts.*`
@@ -72,6 +73,16 @@ Key outputs:
 - `docs/benchmarks/simulator_calibrated_benchmark_profile.*`
 - `docs/benchmarks/simulator_calibrated_policy_protocol.*`
 - `docs/benchmarks/simulator_counterfactual_controls.*`
+- `docs/benchmarks/simulator_statistical_review.*`
+- `docs/benchmarks/simulator_benchmark_necessity.*`
+- `docs/benchmarks/simulator_welfare_robustness.*`
+- `docs/benchmarks/simulator_policy_leaderboard.*`
+
+One-shot regeneration:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_neurips_benchmark_suite.ps1
+```
 
 To generate artifacts:
 
@@ -96,6 +107,9 @@ go test ./simulator -run TestGenerateSimulatorParameterCubeArtifacts -v
 
 $env:RUN_SIM_HYPER="1"
 go test ./simulator -run TestGenerateSimulatorParameterHypercubeArtifacts -v
+
+$env:RUN_SIM_RUNTIME="1"
+go test ./simulator -run TestGenerateSimulatorRuntimeProfileArtifacts -v
 
 $env:RUN_SIM_HELDOUT="1"
 go test ./simulator -run TestGenerateSimulatorHeldOutPolicyArtifacts -v
@@ -123,6 +137,18 @@ go test ./simulator -run TestGenerateSimulatorCalibratedLearningProtocolArtifact
 
 $env:RUN_SIM_COUNTERFACTUAL="1"
 go test -timeout 30m ./simulator -run TestGenerateSimulatorCounterfactualControlArtifacts -v
+
+$env:RUN_SIM_STATS="1"
+go test -timeout 30m ./simulator -run TestGenerateSimulatorStatisticalReviewArtifacts -v
+
+$env:RUN_SIM_NECESSITY="1"
+go test -timeout 30m ./simulator -run TestGenerateSimulatorNecessityArtifacts -v
+
+$env:RUN_SIM_WELFARE_ROBUSTNESS="1"
+go test -timeout 30m ./simulator -run TestGenerateSimulatorWelfareRobustnessArtifacts -v
+
+$env:RUN_SIM_LEADERBOARD="1"
+go test -timeout 30m ./simulator -run TestGenerateSimulatorLeaderboardArtifacts -v
 
 $env:RUN_MARKET_PROVENANCE="1"
 go test ./simulator -run TestGenerateMarketDataProvenanceArtifacts -v

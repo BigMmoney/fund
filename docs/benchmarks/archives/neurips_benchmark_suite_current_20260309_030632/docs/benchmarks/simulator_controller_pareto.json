@@ -1,0 +1,179 @@
+{
+  "results": [
+    {
+      "name": "Immediate-Surrogate",
+      "category": "mechanism",
+      "mean_p99_latency_ms": 10,
+      "ci95_p99_latency_ms": 0,
+      "mean_surplus_transfer_gap": 2.003823468711259,
+      "ci95_surplus_transfer_gap": 0.28617767069233635,
+      "mean_fills_per_sec": 808.5416666666667,
+      "ci95_fills_per_sec": 17.38836092005543,
+      "frontier": true
+    },
+    {
+      "name": "SpeedBump-50ms",
+      "category": "mechanism",
+      "mean_p99_latency_ms": 60,
+      "ci95_p99_latency_ms": 0,
+      "mean_surplus_transfer_gap": 4.004891630392034,
+      "ci95_surplus_transfer_gap": 0.4219264853692256,
+      "mean_fills_per_sec": 776.2,
+      "ci95_fills_per_sec": 16.69282648325321,
+      "frontier": false
+    },
+    {
+      "name": "FBA-100ms",
+      "category": "batch",
+      "mean_p99_latency_ms": 136.25,
+      "ci95_p99_latency_ms": 20.77088557332113,
+      "mean_surplus_transfer_gap": 2.1906897963499166,
+      "ci95_surplus_transfer_gap": 0.8851469768574934,
+      "mean_fills_per_sec": 795.4545454545455,
+      "ci95_fills_per_sec": 25.903114630977242,
+      "frontier": false
+    },
+    {
+      "name": "Policy-LearnedLinUCB-100-250ms",
+      "category": "controller",
+      "mean_p99_latency_ms": 141.25,
+      "ci95_p99_latency_ms": 19.42697062076329,
+      "mean_surplus_transfer_gap": 2.293634095233744,
+      "ci95_surplus_transfer_gap": 0.8383691784728113,
+      "mean_fills_per_sec": 749.3055555555555,
+      "ci95_fills_per_sec": 27.686919112987916,
+      "frontier": false
+    },
+    {
+      "name": "Policy-LearnedOnlineDQN-100-250ms",
+      "category": "controller",
+      "mean_p99_latency_ms": 141.25,
+      "ci95_p99_latency_ms": 22.835656055826377,
+      "mean_surplus_transfer_gap": 2.297262836094416,
+      "ci95_surplus_transfer_gap": 0.8310400589018967,
+      "mean_fills_per_sec": 752.6785714285714,
+      "ci95_fills_per_sec": 19.695480207053077,
+      "frontier": false
+    },
+    {
+      "name": "Policy-LearnedFittedQ-100-250ms",
+      "category": "controller",
+      "mean_p99_latency_ms": 156.25,
+      "ci95_p99_latency_ms": 33.58153789658836,
+      "mean_surplus_transfer_gap": 2.1912357268341434,
+      "ci95_surplus_transfer_gap": 0.9547774793633008,
+      "mean_fills_per_sec": 755.2579365079365,
+      "ci95_fills_per_sec": 26.97798420832151,
+      "frontier": false
+    },
+    {
+      "name": "Policy-LearnedOfflineContextual-100-250ms",
+      "category": "controller",
+      "mean_p99_latency_ms": 283.75,
+      "ci95_p99_latency_ms": 57.241721563034766,
+      "mean_surplus_transfer_gap": 0.531372569004454,
+      "ci95_surplus_transfer_gap": 0.8582470053283509,
+      "mean_fills_per_sec": 776.6865079365081,
+      "ci95_fills_per_sec": 19.608905191484858,
+      "frontier": true
+    },
+    {
+      "name": "Policy-LearnedTinyMLP-100-250ms",
+      "category": "controller",
+      "mean_p99_latency_ms": 311.25,
+      "ci95_p99_latency_ms": 60.05624186960086,
+      "mean_surplus_transfer_gap": 3.0262451139467754,
+      "ci95_surplus_transfer_gap": 0.7376495621534137,
+      "mean_fills_per_sec": 684.8214285714287,
+      "ci95_fills_per_sec": 37.89765370884856,
+      "frontier": false
+    },
+    {
+      "name": "Adaptive-QueueLoad-100-250ms",
+      "category": "adaptive",
+      "mean_p99_latency_ms": 351.25,
+      "ci95_p99_latency_ms": 64.95388508395783,
+      "mean_surplus_transfer_gap": 0.9297994547314995,
+      "ci95_surplus_transfer_gap": 0.6985028452714557,
+      "mean_fills_per_sec": 686.5079365079365,
+      "ci95_fills_per_sec": 30.86587371991642,
+      "frontier": false
+    },
+    {
+      "name": "FBA-250ms-Stress",
+      "category": "batch",
+      "mean_p99_latency_ms": 370,
+      "ci95_p99_latency_ms": 65.64902893417388,
+      "mean_surplus_transfer_gap": 0.3753940430127099,
+      "ci95_surplus_transfer_gap": 0.7836274616576392,
+      "mean_fills_per_sec": 918.3531746031746,
+      "ci95_fills_per_sec": 39.2637574674529,
+      "frontier": true
+    },
+    {
+      "name": "Policy-BurstAware-100-250ms",
+      "category": "controller",
+      "mean_p99_latency_ms": 392.5,
+      "ci95_p99_latency_ms": 62.246395477971255,
+      "mean_surplus_transfer_gap": 0.68772850348631,
+      "ci95_surplus_transfer_gap": 0.8364277358079858,
+      "mean_fills_per_sec": 670.6349206349207,
+      "ci95_fills_per_sec": 37.67909906264796,
+      "frontier": false
+    },
+    {
+      "name": "FBA-250ms",
+      "category": "batch",
+      "mean_p99_latency_ms": 397.5,
+      "ci95_p99_latency_ms": 64.89032092693023,
+      "mean_surplus_transfer_gap": 0.8337643570193939,
+      "ci95_surplus_transfer_gap": 0.7458287602630543,
+      "mean_fills_per_sec": 674.5039682539682,
+      "ci95_fills_per_sec": 28.711271217196355,
+      "frontier": false
+    },
+    {
+      "name": "Adaptive-OrderFlow-100-250ms",
+      "category": "adaptive",
+      "mean_p99_latency_ms": 413.75,
+      "ci95_p99_latency_ms": 44.49803015303037,
+      "mean_surplus_transfer_gap": 0.702788945510006,
+      "ci95_surplus_transfer_gap": 0.703508895183254,
+      "mean_fills_per_sec": 674.1071428571429,
+      "ci95_fills_per_sec": 13.836843458054874,
+      "frontier": false
+    },
+    {
+      "name": "Adaptive-100-250ms",
+      "category": "adaptive",
+      "mean_p99_latency_ms": 430,
+      "ci95_p99_latency_ms": 50.329464531226634,
+      "mean_surplus_transfer_gap": -0.034192783457988936,
+      "ci95_surplus_transfer_gap": 0.7195886104241372,
+      "mean_fills_per_sec": 708.2341269841269,
+      "ci95_fills_per_sec": 25.135188110041266,
+      "frontier": true
+    },
+    {
+      "name": "FBA-500ms",
+      "category": "batch",
+      "mean_p99_latency_ms": 698.75,
+      "ci95_p99_latency_ms": 142.2451306284331,
+      "mean_surplus_transfer_gap": 1.6877623778772841,
+      "ci95_surplus_transfer_gap": 1.3484719823450346,
+      "mean_fills_per_sec": 609.9337748344371,
+      "ci95_fills_per_sec": 22.744186843540827,
+      "frontier": false
+    }
+  ],
+  "seeds": [
+    7,
+    11,
+    19,
+    23,
+    29,
+    31,
+    37,
+    41
+  ]
+}
