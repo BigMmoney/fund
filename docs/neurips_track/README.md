@@ -2,7 +2,7 @@
 
 This directory is a parallel benchmark-paper line. It does not replace the original systems-paper material in `docs/PAPER_MANUSCRIPT.md` or `docs/arxiv/`.
 
-The scope of this paper line is intentionally narrow. It is centered on one benchmark question: how mechanism and controller choices trade off latency/fills against retail outcomes and transfer-to-arbitrageur under explicit settlement constraints. In particular, this track studies how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The current line now includes offline and online learning stories, a controller Pareto frontier, and a fitted response-surface summary over the unified hypercube.
+The scope of this paper line is intentionally narrow. It is centered on one benchmark question: how mechanism and controller choices trade off latency/fills against retail outcomes and transfer-to-arbitrageur under explicit settlement constraints. In particular, this track studies how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The current line now includes offline and online learning stories, a controller Pareto frontier, and a fitted response-surface summary over the unified hypercube. The paper-facing claim is singular: the benchmark exposes a persistent tension between latency optimization and retail welfare that remains qualitatively stable under stronger learning baselines, first-pass real-data calibration, and counterfactual controls.
 
 ## Purpose
 
@@ -366,7 +366,7 @@ Held-out protocol summary:
 - `ppo_clip`: `40.54 +/- 1.85 fills/s`, `p99 6000.00 +/- 0.00 ms`, welfare gap `6.6590 +/- 0.3586`
 - `iql`: `58.86 +/- 1.72 fills/s`, `p99 1500.00 +/- 245.00 ms`, welfare gap `3.9602 +/- 0.2590`
 
-The calibrated protocol therefore keeps the main paper claim intact under the market-data envelope: the controllers with materially lower tail latency than `burst_aware` also move the welfare summary rather than leaving it unchanged, and the best calibrated held-out tradeoff now comes from the `iql` baseline rather than the simple on-policy PPO-style controller.
+The calibrated protocol therefore keeps the main paper claim intact under the market-data envelope: the controllers with materially lower tail latency than `burst_aware` also move the welfare summary rather than leaving it unchanged, and the best calibrated held-out tradeoff now comes from the `iql` baseline rather than the simple on-policy PPO-style controller. In the current protocol, PPO is the weakest calibrated learner, IQL is the most stable calibrated learner, and the stronger Double-DQN artifact shows that intermediate checkpoints can dominate final ones on the latency-welfare frontier.
 
 Counterfactual controls in `docs/benchmarks/simulator_counterfactual_controls.*`:
 
