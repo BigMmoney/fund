@@ -1,0 +1,142 @@
+{
+  "profile_name": "multimarket",
+  "venue": "binance_spot",
+  "downloaded_at": "2026-03-07T21:42:32.947561+00:00",
+  "start_time_utc": "2026-03-07T15:42:32.947544+00:00",
+  "end_time_utc": "2026-03-07T21:42:32.947544+00:00",
+  "base_urls": [
+    "https://data-api.binance.vision",
+    "https://api1.binance.com",
+    "https://api2.binance.com"
+  ],
+  "manifest_sha256": "776456d05b45c128320743e2cb213cf7b071eb15aa82430a20893cc228021a00",
+  "symbol_count": 8,
+  "trade_count": 402755,
+  "files": [
+    {
+      "relative_path": "ADAUSDT/agg_trades.json",
+      "size_bytes": 1035031,
+      "sha256": "7456e4cc98af01d5d789d50a90b168d8d12cf65ac355c66f3563d5868b4b1054"
+    },
+    {
+      "relative_path": "ADAUSDT/depth_snapshots.json",
+      "size_bytes": 122409,
+      "sha256": "26839e0e52cd2c99009c058e187cbae32db7d5542c20df9e9a87bb5a29e423e8"
+    },
+    {
+      "relative_path": "ADAUSDT/klines.json",
+      "size_bytes": 84143,
+      "sha256": "22499afc4f128d218975f3f56384965f7ee83fef8165285d630adc3f7f08d48d"
+    },
+    {
+      "relative_path": "AVAXUSDT/agg_trades.json",
+      "size_bytes": 495221,
+      "sha256": "6437fd4c8891dbcee43c3a9a553851854121a07752ebb5ab5a43a3573e4859fd"
+    },
+    {
+      "relative_path": "AVAXUSDT/depth_snapshots.json",
+      "size_bytes": 120173,
+      "sha256": "ba9a48e4c7f2e215b606ee28b24ad3721a71ce4e35afc5559207e03213150166"
+    },
+    {
+      "relative_path": "AVAXUSDT/klines.json",
+      "size_bytes": 81773,
+      "sha256": "092e7a01a07c2677151988f74d078a7a006f3ab537bc57703f3b370a40dd0482"
+    },
+    {
+      "relative_path": "BNBUSDT/agg_trades.json",
+      "size_bytes": 7099322,
+      "sha256": "45daa5346f0e84e3eaf2a9b147f3f67d87e61e4c0925caf4ad1af84b55a4ed98"
+    },
+    {
+      "relative_path": "BNBUSDT/depth_snapshots.json",
+      "size_bytes": 120495,
+      "sha256": "4ba7e372e290110d8f0d5b37b961f9ecec0660ac60cdea7bfbd5bfbcc5d8c9ee"
+    },
+    {
+      "relative_path": "BNBUSDT/klines.json",
+      "size_bytes": 85956,
+      "sha256": "6f387fcedf651a02f5b5e55486a2bf650ec0ece68d2ec82b51bf288c5600ab27"
+    },
+    {
+      "relative_path": "BTCUSDT/agg_trades.json",
+      "size_bytes": 31829510,
+      "sha256": "6dd0fce4c4b92358efd581fc0bd56e764eef9afd19c10c16a07c9ffce9d9e58d"
+    },
+    {
+      "relative_path": "BTCUSDT/depth_snapshots.json",
+      "size_bytes": 123245,
+      "sha256": "2c9d2f816e45e66bcef44fc1b6a93137522c77686b40d8a7c70abe5520b7b1de"
+    },
+    {
+      "relative_path": "BTCUSDT/klines.json",
+      "size_bytes": 89468,
+      "sha256": "8bd05573df70fdc0f51fbf79413332bfe31a6873c7713426a61278abcfeee5b3"
+    },
+    {
+      "relative_path": "DOGEUSDT/agg_trades.json",
+      "size_bytes": 2512207,
+      "sha256": "b3481abdeba46c34dc8ef0e9d301425af4903a0ee862954194f7d0ba2a430c11"
+    },
+    {
+      "relative_path": "DOGEUSDT/depth_snapshots.json",
+      "size_bytes": 123376,
+      "sha256": "5d8f79539f26b090e032481c343e7ee0a3620e42548ddea7340b95fe1c0d43b1"
+    },
+    {
+      "relative_path": "DOGEUSDT/klines.json",
+      "size_bytes": 85257,
+      "sha256": "c34d56eab63a3c90c4a78e6fe05a7cfa657a4e9c2c2eace9e911118ff6b626cc"
+    },
+    {
+      "relative_path": "ETHUSDT/agg_trades.json",
+      "size_bytes": 21742839,
+      "sha256": "1c5303c6ba0ecb4e2fc7087d82543bdc95f3b17f9ba5a0ea041bbf44a47f8372"
+    },
+    {
+      "relative_path": "ETHUSDT/depth_snapshots.json",
+      "size_bytes": 121873,
+      "sha256": "acfbfc7bfe7cf36e7504b9f49df6ffa36c750fc6b2a2d8dfff523f9be87d0482"
+    },
+    {
+      "relative_path": "ETHUSDT/klines.json",
+      "size_bytes": 88486,
+      "sha256": "43468b36800cbb7b8f3c8394dabf242bb07b8f1b79ade6d38e0fecf95ec13a53"
+    },
+    {
+      "relative_path": "SOLUSDT/agg_trades.json",
+      "size_bytes": 5525581,
+      "sha256": "1d2dca5ecf0c71b15a20f431db55d0b2e2e21bdd8291814e2d8d099cbee94e99"
+    },
+    {
+      "relative_path": "SOLUSDT/depth_snapshots.json",
+      "size_bytes": 120830,
+      "sha256": "5b8ef5af6eadf896510369ddfbe7c850c029ead9ecfcfd4ddc90e0a42ebf296b"
+    },
+    {
+      "relative_path": "SOLUSDT/klines.json",
+      "size_bytes": 85884,
+      "sha256": "e7f2e9a82a09a59ce08896353aeb0e8170338c84913ed3538f5c62a8aa330fb2"
+    },
+    {
+      "relative_path": "XRPUSDT/agg_trades.json",
+      "size_bytes": 3973642,
+      "sha256": "aa01612de8708055817b957d162e98a256b6c0486fd7f40dec4c9aa559ad6ceb"
+    },
+    {
+      "relative_path": "XRPUSDT/depth_snapshots.json",
+      "size_bytes": 121833,
+      "sha256": "940cb74cba60e5fbc39d88209d1dd84d17ac1339ebd937049938520372dc3692"
+    },
+    {
+      "relative_path": "XRPUSDT/klines.json",
+      "size_bytes": 85094,
+      "sha256": "7f3ca6d18a7311260f7ecf8d0f70dbfd98d43e2056f680d3632a58722db753e1"
+    },
+    {
+      "relative_path": "manifest.json",
+      "size_bytes": 1355,
+      "sha256": "776456d05b45c128320743e2cb213cf7b071eb15aa82430a20893cc228021a00"
+    }
+  ]
+}

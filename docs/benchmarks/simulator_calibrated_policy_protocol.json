@@ -1,0 +1,281 @@
+{
+  "config": {
+    "reward_weights": {
+      "fill_weight": 1,
+      "spread_penalty": 0.25,
+      "price_impact_penalty": 1.5,
+      "queue_penalty": 12,
+      "arbitrage_penalty": 0.005,
+      "retail_surplus_weight": 18,
+      "adverse_penalty": 10,
+      "welfare_penalty": 2,
+      "surplus_gap_penalty": 3,
+      "risk_reject_penalty": 0.5,
+      "conservation_penalty": 10
+    },
+    "train_seeds": [
+      1103,
+      1109,
+      1117,
+      1123
+    ],
+    "validation_seeds": [
+      1129,
+      1151
+    ],
+    "heldout_seeds": [
+      1153,
+      1163,
+      1171,
+      1181
+    ],
+    "ppo_episodes": 80,
+    "ppo_clip_epsilon": 0.18,
+    "ppo_policy_epochs": 3,
+    "iql_iterations": 6,
+    "iql_expectile": 0.7,
+    "iql_beta": 0.8
+  },
+  "heldout_regimes": [
+    "Calibrated-HeldOut-CompositeStress",
+    "Calibrated-HeldOut-HighArbWideMaker",
+    "Calibrated-HeldOut-InformedWide",
+    "Calibrated-HeldOut-RetailBurst"
+  ],
+  "iql_summary": {
+    "iterations": 6,
+    "expectile": 0.7,
+    "beta": 0.8,
+    "validation_score": -67.52562068196231
+  },
+  "ppo_trace": [
+    {
+      "episode": 0,
+      "mean_train_reward": 0,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 10,
+      "mean_train_reward": 1236.57451964521,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 20,
+      "mean_train_reward": 1238.0807917869313,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 30,
+      "mean_train_reward": 1223.5768826623414,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 40,
+      "mean_train_reward": 1317.9668100005963,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 50,
+      "mean_train_reward": 1315.0886742770845,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 60,
+      "mean_train_reward": 1241.501454880969,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 70,
+      "mean_train_reward": 1257.7990810050965,
+      "validation_score": -597.8130257784088
+    },
+    {
+      "episode": 80,
+      "mean_train_reward": 1307.1002966041729,
+      "validation_score": -587.0182190374207
+    }
+  ],
+  "results": [
+    {
+      "policy": "burst_aware",
+      "split": "validation",
+      "regime_count": 3,
+      "runs": 6,
+      "mean_orders_per_sec": 36.943866943866944,
+      "ci95_orders_per_sec": 1.6631296924830223,
+      "mean_fills_per_sec": 40.31254331254332,
+      "ci95_fills_per_sec": 2.0940790845712414,
+      "mean_p99_latency_ms": 6166.666666666667,
+      "ci95_p99_latency_ms": 298.20450353059044,
+      "mean_average_price_impact": 8.445132797469828,
+      "ci95_average_price_impact": 0.17512674937416312,
+      "mean_retail_surplus_per_unit": 1.3240149325584472,
+      "ci95_retail_surplus_per_unit": 0.17100323326410052,
+      "mean_retail_adverse_selection_rate": 0.42100097512784057,
+      "ci95_retail_adverse_selection_rate": 0.008240169394285035,
+      "mean_surplus_transfer_gap": 5.315656513637823,
+      "ci95_surplus_transfer_gap": 0.16145758954461847,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    },
+    {
+      "policy": "fitted_q",
+      "split": "validation",
+      "regime_count": 3,
+      "runs": 6,
+      "mean_orders_per_sec": 36.943866943866944,
+      "ci95_orders_per_sec": 1.6631296924830223,
+      "mean_fills_per_sec": 56.82952182952184,
+      "ci95_fills_per_sec": 1.7485054156634015,
+      "mean_p99_latency_ms": 2333.3333333333335,
+      "ci95_p99_latency_ms": 754.4043517411111,
+      "mean_average_price_impact": 3.5999018366341127,
+      "ci95_average_price_impact": 0.4180577556018615,
+      "mean_retail_surplus_per_unit": 0.042760571255289426,
+      "ci95_retail_surplus_per_unit": 0.12494380517775983,
+      "mean_retail_adverse_selection_rate": 0.4296492573605217,
+      "ci95_retail_adverse_selection_rate": 0.004516281988317567,
+      "mean_surplus_transfer_gap": 2.997479253206167,
+      "ci95_surplus_transfer_gap": 0.38537442115844867,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    },
+    {
+      "policy": "ppo_clip",
+      "split": "validation",
+      "regime_count": 3,
+      "runs": 6,
+      "mean_orders_per_sec": 36.943866943866944,
+      "ci95_orders_per_sec": 1.6631296924830223,
+      "mean_fills_per_sec": 40.523908523908524,
+      "ci95_fills_per_sec": 1.8086438189753167,
+      "mean_p99_latency_ms": 6000,
+      "ci95_p99_latency_ms": 0,
+      "mean_average_price_impact": 8.340188424456672,
+      "ci95_average_price_impact": 0.2679809702925924,
+      "mean_retail_surplus_per_unit": 1.120433759055283,
+      "ci95_retail_surplus_per_unit": 0.13858446865912463,
+      "mean_retail_adverse_selection_rate": 0.4160253278254307,
+      "ci95_retail_adverse_selection_rate": 0.008576718987222419,
+      "mean_surplus_transfer_gap": 5.516864782485147,
+      "ci95_surplus_transfer_gap": 0.1256920027573205,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    },
+    {
+      "policy": "iql",
+      "split": "validation",
+      "regime_count": 3,
+      "runs": 6,
+      "mean_orders_per_sec": 36.943866943866944,
+      "ci95_orders_per_sec": 1.6631296924830223,
+      "mean_fills_per_sec": 57.72210672210672,
+      "ci95_fills_per_sec": 2.1433588736246847,
+      "mean_p99_latency_ms": 1000,
+      "ci95_p99_latency_ms": 0,
+      "mean_average_price_impact": 3.4969557246345713,
+      "ci95_average_price_impact": 0.3553541204192561,
+      "mean_retail_surplus_per_unit": 0.03143440001925584,
+      "ci95_retail_surplus_per_unit": 0.10974902929687998,
+      "mean_retail_adverse_selection_rate": 0.42887301502610375,
+      "ci95_retail_adverse_selection_rate": 0.004026905563830283,
+      "mean_surplus_transfer_gap": 2.991675071761449,
+      "ci95_surplus_transfer_gap": 0.30848037568361464,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    },
+    {
+      "policy": "burst_aware",
+      "split": "heldout",
+      "regime_count": 4,
+      "runs": 16,
+      "mean_orders_per_sec": 40.089397089397096,
+      "ci95_orders_per_sec": 1.7590586431643367,
+      "mean_fills_per_sec": 47.15722453222455,
+      "ci95_fills_per_sec": 3.4291720437260262,
+      "mean_p99_latency_ms": 6000,
+      "ci95_p99_latency_ms": 0,
+      "mean_average_price_impact": 8.923739554784259,
+      "ci95_average_price_impact": 0.235078218968401,
+      "mean_retail_surplus_per_unit": 1.246312008227515,
+      "ci95_retail_surplus_per_unit": 0.20065143894893803,
+      "mean_retail_adverse_selection_rate": 0.4248218785835802,
+      "ci95_retail_adverse_selection_rate": 0.009221985430390461,
+      "mean_surplus_transfer_gap": 5.832151762835309,
+      "ci95_surplus_transfer_gap": 0.16746037466348598,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    },
+    {
+      "policy": "fitted_q",
+      "split": "heldout",
+      "regime_count": 4,
+      "runs": 16,
+      "mean_orders_per_sec": 40.089397089397096,
+      "ci95_orders_per_sec": 1.7590586431643367,
+      "mean_fills_per_sec": 56.864085239085234,
+      "ci95_fills_per_sec": 1.8949257861458433,
+      "mean_p99_latency_ms": 2625,
+      "ci95_p99_latency_ms": 382.5061274019019,
+      "mean_average_price_impact": 5.475036849586332,
+      "ci95_average_price_impact": 0.36201214918849567,
+      "mean_retail_surplus_per_unit": 0.18305310769252675,
+      "ci95_retail_surplus_per_unit": 0.18316334074915827,
+      "mean_retail_adverse_selection_rate": 0.4206006949577267,
+      "ci95_retail_adverse_selection_rate": 0.014016593735841564,
+      "mean_surplus_transfer_gap": 3.960213744141741,
+      "ci95_surplus_transfer_gap": 0.2672368573832849,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    },
+    {
+      "policy": "ppo_clip",
+      "split": "heldout",
+      "regime_count": 4,
+      "runs": 16,
+      "mean_orders_per_sec": 40.089397089397096,
+      "ci95_orders_per_sec": 1.7590586431643367,
+      "mean_fills_per_sec": 40.53664241164242,
+      "ci95_fills_per_sec": 1.852872535158648,
+      "mean_p99_latency_ms": 6000,
+      "ci95_p99_latency_ms": 0,
+      "mean_average_price_impact": 10.074118780062033,
+      "ci95_average_price_impact": 0.46117595294886643,
+      "mean_retail_surplus_per_unit": 1.102262430202602,
+      "ci95_retail_surplus_per_unit": 0.20786367778501777,
+      "mean_retail_adverse_selection_rate": 0.42286744610243004,
+      "ci95_retail_adverse_selection_rate": 0.009788369161726306,
+      "mean_surplus_transfer_gap": 6.658954750219817,
+      "ci95_surplus_transfer_gap": 0.35860927545903165,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    },
+    {
+      "policy": "iql",
+      "split": "heldout",
+      "regime_count": 4,
+      "runs": 16,
+      "mean_orders_per_sec": 40.089397089397096,
+      "ci95_orders_per_sec": 1.7590586431643367,
+      "mean_fills_per_sec": 58.859277546777555,
+      "ci95_fills_per_sec": 1.7219479519011607,
+      "mean_p99_latency_ms": 1500,
+      "ci95_p99_latency_ms": 245,
+      "mean_average_price_impact": 5.287344817369491,
+      "ci95_average_price_impact": 0.4125754349400964,
+      "mean_retail_surplus_per_unit": 0.09928851256075939,
+      "ci95_retail_surplus_per_unit": 0.16491133909428946,
+      "mean_retail_adverse_selection_rate": 0.4170260410601145,
+      "ci95_retail_adverse_selection_rate": 0.016069535294371676,
+      "mean_surplus_transfer_gap": 3.960219006484916,
+      "ci95_surplus_transfer_gap": 0.25902629946686906,
+      "negative_balance_violations_total": 0,
+      "conservation_breaches_total": 0
+    }
+  ],
+  "validation_regimes": [
+    "Calibrated-Protocol-Adaptive-1-3s",
+    "Calibrated-Validation-HighArb",
+    "Calibrated-Validation-RetailBurst"
+  ]
+}

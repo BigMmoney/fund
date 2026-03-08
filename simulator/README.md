@@ -65,9 +65,13 @@ Key outputs:
 - `docs/benchmarks/simulator_strategic_agent_profile.*`
 - `docs/benchmarks/binance_spot_smoke_facts.*`
 - `docs/benchmarks/binance_spot_multimarket_facts.*`
+- `docs/benchmarks/binance_spot_smoke_provenance.*`
+- `docs/benchmarks/binance_spot_multimarket_provenance.*`
 - `docs/benchmarks/simulator_calibration_target_table.*`
 - `docs/benchmarks/simulator_calibrated_vs_market.*`
 - `docs/benchmarks/simulator_calibrated_benchmark_profile.*`
+- `docs/benchmarks/simulator_calibrated_policy_protocol.*`
+- `docs/benchmarks/simulator_counterfactual_controls.*`
 
 To generate artifacts:
 
@@ -114,8 +118,23 @@ go test ./simulator -run TestGenerateSimulatorCalibrationArtifacts -v
 $env:RUN_SIM_CALIBRATED_BENCH="1"
 go test ./simulator -run TestGenerateSimulatorCalibratedBenchmarkArtifacts -v
 
+$env:RUN_SIM_CALIBRATED_PROTOCOL="1"
+go test ./simulator -run TestGenerateSimulatorCalibratedLearningProtocolArtifacts -v
+
+$env:RUN_SIM_COUNTERFACTUAL="1"
+go test -timeout 30m ./simulator -run TestGenerateSimulatorCounterfactualControlArtifacts -v
+
+$env:RUN_MARKET_PROVENANCE="1"
+go test ./simulator -run TestGenerateMarketDataProvenanceArtifacts -v
+
 python scripts/generate_neurips_figures.py
 ```
+
+Artifact boundary:
+
+- `binance_spot_*_facts.*` and `binance_spot_*_provenance.*` are real-data artifacts derived from public Binance Spot downloads.
+- `simulator_*` artifacts are synthetic benchmark outputs.
+- `simulator_calibration_target_table.*` and `simulator_calibrated_vs_market.*` are mixed artifacts comparing real-data envelopes against simulator outputs.
 
 Real-data calibration pipeline:
 

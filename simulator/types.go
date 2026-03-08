@@ -79,25 +79,26 @@ type FundamentalConfig struct {
 }
 
 type ScenarioConfig struct {
-	Name                    string
-	Mode                    MatchingMode
-	AdaptivePolicy          AdaptivePolicy
-	PolicyController        PolicyController
-	BatchWindowSteps        int
-	SpeedBumpSteps          int
-	AdaptiveMinWindowSteps  int
-	AdaptiveMaxWindowSteps  int
-	AdaptiveOrderThreshold  int
-	AdaptiveQueueThreshold  int
-	RandomizeBatchTieBreak  bool
-	DisableRiskLimits       bool
-	DisableSettlementChecks bool
-	StepDuration            time.Duration
-	TotalSteps              int
-	Seed                    int64
-	Fundamentals            FundamentalConfig
-	Agents                  []AgentConfig
-	Risk                    RiskConfig
+	Name                         string
+	Mode                         MatchingMode
+	AdaptivePolicy               AdaptivePolicy
+	PolicyController             PolicyController
+	BatchWindowSteps             int
+	SpeedBumpSteps               int
+	AdaptiveMinWindowSteps       int
+	AdaptiveMaxWindowSteps       int
+	AdaptiveOrderThreshold       int
+	AdaptiveQueueThreshold       int
+	RandomizeBatchTieBreak       bool
+	DisableRiskLimits            bool
+	DisableSettlementChecks      bool
+	DisableSettlementApplication bool
+	StepDuration                 time.Duration
+	TotalSteps                   int
+	Seed                         int64
+	Fundamentals                 FundamentalConfig
+	Agents                       []AgentConfig
+	Risk                         RiskConfig
 }
 
 type Order struct {

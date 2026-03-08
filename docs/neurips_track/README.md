@@ -43,9 +43,13 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `docs/benchmarks/simulator_strategic_agent_profile.*`: richer strategic-agent robustness profile
 - `docs/benchmarks/binance_spot_smoke_facts.*`: first end-to-end real-data smoke artifact
 - `docs/benchmarks/binance_spot_multimarket_facts.*`: first cross-symbol calibration envelope
+- `docs/benchmarks/binance_spot_smoke_provenance.*`: checksum and manifest summary for the smoke raw-data bundle
+- `docs/benchmarks/binance_spot_multimarket_provenance.*`: checksum and manifest summary for the multi-symbol raw-data bundle
 - `docs/benchmarks/simulator_calibration_target_table.*`: first market-to-simulator target bundle
 - `docs/benchmarks/simulator_calibrated_vs_market.*`: first-pass tuned-generator versus market comparison
 - `docs/benchmarks/simulator_calibrated_benchmark_profile.*`: latency-welfare benchmark rerun under the tuned generator
+- `docs/benchmarks/simulator_calibrated_policy_protocol.*`: formal calibrated train/validation/held-out protocol for PPO- and IQL-style baselines
+- `docs/benchmarks/simulator_counterfactual_controls.*`: matching-only, no-settlement, and no-welfare-reward controls
 - `NEURIPS_BENCHMARK_MANUSCRIPT.md`: benchmark-oriented manuscript draft
 - `ENVIRONMENT_SCHEMA.md`: observation, action, reward, and metrics schema
 - `CALIBRATION_PROTOCOL.md`: realism-upgrade protocol and target envelope
@@ -53,6 +57,46 @@ This track upgrades the repo toward a benchmark/simulator paper with:
 - `APPENDIX_TABLES.md`: appendix-ready controller, ablation, and sweep tables
 - `APPENDIX_FIGURES.md`: repository-hosted figure set
 - `arxiv/`: isolated LaTeX source and compiled PDF for this paper line
+
+## Artifact Provenance
+
+Use the following boundary consistently in the paper and in any external discussion.
+
+### Real-data artifacts
+
+These come directly from public Binance Spot downloads or deterministic transforms of those downloads:
+
+- `docs/benchmarks/binance_spot_smoke_facts.*`
+- `docs/benchmarks/binance_spot_multimarket_facts.*`
+- `docs/benchmarks/binance_spot_smoke_provenance.*`
+- `docs/benchmarks/binance_spot_multimarket_provenance.*`
+- raw files under `data/market_calibration/binance_spot/...`
+
+The provenance artifacts include manifest hashes and per-file SHA-256 checksums. For example:
+
+- `binance_spot_multimarket_provenance`: manifest SHA-256 `776456d05b45c128320743e2cb213cf7b071eb15aa82430a20893cc228021a00`
+- `binance_spot_smoke_provenance`: manifest SHA-256 `e195d49da85db57e49ef40eff146dd785e6852995935418619f0b896017b8401`
+
+### Synthetic artifacts
+
+All `simulator_*` artifacts are outputs of the synthetic benchmark environment, including:
+
+- `docs/benchmarks/simulator_multiseed_profile.*`
+- `docs/benchmarks/simulator_heldout_policy_profile.*`
+- `docs/benchmarks/simulator_calibrated_benchmark_profile.*`
+- `docs/benchmarks/simulator_calibrated_policy_protocol.*`
+- `docs/benchmarks/simulator_counterfactual_controls.*`
+
+These artifacts are not real-market replay results. They are simulator outputs produced after calibration targets were defined.
+
+### Mixed calibration artifacts
+
+These compare real-data envelopes against synthetic generator outputs:
+
+- `docs/benchmarks/simulator_calibration_target_table.*`
+- `docs/benchmarks/simulator_calibrated_vs_market.*`
+
+The `Market Range` columns in those artifacts come from real-data facts; the `Baseline` and `Calibrated` columns come from the simulator.
 
 ## Current Single-Seed Snapshot
 
@@ -257,12 +301,20 @@ Published artifacts:
   - 60-minute BTC/ETH validation slice
 - `docs/benchmarks/binance_spot_multimarket_facts.*`
   - 6-hour 8-symbol cross-section used as the first calibration envelope
+- `docs/benchmarks/binance_spot_smoke_provenance.*`
+  - checksum and manifest summary for the BTC/ETH smoke bundle
+- `docs/benchmarks/binance_spot_multimarket_provenance.*`
+  - checksum and manifest summary for the 8-symbol raw-data bundle
 - `docs/benchmarks/simulator_calibration_target_table.*`
   - versioned market-to-simulator target bundle
 - `docs/benchmarks/simulator_calibrated_vs_market.*`
   - first closed-loop baseline-versus-tuned comparison
 - `docs/benchmarks/simulator_calibrated_benchmark_profile.*`
   - latency-welfare rerun under the tuned generator
+- `docs/benchmarks/simulator_calibrated_policy_protocol.*`
+  - formal calibrated protocol with train / validation / held-out splits for `burst_aware`, `fitted_q`, `ppo_clip`, and `iql`
+- `docs/benchmarks/simulator_counterfactual_controls.*`
+  - control, `matching_only`, `no_settlement`, and `no_welfare_reward` comparisons
 
 Current cross-symbol envelope from `binance_spot_multimarket_facts.json`:
 
@@ -298,6 +350,31 @@ Calibrated benchmark rerun summary:
 - `Calibrated-Policy-LearnedFittedQ-1-3s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.1301 +/- 0.1299`
 
 This is still a first-pass calibration rather than a final realism claim, but it closes the main loop: real-data envelope, tuned synthetic comparison, and latency-welfare rerun under the tuned generator.
+
+Formal calibrated policy protocol in `docs/benchmarks/simulator_calibrated_policy_protocol.*`:
+
+- train seeds: `[1103 1109 1117 1123]`
+- validation seeds: `[1129 1151]`
+- held-out seeds: `[1153 1163 1171 1181]`
+- validation regimes: calibrated adaptive base, high-arbitrage validation, retail-burst validation
+- held-out regimes: composite stress, high-arbitrage wide-maker, informed-wide, retail-burst
+
+Held-out protocol summary:
+
+- `burst_aware`: `47.16 +/- 3.43 fills/s`, `p99 6000.00 +/- 0.00 ms`, welfare gap `5.8322 +/- 0.1675`
+- `fitted_q`: `56.86 +/- 1.89 fills/s`, `p99 2625.00 +/- 382.51 ms`, welfare gap `3.9602 +/- 0.2672`
+- `ppo_clip`: `40.54 +/- 1.85 fills/s`, `p99 6000.00 +/- 0.00 ms`, welfare gap `6.6590 +/- 0.3586`
+- `iql`: `58.86 +/- 1.72 fills/s`, `p99 1500.00 +/- 245.00 ms`, welfare gap `3.9602 +/- 0.2590`
+
+The calibrated protocol therefore keeps the main paper claim intact under the market-data envelope: the controllers with materially lower tail latency than `burst_aware` also move the welfare summary rather than leaving it unchanged, and the best calibrated held-out tradeoff now comes from the `iql` baseline rather than the simple on-policy PPO-style controller.
+
+Counterfactual controls in `docs/benchmarks/simulator_counterfactual_controls.*`:
+
+- `matching_only` collapses p99 latency to `1000 ms`, but retail surplus turns negative for every published policy and welfare gap remains large (`4.5772` to `5.2132`)
+- `no_settlement` preserves the same mechanism/welfare numbers as the calibrated control while removing settlement application, showing that the mechanism-learning tension is not created by post-trade accounting noise
+- `no_welfare_reward` pushes the PPO-style controller to `54.49 +/- 4.34 fills/s` and `3312.50 +/- 227.12 ms` p99, but still leaves welfare gap at `3.3874 +/- 0.1272`
+
+The counterfactual set is the direct argument that this is not just another market RL environment. The main result depends on the infrastructure-aware benchmark loop rather than on one reward vector or one matching mode.
 
 For reference, selected raw hypercube cells remain in `docs/benchmarks/simulator_parameter_hypercube_profile.json`:
 

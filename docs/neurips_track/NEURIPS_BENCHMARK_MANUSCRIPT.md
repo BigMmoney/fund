@@ -34,6 +34,8 @@ This paper makes four concrete contributions:
 3. It reports both offline and online learning behavior, including held-out regime generalization and explicit training-curve evidence for FittedQ and OnlineDQN.
 4. It summarizes a unified four-dimensional stress surface, shows that arbitrage intensity consistently emerges as the dominant driver of welfare-gap expansion, and reports a first closed-loop market-data calibration pass in which the same latency-welfare tension persists.
 
+The artifact boundary is explicit. `binance_spot_*` files are real-data artifacts derived from public Binance Spot downloads and deterministic stylized-fact extraction. `simulator_*` files are synthetic benchmark outputs. `simulator_calibration_target_table.*` and `simulator_calibrated_vs_market.*` are mixed artifacts that compare real-data envelopes against simulator outputs.
+
 ## 2. Research Question
 
 Can a ledger-aware benchmark environment make market-design and controller tradeoffs measurable under realistic settlement constraints, instead of evaluating matching mechanisms in isolation?
@@ -245,6 +247,8 @@ The main learning-specific hyperparameters used in the paper are:
 
 These settings are intentionally lightweight. The benchmark claim is not that these are state-of-the-art learning algorithms; it is that the environment makes their latency-welfare tradeoffs measurable under the same infrastructure constraints.
 
+The calibrated protocol layer now extends that setup with a versioned train / validation / held-out split on the calibrated adaptive benchmark. `docs/benchmarks/simulator_calibrated_policy_protocol.*` uses train seeds `[1103, 1109, 1117, 1123]`, validation seeds `[1129, 1151]`, and held-out seeds `[1153, 1163, 1171, 1181]`. It reports `burst_aware`, `fitted_q`, a lightweight clipped `ppo_clip` baseline, and an offline `iql` baseline on calibrated validation and held-out regimes. The purpose is not to claim a stronger RL method, but to make the learning protocol explicit once the real-data calibration envelope is introduced.
+
 On the reference machine used for artifact generation, the unified hypercube run (`108` cells, `4` seeds per cell, `125` steps per run) completes `54,000` simulator steps in `9.90 s`, or about `5.45e3 steps/s`; `docs/benchmarks/simulator_runtime_profile.*` records the exact measurement. Combining the published per-cell throughput with episode duration gives an estimated `1.00e5 order events/s` and `4.68e4 fills/s` of wall-clock simulation throughput. This is enough to support lightweight offline and online learning experiments without changing the environment definition.
 
 ## 9. Current Results
@@ -354,6 +358,29 @@ More importantly for the benchmark claim, `docs/benchmarks/simulator_calibrated_
 - `Calibrated-Policy-LearnedFittedQ-1-3s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.1301 +/- 0.1299`
 
 The realism gap is therefore narrower than in earlier versions of the benchmark, and the central latency-welfare tension does not disappear once the synthetic generator is retuned toward a market-data envelope.
+
+#### Artifact provenance and calibration boundary
+
+The raw market-data bundle is now auditable. `docs/benchmarks/binance_spot_smoke_provenance.*` and `docs/benchmarks/binance_spot_multimarket_provenance.*` record manifest hashes and per-file SHA-256 checksums for the exact public Binance Spot downloads used in the calibration pass. The multimarket manifest hash is `776456d05b45c128320743e2cb213cf7b071eb15aa82430a20893cc228021a00`, and the smoke manifest hash is `e195d49da85db57e49ef40eff146dd785e6852995935418619f0b896017b8401`. This does not turn the simulator outputs into real-market results; it makes the calibration input chain auditable and reproducible.
+
+#### Formal calibrated protocol and counterfactual controls
+
+The calibrated-learning protocol now reports explicit train / validation / held-out splits rather than only a single tuned rerun. On held-out calibrated regimes:
+
+- `burst_aware`: `47.16 +/- 3.43 fills/s`, `p99 6000.00 +/- 0.00 ms`, welfare gap `5.8322 +/- 0.1675`
+- `fitted_q`: `56.86 +/- 1.89 fills/s`, `p99 2625.00 +/- 382.51 ms`, welfare gap `3.9602 +/- 0.2672`
+- `ppo_clip`: `40.54 +/- 1.85 fills/s`, `p99 6000.00 +/- 0.00 ms`, welfare gap `6.6590 +/- 0.3586`
+- `iql`: `58.86 +/- 1.72 fills/s`, `p99 1500.00 +/- 245.00 ms`, welfare gap `3.9602 +/- 0.2590`
+
+The strongest calibrated held-out tradeoff therefore comes from the `iql` baseline rather than the simple PPO-style controller. That result is useful for the benchmark story because it shows that a more formal offline RL recipe behaves differently from both burst-aware control and simple on-policy optimization once the environment is calibrated to a market-data envelope.
+
+The counterfactual-control artifact in `docs/benchmarks/simulator_counterfactual_controls.*` adds three negative controls around the calibrated benchmark:
+
+- `matching_only`: collapses p99 latency to `1000 ms`, but retail surplus stays negative for every published policy and welfare gap remains large (`4.5772` to `5.2132`)
+- `no_settlement`: leaves the mechanism and welfare measurements unchanged while removing settlement application, isolating the matching/controller layer from the settlement layer
+- `no_welfare_reward`: improves the PPO-style controller to `54.49 +/- 4.34 fills/s` and `3312.50 +/- 227.12 ms` p99, but still leaves a substantial welfare gap at `3.3874 +/- 0.1272`
+
+These controls are the strongest argument that the paper is not simply presenting another market RL sandbox. The main tension survives calibration, does not disappear when reward weights are altered, and changes qualitatively when the infrastructure setting is reduced to matching-only execution.
 
 ### 9.9 Pareto Frontier
 

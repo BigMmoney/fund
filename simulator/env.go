@@ -420,23 +420,25 @@ func (e *Environment) applyFills(fills []Fill) {
 		if fill.BuyerID == "" || fill.SellerID == "" || fill.BuyerID == fill.SellerID {
 			continue
 		}
-		buyer := e.accounts[fill.BuyerID]
-		seller := e.accounts[fill.SellerID]
-		notional := fill.Price * fill.Amount
+		if !e.cfg.DisableSettlementApplication {
+			buyer := e.accounts[fill.BuyerID]
+			seller := e.accounts[fill.SellerID]
+			notional := fill.Price * fill.Amount
 
-		buyer.Cash -= notional
-		buyer.Units += fill.Amount
-		seller.Cash += notional
-		seller.Units -= fill.Amount
-		e.accounts[fill.BuyerID] = buyer
-		e.accounts[fill.SellerID] = seller
+			buyer.Cash -= notional
+			buyer.Units += fill.Amount
+			seller.Cash += notional
+			seller.Units -= fill.Amount
+			e.accounts[fill.BuyerID] = buyer
+			e.accounts[fill.SellerID] = seller
 
-		if !e.cfg.DisableSettlementChecks {
-			if buyer.Cash < 0 || buyer.Units < 0 || seller.Cash < 0 || seller.Units < 0 {
-				e.negViolations++
-			}
-			if !e.checkConservation() {
-				e.conservationHits++
+			if !e.cfg.DisableSettlementChecks {
+				if buyer.Cash < 0 || buyer.Units < 0 || seller.Cash < 0 || seller.Units < 0 {
+					e.negViolations++
+				}
+				if !e.checkConservation() {
+					e.conservationHits++
+				}
 			}
 		}
 
