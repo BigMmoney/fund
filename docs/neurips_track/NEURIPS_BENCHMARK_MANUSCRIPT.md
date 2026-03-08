@@ -249,7 +249,7 @@ The main learning-specific hyperparameters used in the paper are:
 
 These settings are intentionally lightweight. The benchmark claim is not that these are state-of-the-art learning algorithms; it is that the environment makes their latency-welfare tradeoffs measurable under the same infrastructure constraints.
 
-The calibrated protocol layer now extends that setup with a versioned train / validation / held-out split on the calibrated adaptive benchmark. `docs/benchmarks/simulator_calibrated_policy_protocol.*` uses train seeds `[1103, 1109, 1117, 1123]`, validation seeds `[1129, 1151]`, and held-out seeds `[1153, 1163, 1171, 1181]`. It reports `burst_aware`, `fitted_q`, a lightweight clipped `ppo_clip` baseline, and an offline `iql` baseline on calibrated validation and held-out regimes. The purpose is not to claim a stronger RL method, but to make the learning protocol explicit once the real-data calibration envelope is introduced.
+The calibrated protocol layer now extends that setup with a versioned train / validation / held-out split on the calibrated adaptive benchmark. `docs/benchmarks/simulator_calibrated_policy_protocol.*` uses train seeds `[1103, 1109, 1117, 1123]`, validation seeds `[1129, 1151]`, and held-out seeds `[1153, 1163, 1171, 1181]`. It reports `burst_aware`, `fitted_q`, a lightweight clipped `ppo_clip` baseline, and an offline `iql` baseline on calibrated validation and held-out regimes. `ppo_clip`, `iql`, and `fitted_q` share the same observation schema, discrete action bundle, train / validation / held-out split, and evaluation budget; they differ only in learning rule, update schedule, and checkpoint selection. The purpose is not to claim a stronger RL method, but to make the learning protocol explicit once the real-data calibration envelope is introduced.
 
 On the reference machine used for artifact generation, the unified hypercube run (`108` cells, `4` seeds per cell, `125` steps per run) completes `54,000` simulator steps in `9.90 s`, or about `5.45e3 steps/s`; `docs/benchmarks/simulator_runtime_profile.*` records the exact measurement. Combining the published per-cell throughput with episode duration gives an estimated `1.00e5 order events/s` and `4.68e4 fills/s` of wall-clock simulation throughput. This is enough to support lightweight offline and online learning experiments without changing the environment definition.
 
@@ -361,7 +361,7 @@ More importantly for the benchmark claim, `docs/benchmarks/simulator_calibrated_
 - `Calibrated-FBA-2s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.3927 +/- 0.1593`
 - `Calibrated-Policy-LearnedFittedQ-1-3s`: `34.77 +/- 0.01 orders/s`, welfare gap `3.1301 +/- 0.1299`
 
-The realism gap is therefore narrower than in earlier versions of the benchmark, and the central latency-welfare tension does not disappear once the synthetic generator is retuned toward a market-data envelope.
+The realism gap is therefore narrower than in earlier versions of the benchmark, even though this remains a first-pass calibration rather than a high-fidelity market simulator. The central latency-welfare tension does not disappear once the synthetic generator is retuned toward a market-data envelope.
 
 #### Artifact provenance and calibration boundary
 
@@ -416,48 +416,9 @@ The multiseed controller Pareto frontier in `docs/benchmarks/simulator_controlle
 
 The full appendix figure set, including cube and hypercube slices, is collected in `APPENDIX_FIGURES.md`.
 
-### 9.10 Mechanism Ablation Snapshot
+### 9.10 Appendix-Supported Robustness
 
-From `docs/benchmarks/simulator_ablation_profile.*` over seeds `[13, 17, 19, 23]`:
-
-| Scenario | Orders/s | Fills/s | p99 (ms) | Queue Adv. | Arb Profit | Risk Rejects | Safety Violations |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Ablation-Control | 1190.48 | 605.36 | 320.00 | -0.0509 | 685.25 | 2922 | 0 |
-| Ablation-RelaxedRisk | 1770.24 | 925.79 | 302.50 | 0.0372 | 2198.50 | 0 | 0 |
-| Ablation-RandomTieBreak | 1190.48 | 595.63 | 402.50 | -0.0540 | 738.50 | 2908 | 0 |
-| Ablation-NoSettlementChecks | 1190.48 | 605.36 | 320.00 | -0.0509 | 685.25 | 2922 | 0 |
-
-These ablations show that relaxing risk limits is not a free lunch: it raises throughput, but also sharply increases arbitrage capture.
-
-### 9.11 Agent and Workload Sweep Snapshot
-
-From `docs/benchmarks/simulator_agent_ablation_profile.*` over seeds `[43, 47, 53, 59]`:
-
-| Scenario | Orders/s | Fills/s | p99 (ms) | Impact | Queue Adv. | Arb Profit |
-|---|---:|---:|---:|---:|---:|---:|
-| AgentAblation-Control | 1343.25 | 659.52 | 367.50 | 5.49 | 0.0408 | 754.00 |
-| AgentAblation-NoArbitrageurs | 1276.59 | 622.62 | 367.50 | 5.38 | -0.5958 | 0.00 |
-| AgentAblation-NoInformed | 1257.14 | 622.62 | 335.00 | 5.54 | 0.0260 | 750.25 |
-| AgentSweep-RetailBurst | 2532.94 | 1427.18 | 467.50 | 5.70 | 0.0404 | 821.75 |
-| AgentSweep-ArbIntensityHigh | 1409.92 | 718.45 | 302.50 | 5.80 | 0.0314 | 1730.75 |
-| AgentSweep-InformedIntensityHigh | 1426.79 | 724.01 | 360.00 | 5.62 | 0.0111 | 685.50 |
-| AgentSweep-MakersWide | 1343.25 | 595.63 | 485.00 | 5.81 | 0.0469 | 754.50 |
-
-The sweeps make clear that the benchmark is sensitive to population composition and workload intensity, not only to the matching rule.
-
-### 9.12 Strategic-Agent Robustness
-
-The new strategic-agent artifact in `docs/benchmarks/simulator_strategic_agent_profile.*` keeps the same matching and settlement machinery but swaps in richer, state-dependent agent behaviors: inventory-aware market makers, trend-reactive retail flow, signal-scaled informed traders, and dislocation-sensitive arbitrageurs.
-
-| Scenario | Orders/s | Fills/s | p99 (ms) | Retail Surplus | Retail Adverse | Welfare Gap |
-|---|---:|---:|---:|---:|---:|---:|
-| Strategic-Control | 1761.11 +/- 12.09 | 1040.67 +/- 35.03 | 392.50 +/- 91.77 | -0.2623 +/- 0.2991 | 0.4805 +/- 0.0311 | 1.2515 +/- 0.6668 |
-| Strategic-HighArb | 1995.63 +/- 18.23 | 1193.45 +/- 37.64 | 430.00 +/- 110.22 | -0.5348 +/- 0.1569 | 0.5145 +/- 0.0533 | 1.4123 +/- 0.1500 |
-| Strategic-RetailBurst | 2693.85 +/- 8.77 | 1608.73 +/- 110.35 | 427.50 +/- 90.98 | -0.2243 +/- 0.1652 | 0.5076 +/- 0.0181 | 1.4467 +/- 0.3559 |
-
-These results matter for two reasons. First, the richer strategic population preserves the same directional pattern as the simpler agent mix: more arbitrage pressure worsens retail outcome, and retail burst raises throughput without neutralizing welfare transfer. Second, the artifact shows that the main claim is not tied to one stylized base population. The stronger agent model does not invalidate the latency-welfare tradeoff; it reproduces it under substantially heavier flow and more stateful behavior.
-
-![Strategic-agent robustness](figures/strategic_agents.svg)
+Secondary robustness details now live in `APPENDIX_TABLES.md` and `APPENDIX_FIGURES.md` rather than in the main narrative. The appendix retains mechanism ablations, agent/workload sweeps, and strategic-agent snapshots. Their role is supportive rather than central: they show that the main claim is not tied to one frozen population mix, one risk setting, or one single market-maker specification. Across those appendix-supported checks, the same directional pattern persists: relaxing risk raises throughput but also arbitrage capture, retail burst loads activity without neutralizing welfare transfer, and richer strategic agents preserve the same arbitrage-driven deterioration in retail outcome.
 
 ### 9.13 Parameter Grid, Cube, and Unified Hypercube
 
@@ -524,5 +485,5 @@ The benchmark is motivated directly by frequent-batch-auction market design and 
 
 ## 12. Conclusion
 
-This benchmark should be read as a constraint-aware learning environment rather than as a trading simulator alone. Its central empirical result is structural rather than cosmetic: controllers that optimize aggressively for latency and fill throughput tend to worsen retail welfare outcomes by widening surplus-transfer gap, while more balanced controllers improve retail outcome only by accepting some tail-latency cost. The stress-surface analysis shows that arbitrage intensity is the main driver of this welfare-gap expansion, and the learning curves show that both offline and online policies can move quickly toward latency-favoring behavior. The benchmark therefore supports one central claim: infrastructure optimization can systematically conflict with retail welfare under realistic market constraints, and that conflict remains visible under stronger learners, calibrated reruns, and counterfactual controls. Taken together, these results make the benchmark useful not just for mechanism comparison, but for studying learning under infrastructure constraints in a setting where settlement correctness, mechanism choice, and retail outcome are evaluated jointly.
+This benchmark should be read as a constraint-aware learning environment rather than as a trading simulator alone. Its central empirical result is structural rather than cosmetic: controllers that optimize aggressively for latency and fill throughput tend to worsen retail welfare outcomes by widening surplus-transfer gap, while more balanced controllers improve retail outcome only by accepting some tail-latency cost. The stress-surface analysis shows that arbitrage intensity is the main driver of this welfare-gap expansion, and the learning curves show that both offline and online policies can move quickly toward latency-favoring behavior. The benchmark therefore supports one central claim: infrastructure optimization can systematically conflict with retail welfare under real-data-calibrated synthetic market constraints, and that conflict remains visible under stronger learners, calibrated reruns, and counterfactual controls. Taken together, these results make the benchmark useful not just for mechanism comparison, but for studying learning under infrastructure constraints in a setting where settlement correctness, mechanism choice, and retail outcome are evaluated jointly.
 
