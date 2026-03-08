@@ -14,6 +14,8 @@ Our goal is not to introduce a new RL algorithm. The goal is to study how learni
 
 This is therefore a domain-specific learning benchmark rather than a broad RL-method paper. Its contribution is not algorithmic novelty. Its contribution is a controlled environment in which learning, mechanism choice, and settlement correctness can be evaluated in the same loop.
 
+The paper should therefore be read through three keywords: constraint-aware, calibrated, and counterfactual. Constraint-aware means controller quality is conditioned on admissibility under settlement invariants. Calibrated means the synthetic generator is checked against a real-data stylized-facts envelope before the main claim is restated. Counterfactual means the claim is tested against environment controls that remove or weaken parts of the infrastructure loop.
+
 Three points motivate the benchmark directly. First, matching-only simulators are not enough because they omit the settlement and replay constraints that determine whether a controller can be trusted in an infrastructure setting. Second, a ledger-aware benchmark is needed because controller quality should be measured under the same conservation, non-negativity, and mechanism rules that govern the market. Third, the main phenomenon exposed by the benchmark is a latency-welfare tradeoff: controllers that optimize aggressively for p99 latency and fills tend to worsen retail surplus-transfer outcomes, while more balanced controllers improve retail outcome only by giving up some tail performance.
 
 ### Why this benchmark is needed
@@ -253,6 +255,8 @@ On the reference machine used for artifact generation, the unified hypercube run
 
 ## 9. Current Results
 
+The results are organized to support one claim rather than many disconnected observations. First, the base benchmark shows the constraint-aware latency-welfare tension. Second, the calibrated protocol checks whether the same tension survives first-pass real-data alignment. Third, the counterfactual controls test whether the conclusion disappears when the infrastructure loop is simplified. These three layers correspond to the same three keywords used throughout the paper: constraint-aware, calibrated, and counterfactual.
+
 We report two layers of results:
 
 1. a single-seed reproducibility snapshot in `docs/benchmarks/simulator_benchmark_profile.*`
@@ -372,15 +376,15 @@ The calibrated-learning protocol now reports explicit train / validation / held-
 - `ppo_clip`: `40.54 +/- 1.85 fills/s`, `p99 6000.00 +/- 0.00 ms`, welfare gap `6.6590 +/- 0.3586`
 - `iql`: `58.86 +/- 1.72 fills/s`, `p99 1500.00 +/- 245.00 ms`, welfare gap `3.9602 +/- 0.2590`
 
-The strongest calibrated held-out tradeoff therefore comes from the `iql` baseline rather than the simple PPO-style controller. In the current protocol, the PPO-style learner is the weakest calibrated controller because it pushes toward latency-favoring updates without preserving the welfare summary, while the IQL-style offline learner is more stable under the calibrated envelope. The stronger Double-DQN artifact then adds a second benchmark finding: once online learning is strong enough, checkpoint selection itself becomes part of the benchmark because intermediate policies can dominate final ones on the latency-welfare frontier.
+The strongest calibrated held-out tradeoff therefore comes from the `iql` baseline rather than the simple PPO-style controller. In the current protocol, the PPO-style learner is the weakest calibrated controller because it pushes toward latency-favoring updates without preserving the welfare summary, while the IQL-style offline learner is more stable under the calibrated envelope. The stronger Double-DQN artifact then adds a second benchmark finding: once online learning is strong enough, checkpoint selection itself becomes part of the benchmark because intermediate policies can dominate final ones on the latency-welfare frontier. Taken together, the calibrated learning result can be summarized in one sentence: under the calibrated envelope, value-style learners are more stable on the latency-welfare frontier, while online gradient-based learners more easily drift toward latency-favoring updates.
 
 The counterfactual-control artifact in `docs/benchmarks/simulator_counterfactual_controls.*` adds three negative controls around the calibrated benchmark:
 
 - `matching_only`: collapses p99 latency to `1000 ms`, but retail surplus stays negative for every published policy and welfare gap remains large (`4.5772` to `5.2132`)
-- `no_settlement`: leaves the mechanism and welfare measurements unchanged while removing settlement application, isolating the matching/controller layer from the settlement layer
+- `no_settlement`: leaves the mechanism and welfare measurements unchanged while removing settlement application, isolating the matching/controller layer from the settlement layer without removing the benchmark's admissibility question
 - `no_welfare_reward`: improves the PPO-style controller to `54.49 +/- 4.34 fills/s` and `3312.50 +/- 227.12 ms` p99, but still leaves a substantial welfare gap at `3.3874 +/- 0.1272`
 
-These controls are the strongest argument that the paper is not simply presenting another market RL sandbox. The main tension survives calibration, does not disappear when reward weights are altered, and changes qualitatively when the infrastructure setting is reduced to matching-only execution.
+These controls are the strongest argument that the paper is not simply presenting another market RL sandbox. The main tension survives calibration, does not disappear when reward weights are altered, and changes qualitatively when the infrastructure setting is reduced to matching-only execution. The `no_settlement` control should not be read as evidence that settlement is unimportant. It should be read more narrowly: in the present aggregate setup, mechanism-level summary statistics are dominated by the matching/controller layer, while settlement still defines correctness, admissibility, and the trust boundary under which a learned controller would be acceptable in infrastructure use.
 
 ### 9.9 Pareto Frontier
 

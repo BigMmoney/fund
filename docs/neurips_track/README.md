@@ -4,6 +4,8 @@ This directory is a parallel benchmark-paper line. It does not replace the origi
 
 The scope of this paper line is intentionally narrow. It is centered on one benchmark question: how mechanism and controller choices trade off latency/fills against retail outcomes and transfer-to-arbitrageur under explicit settlement constraints. In particular, this track studies how learning-based controllers operate under settlement-constrained market environments rather than in a matching-only simulator. The current line now includes offline and online learning stories, a controller Pareto frontier, and a fitted response-surface summary over the unified hypercube. The paper-facing claim is singular: the benchmark exposes a persistent tension between latency optimization and retail welfare that remains qualitatively stable under stronger learning baselines, first-pass real-data calibration, and counterfactual controls.
 
+The intended reading order is also narrow: constraint-aware, calibrated, counterfactual. Constraint-aware means controller quality is conditioned on settlement admissibility. Calibrated means the synthetic generator is checked against a real-data stylized-facts envelope before the claim is restated. Counterfactual means the same claim is tested after removing or weakening pieces of the infrastructure loop.
+
 ## Purpose
 
 This track upgrades the repo toward a benchmark/simulator paper with:
@@ -366,7 +368,7 @@ Held-out protocol summary:
 - `ppo_clip`: `40.54 +/- 1.85 fills/s`, `p99 6000.00 +/- 0.00 ms`, welfare gap `6.6590 +/- 0.3586`
 - `iql`: `58.86 +/- 1.72 fills/s`, `p99 1500.00 +/- 245.00 ms`, welfare gap `3.9602 +/- 0.2590`
 
-The calibrated protocol therefore keeps the main paper claim intact under the market-data envelope: the controllers with materially lower tail latency than `burst_aware` also move the welfare summary rather than leaving it unchanged, and the best calibrated held-out tradeoff now comes from the `iql` baseline rather than the simple on-policy PPO-style controller. In the current protocol, PPO is the weakest calibrated learner, IQL is the most stable calibrated learner, and the stronger Double-DQN artifact shows that intermediate checkpoints can dominate final ones on the latency-welfare frontier.
+The calibrated protocol therefore keeps the main paper claim intact under the market-data envelope: the controllers with materially lower tail latency than `burst_aware` also move the welfare summary rather than leaving it unchanged, and the best calibrated held-out tradeoff now comes from the `iql` baseline rather than the simple on-policy PPO-style controller. In the current protocol, PPO is the weakest calibrated learner, IQL is the most stable calibrated learner, and the stronger Double-DQN artifact shows that intermediate checkpoints can dominate final ones on the latency-welfare frontier. The compressed learning conclusion is simple: under the calibrated envelope, value-style learners are more stable on the latency-welfare frontier, while online gradient-based learners more easily drift toward latency-favoring updates.
 
 Counterfactual controls in `docs/benchmarks/simulator_counterfactual_controls.*`:
 
@@ -374,7 +376,7 @@ Counterfactual controls in `docs/benchmarks/simulator_counterfactual_controls.*`
 - `no_settlement` preserves the same mechanism/welfare numbers as the calibrated control while removing settlement application, showing that the mechanism-learning tension is not created by post-trade accounting noise
 - `no_welfare_reward` pushes the PPO-style controller to `54.49 +/- 4.34 fills/s` and `3312.50 +/- 227.12 ms` p99, but still leaves welfare gap at `3.3874 +/- 0.1272`
 
-The counterfactual set is the direct argument that this is not just another market RL environment. The main result depends on the infrastructure-aware benchmark loop rather than on one reward vector or one matching mode.
+The counterfactual set is the direct argument that this is not just another market RL environment. The main result depends on the infrastructure-aware benchmark loop rather than on one reward vector or one matching mode. `no_settlement` should not be read as "settlement does not matter"; it should be read as "settlement defines correctness, admissibility, and trust boundaries even when current aggregate mechanism statistics are dominated by the matching/controller layer."
 
 For reference, selected raw hypercube cells remain in `docs/benchmarks/simulator_parameter_hypercube_profile.json`:
 
