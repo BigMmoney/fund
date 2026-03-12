@@ -536,6 +536,7 @@ Current Chinese handoff / audit documents in this directory:
 - `RUNTIME_ERROR_AUDIT_ZH_2026-03-12.md` ? confirmed fixes, remaining issues, and static audit findings
 - `VALIDATION_REPORT_2026-03-12_ARBITRATION_LADDER_DUAL_APPROVAL.md` ? pricing arbitration / liquidation ladder / dual approval validation
 - `FINAL_WORKSPACE_VALIDATION_REPORT_2026-03-12.md` ? final workspace-wide validation closure report
+- `TRADING_RISK_STATE_MACHINE_ZH_2026-03-12.md` ? formal Chinese trading/risk state-machine report
 
 Recommended read order:
 
@@ -547,3 +548,4 @@ Recommended read order:
 6. `API_BOOTSTRAP_CONTEXT_AUDIT_ZH_2026-03-12.md`
 7. `RUNTIME_ERROR_AUDIT_ZH_2026-03-12.md`
 8. `FINAL_WORKSPACE_VALIDATION_REPORT_2026-03-12.md`
+9. `TRADING_RISK_STATE_MACHINE_ZH_2026-03-12.md`
