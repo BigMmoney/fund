@@ -147,10 +147,8 @@ pub(crate) fn build_admin_routes(
                             query
                                 .market_id
                                 .as_deref()
-                                .map_or(true, |market_id| item.market_id == market_id)
-                                && query
-                                    .outcome
-                                    .map_or(true, |outcome| item.outcome == outcome)
+                                .is_none_or(|market_id| item.market_id == market_id)
+                                && query.outcome.is_none_or(|outcome| item.outcome == outcome)
                         })
                         .collect();
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({

@@ -1,0 +1,12 @@
+[package]
+name = "instruments"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+types = { path = "../types" }
+persistence = { path = "../persistence" }
+anyhow.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+serde.workspace = true

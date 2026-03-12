@@ -128,15 +128,13 @@ pub(crate) fn build_market_routes(
                             query
                                 .market_id
                                 .as_deref()
-                                .map_or(true, |market_id| trade.market_id == market_id)
+                                .is_none_or(|market_id| trade.market_id == market_id)
                         })
                         .filter(|trade| {
-                            query
-                                .outcome
-                                .map_or(true, |outcome| trade.outcome == outcome)
+                            query.outcome.is_none_or(|outcome| trade.outcome == outcome)
                         })
                         .filter(|trade| {
-                            query.user_id.as_deref().map_or(true, |user_id| {
+                            query.user_id.as_deref().is_none_or(|user_id| {
                                 trade.buy_user_id == user_id || trade.sell_user_id == user_id
                             })
                         })

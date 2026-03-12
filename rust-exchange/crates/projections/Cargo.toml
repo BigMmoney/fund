@@ -1,0 +1,10 @@
+[package]
+name = "projections"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+types = { path = "../types" }
+risk = { path = "../risk" }
+serde.workspace = true
+anyhow.workspace = true

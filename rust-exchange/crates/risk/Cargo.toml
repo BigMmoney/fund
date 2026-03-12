@@ -1,0 +1,15 @@
+[package]
+name = "risk"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ledger = { path = "../ledger" }
+types = { path = "../types" }
+thiserror.workspace = true
+serde.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+eventbus = { path = "../eventbus" }

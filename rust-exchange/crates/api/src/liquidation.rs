@@ -70,6 +70,7 @@ pub(crate) fn apply_liquidation_queue_override(
     Ok(next)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_liquidation_queue_worker(
     risk: Arc<RiskEngine>,
     instruments: Arc<PersistentInstrumentRegistry>,
@@ -89,7 +90,7 @@ pub(crate) async fn run_liquidation_queue_worker(
     for item in pending {
         if item
             .next_attempt_at
-            .map_or(false, |next_attempt_at| next_attempt_at > now)
+            .is_some_and(|next_attempt_at| next_attempt_at > now)
         {
             continue;
         }
@@ -501,6 +502,7 @@ pub(crate) async fn run_liquidation_queue_worker(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_liquidation_routes(
     risk: Arc<RiskEngine>,
     instruments: Arc<PersistentInstrumentRegistry>,

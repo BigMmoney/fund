@@ -535,6 +535,7 @@ Current Chinese handoff / audit documents in this directory:
 - `API_BOOTSTRAP_CONTEXT_AUDIT_ZH_2026-03-12.md` ? bootstrap/app context split audit and remaining closure plan
 - `RUNTIME_ERROR_AUDIT_ZH_2026-03-12.md` ? confirmed fixes, remaining issues, and static audit findings
 - `VALIDATION_REPORT_2026-03-12_ARBITRATION_LADDER_DUAL_APPROVAL.md` ? pricing arbitration / liquidation ladder / dual approval validation
+- `FINAL_WORKSPACE_VALIDATION_REPORT_2026-03-12.md` ? final workspace-wide validation closure report
 
 Recommended read order:
 
@@ -545,3 +546,4 @@ Recommended read order:
 5. `API_BOOTSTRAP_STORES_AUDIT_ZH_2026-03-12.md`
 6. `API_BOOTSTRAP_CONTEXT_AUDIT_ZH_2026-03-12.md`
 7. `RUNTIME_ERROR_AUDIT_ZH_2026-03-12.md`
+8. `FINAL_WORKSPACE_VALIDATION_REPORT_2026-03-12.md`

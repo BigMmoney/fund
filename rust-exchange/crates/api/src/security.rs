@@ -33,6 +33,7 @@ fn internal_auth_secret() -> Result<&'static str, Rejection> {
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn internal_auth_payload(
     method: &Method,
     path: &str,
@@ -56,6 +57,7 @@ fn internal_auth_payload(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_internal_principal(
     method: Method,
     path: String,
@@ -131,6 +133,7 @@ fn verify_internal_principal(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_optional_internal_principal(
     method: Method,
     path: String,

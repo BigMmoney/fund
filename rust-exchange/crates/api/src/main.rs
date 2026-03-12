@@ -22,7 +22,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use std::time::Instant;
-use tracing_subscriber;
 use types::{
     AdminAction, AdminCommand, AuthenticatedPrincipal, CancelOrderCommand, Command,
     CommandMetadata, InstrumentKind, InstrumentSpec, LedgerDelta, MarginMode, MarketState,
@@ -284,7 +283,7 @@ impl LiquidationQueueStore {
             .entries
             .iter()
             .map(|entry| entry.value().clone())
-            .filter(|item| status_filter.map_or(true, |status| item.status == status))
+            .filter(|item| status_filter.is_none_or(|status| item.status == status))
             .collect();
         items.sort_by(|lhs, rhs| rhs.recorded_at.cmp(&lhs.recorded_at));
         items.truncate(limit);
@@ -431,7 +430,7 @@ impl LiquidationAuctionStore {
             .entries
             .iter()
             .map(|entry| entry.value().clone())
-            .filter(|item| status_filter.map_or(true, |status| item.status == status))
+            .filter(|item| status_filter.is_none_or(|status| item.status == status))
             .collect();
         items.sort_by(|lhs, rhs| rhs.recorded_at.cmp(&lhs.recorded_at));
         items.truncate(limit);
@@ -841,8 +840,8 @@ fn snapshots_to_orders(
 ) -> Vec<serde_json::Value> {
     let mut orders: Vec<_> = snapshots
         .iter()
-        .filter(|snapshot| market_filter.map_or(true, |market_id| market_id == snapshot.market_id))
-        .filter(|snapshot| outcome_filter.map_or(true, |outcome| outcome == snapshot.outcome))
+        .filter(|snapshot| market_filter.is_none_or(|market_id| market_id == snapshot.market_id))
+        .filter(|snapshot| outcome_filter.is_none_or(|outcome| outcome == snapshot.outcome))
         .flat_map(|snapshot| snapshot.orders.iter())
         .filter(|order| order.user_id == user_id)
         .map(|order| {
@@ -895,7 +894,7 @@ fn trades_to_history(
     for trade in trades
         .iter()
         .filter(|trade| trade.market_id == market_id)
-        .filter(|trade| outcome.map_or(true, |value| value == trade.outcome))
+        .filter(|trade| outcome.is_none_or(|value| value == trade.outcome))
     {
         let key = trade.recorded_at.format("%Y-%m-%dT%H:00:00Z").to_string();
         grouped.entry(key).or_default().push(trade);
@@ -936,7 +935,7 @@ fn trades_to_history(
 }
 
 fn deposits_from_ledger(user_id: &str, ledger_entries: &[LedgerDelta]) -> Vec<serde_json::Value> {
-    let account = format!("U:{}:USDC", user_id);
+    let account = format!("U:{user_id}:USDC");
     ledger_entries
         .iter()
         .filter(|delta| {
@@ -1132,6 +1131,7 @@ fn liquidation_retry_delay_secs(policy: &LiquidationPolicyRecord, retry_tier: u3
         .max(0)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_risk_audit_event(
     audit_store: &RiskAutomationAuditStore,
     event_type: &str,
@@ -1157,6 +1157,7 @@ fn append_risk_audit_event(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sequence_new_order(
     sequencer: &Sequencer,
     request_id: String,
@@ -1233,6 +1234,7 @@ fn sequence_cancel_order(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sequence_replace_order(
     sequencer: &Sequencer,
     request_id: String,
@@ -1384,6 +1386,7 @@ fn seed_default_instruments(registry: &PersistentInstrumentRegistry) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_liquidation_cycle(
     engine: Arc<PartitionedMatchingEngine>,
     risk: Arc<RiskEngine>,

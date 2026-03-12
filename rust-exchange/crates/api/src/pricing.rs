@@ -128,11 +128,11 @@ pub(crate) struct FairPriceQuote {
 }
 
 pub(crate) fn rate_key(market_id: &str, outcome: i32) -> String {
-    format!("{}:{}", market_id, outcome)
+    format!("{market_id}:{outcome}")
 }
 
 pub(crate) fn index_price_source_key(market_id: &str, outcome: i32, source: &str) -> String {
-    format!("{}:{}:{}", market_id, outcome, source)
+    format!("{market_id}:{outcome}:{source}")
 }
 
 pub(crate) fn index_source_quorum() -> usize {

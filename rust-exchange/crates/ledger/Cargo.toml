@@ -1,0 +1,16 @@
+[package]
+name = "ledger"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+types = { path = "../types" }
+eventbus = { path = "../eventbus" }
+persistence = { path = "../persistence" }
+tokio.workspace = true
+parking_lot.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+chrono.workspace = true

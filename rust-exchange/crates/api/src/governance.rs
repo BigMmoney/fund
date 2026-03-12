@@ -58,7 +58,7 @@ impl PendingGovernanceActionStore {
             .entries
             .iter()
             .map(|entry| entry.value().clone())
-            .filter(|item| status.map_or(true, |status| item.status == status))
+            .filter(|item| status.is_none_or(|status| item.status == status))
             .collect();
         items.sort_by(|lhs, rhs| rhs.recorded_at.cmp(&lhs.recorded_at));
         items.truncate(limit);
