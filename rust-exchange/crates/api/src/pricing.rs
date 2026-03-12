@@ -281,7 +281,7 @@ pub(crate) fn build_pricing_routes(
         .and(with_principal())
         .and(remote_ip())
         .and(body_limit())
-        .and(warp::body::json())
+        .and(verified_json_body())
         .and_then(
             move |principal: AuthenticatedPrincipal,
                   remote: Option<SocketAddr>,

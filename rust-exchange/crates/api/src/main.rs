@@ -1833,6 +1833,7 @@ async fn main() {
             "x-internal-auth-session-id",
             "x-internal-auth-timestamp",
             "x-internal-auth-signature",
+            "x-internal-auth-body-sha256",
         ]);
     let routes = trading_routes
         .or(control_routes)

@@ -1,4 +1,6 @@
 use super::*;
+use sha2::Digest;
+use warp::hyper::body::Bytes;
 
 pub(crate) fn parse_role(value: &str) -> Option<PrincipalRole> {
     match value.trim().to_ascii_lowercase().as_str() {
@@ -34,6 +36,7 @@ fn internal_auth_secret() -> Result<&'static str, Rejection> {
 fn internal_auth_payload(
     method: &Method,
     path: &str,
+    query: &str,
     subject: &str,
     role: &str,
     session_id: &str,
@@ -41,9 +44,10 @@ fn internal_auth_payload(
     request_id: &str,
 ) -> String {
     format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         method.as_str(),
         path,
+        query,
         subject,
         role,
         session_id,
@@ -55,6 +59,7 @@ fn internal_auth_payload(
 fn verify_internal_principal(
     method: Method,
     path: String,
+    query: String,
     subject: Option<String>,
     role: Option<String>,
     session_id: Option<String>,
@@ -93,6 +98,7 @@ fn verify_internal_principal(
     let payload = internal_auth_payload(
         &method,
         &path,
+        &query,
         &subject,
         &role_raw.to_ascii_lowercase(),
         &session_id,
@@ -128,6 +134,7 @@ fn verify_internal_principal(
 fn verify_optional_internal_principal(
     method: Method,
     path: String,
+    query: String,
     subject: Option<String>,
     role: Option<String>,
     session_id: Option<String>,
@@ -147,15 +154,20 @@ fn verify_optional_internal_principal(
         return Ok(None);
     }
     verify_internal_principal(
-        method, path, subject, role, session_id, timestamp, signature, request_id,
+        method, path, query, subject, role, session_id, timestamp, signature, request_id,
     )
     .map(Some)
+}
+
+fn canonical_query_filter() -> impl Filter<Extract = (String,), Error = Infallible> + Clone {
+    warp::query::raw().or(warp::any().map(String::new)).unify()
 }
 
 pub(crate) fn with_principal(
 ) -> impl Filter<Extract = (AuthenticatedPrincipal,), Error = Rejection> + Clone {
     warp::method()
         .and(warp::path::full())
+        .and(canonical_query_filter())
         .and(warp::header::optional::<String>("x-internal-auth-subject"))
         .and(warp::header::optional::<String>("x-internal-auth-role"))
         .and(warp::header::optional::<String>(
@@ -171,6 +183,7 @@ pub(crate) fn with_principal(
         .and_then(
             |method: Method,
              path: warp::path::FullPath,
+             query: String,
              subject: Option<String>,
              role: Option<String>,
              session_id: Option<String>,
@@ -180,6 +193,7 @@ pub(crate) fn with_principal(
                 verify_internal_principal(
                     method,
                     path.as_str().to_string(),
+                    query,
                     subject,
                     role,
                     session_id,
@@ -195,6 +209,7 @@ pub(crate) fn with_optional_principal(
 ) -> impl Filter<Extract = (Option<AuthenticatedPrincipal>,), Error = Rejection> + Clone {
     warp::method()
         .and(warp::path::full())
+        .and(canonical_query_filter())
         .and(warp::header::optional::<String>("x-internal-auth-subject"))
         .and(warp::header::optional::<String>("x-internal-auth-role"))
         .and(warp::header::optional::<String>(
@@ -210,6 +225,7 @@ pub(crate) fn with_optional_principal(
         .and_then(
             |method: Method,
              path: warp::path::FullPath,
+             query: String,
              subject: Option<String>,
              role: Option<String>,
              session_id: Option<String>,
@@ -219,6 +235,7 @@ pub(crate) fn with_optional_principal(
                 verify_optional_internal_principal(
                     method,
                     path.as_str().to_string(),
+                    query,
                     subject,
                     role,
                     session_id,
@@ -228,6 +245,44 @@ pub(crate) fn with_optional_principal(
                 )
             },
         )
+}
+
+fn body_sha256_hex(body: &[u8]) -> String {
+    hex::encode(sha2::Sha256::digest(body))
+}
+
+fn verify_json_body<T>(body_hash: Option<String>, body: Bytes) -> Result<T, Rejection>
+where
+    T: DeserializeOwned,
+{
+    let provided_hash = body_hash
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            reject_api(
+                StatusCode::UNAUTHORIZED,
+                "missing x-internal-auth-body-sha256",
+            )
+        })?;
+    let actual_hash = body_sha256_hex(body.as_ref());
+    if provided_hash.trim().to_ascii_lowercase() != actual_hash {
+        return Err(reject_api(
+            StatusCode::UNAUTHORIZED,
+            "x-internal-auth-body-sha256 mismatch",
+        ));
+    }
+    serde_json::from_slice(body.as_ref())
+        .map_err(|_| reject_api(StatusCode::BAD_REQUEST, "invalid json body"))
+}
+
+pub(crate) fn verified_json_body<T>() -> impl Filter<Extract = (T,), Error = Rejection> + Clone
+where
+    T: DeserializeOwned + Send + 'static,
+{
+    warp::header::optional::<String>("x-internal-auth-body-sha256")
+        .and(warp::body::bytes())
+        .and_then(|body_hash: Option<String>, body: Bytes| async move {
+            verify_json_body::<T>(body_hash, body)
+        })
 }
 
 pub(crate) fn require_user(principal: &AuthenticatedPrincipal) -> Result<(), Rejection> {
@@ -284,6 +339,7 @@ mod tests {
         let payload = internal_auth_payload(
             &Method::POST,
             "/order/submit",
+            "",
             "user-1",
             "user",
             "session-1",
@@ -301,6 +357,7 @@ mod tests {
         let payload = internal_auth_payload(
             &Method::POST,
             "/order/submit",
+            "",
             "user-1",
             "user",
             "session-1",
@@ -311,6 +368,7 @@ mod tests {
         let result = verify_internal_principal(
             Method::POST,
             "/order/cancel".to_string(),
+            "".to_string(),
             Some("user-1".to_string()),
             Some("user".to_string()),
             Some("session-1".to_string()),
@@ -319,5 +377,52 @@ mod tests {
             Some("req-1".to_string()),
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_internal_principal_rejects_signature_for_wrong_query() {
+        let _ = INTERNAL_AUTH_SHARED_SECRET.set("test-secret".to_string());
+        let timestamp = Utc::now().timestamp();
+        let payload = internal_auth_payload(
+            &Method::GET,
+            "/orders",
+            "market_id=btc-usdt",
+            "user-1",
+            "user",
+            "session-1",
+            timestamp,
+            "req-2",
+        );
+        let signature = sign_payload(&payload, "test-secret");
+        let result = verify_internal_principal(
+            Method::GET,
+            "/orders".to_string(),
+            "market_id=eth-usdt".to_string(),
+            Some("user-1".to_string()),
+            Some("user".to_string()),
+            Some("session-1".to_string()),
+            Some(timestamp.to_string()),
+            Some(signature),
+            Some("req-2".to_string()),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_json_body_rejects_mismatched_hash() {
+        let result = verify_json_body::<serde_json::Value>(
+            Some("deadbeef".to_string()),
+            Bytes::from_static(br#"{"hello":"world"}"#),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_json_body_accepts_matching_hash() {
+        let body = Bytes::from_static(br#"{"hello":"world"}"#);
+        let hash = body_sha256_hex(body.as_ref());
+        let parsed =
+            verify_json_body::<serde_json::Value>(Some(hash), body).expect("body verified");
+        assert_eq!(parsed["hello"], "world");
     }
 }
