@@ -239,9 +239,10 @@ pub(crate) fn build_control_routes(
                     let ip_key = remote
                         .map(|value| value.ip().to_string())
                         .unwrap_or_else(|| "unknown".to_string());
+                    let request_id = normalize_request_id(req.request_id.clone());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
-                    audit("reference_price", "manual-reference", &principal);
+                    audit("reference_price", &request_id, &principal);
                     match engine
                         .update_reference_price(
                             req.market_id,
@@ -254,6 +255,7 @@ pub(crate) fn build_control_routes(
                         Ok(snapshot) => {
                             Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                                 "status": "ok",
+                                "request_id": request_id,
                                 "market_id": snapshot.market_id,
                                 "outcome": snapshot.outcome,
                                 "market_state": snapshot.state,

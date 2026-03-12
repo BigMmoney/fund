@@ -226,6 +226,8 @@ Current route/module split:
 - `crates/api/src/pricing.rs` ? index source store, arbitration, fair-price routes
 - `crates/api/src/governance.rs` ? pending governance actions, dual approval workflow
 - `crates/api/src/liquidation.rs` ? liquidation queue override, liquidation worker, auction and insurance routes
+- `crates/api/src/security.rs` ? internal auth verification, principal filters, role/subject guards
+- `crates/api/src/helpers.rs` ? request-id normalization, audit helpers, lifecycle marker helpers
 - `crates/api/src/stores.rs` ? persistent store builders and registry seed wiring
 - `crates/api/src/bootstrap.rs` ? runtime bootstrap, WAL recovery, partition-aware replay, automation task startup
 - `crates/api/src/main.rs` ? top-level route composition, CORS/static wiring, HTTP server entrypoint
@@ -531,6 +533,7 @@ Current Chinese handoff / audit documents in this directory:
 - `API_DTO_SPLIT_AUDIT_ZH_2026-03-12.md` ? DTO split and API boundary audit
 - `API_BOOTSTRAP_STORES_AUDIT_ZH_2026-03-12.md` ? stores/bootstrap split audit and next-step plan
 - `API_BOOTSTRAP_CONTEXT_AUDIT_ZH_2026-03-12.md` ? bootstrap/app context split audit and remaining closure plan
+- `RUNTIME_ERROR_AUDIT_ZH_2026-03-12.md` ? confirmed fixes, remaining issues, and static audit findings
 - `VALIDATION_REPORT_2026-03-12_ARBITRATION_LADDER_DUAL_APPROVAL.md` ? pricing arbitration / liquidation ladder / dual approval validation
 
 Recommended read order:
@@ -541,3 +544,4 @@ Recommended read order:
 4. `API_REMAINING_COUPLING_AUDIT_ZH_2026-03-12.md`
 5. `API_BOOTSTRAP_STORES_AUDIT_ZH_2026-03-12.md`
 6. `API_BOOTSTRAP_CONTEXT_AUDIT_ZH_2026-03-12.md`
+7. `RUNTIME_ERROR_AUDIT_ZH_2026-03-12.md`

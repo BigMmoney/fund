@@ -78,6 +78,7 @@ pub(crate) struct SetMarketStateRequest {
 
 #[derive(serde::Deserialize)]
 pub(crate) struct ReferencePriceRequest {
+    pub(crate) request_id: Option<String>,
     pub(crate) market_id: String,
     pub(crate) outcome: i32,
     pub(crate) source: Option<String>,

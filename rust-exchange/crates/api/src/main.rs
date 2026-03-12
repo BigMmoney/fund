@@ -41,9 +41,11 @@ mod bootstrap;
 mod control;
 mod dto;
 mod governance;
+mod helpers;
 mod liquidation;
 mod markets;
 mod pricing;
+mod security;
 mod stores;
 mod trading;
 
@@ -53,9 +55,11 @@ use bootstrap::*;
 use control::*;
 use dto::*;
 use governance::*;
+use helpers::*;
 use liquidation::*;
 use markets::*;
 use pricing::*;
+use security::*;
 use stores::*;
 use trading::*;
 
@@ -602,256 +606,11 @@ fn reject_api(status: StatusCode, message: impl Into<String>) -> Rejection {
     })
 }
 
-fn parse_role(value: &str) -> Option<PrincipalRole> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "user" => Some(PrincipalRole::User),
-        "admin" => Some(PrincipalRole::Admin),
-        _ => None,
-    }
-}
-
-fn initialize_internal_auth_secret() -> anyhow::Result<()> {
-    let secret = env::var("INTERNAL_AUTH_SHARED_SECRET")
-        .map_err(|_| anyhow::anyhow!("INTERNAL_AUTH_SHARED_SECRET must be configured"))?;
-    let secret = secret.trim().to_string();
-    if secret.is_empty() {
-        anyhow::bail!("INTERNAL_AUTH_SHARED_SECRET must not be empty");
-    }
-    let _ = INTERNAL_AUTH_SHARED_SECRET.set(secret);
-    Ok(())
-}
-
-fn internal_auth_secret() -> Result<&'static str, Rejection> {
-    INTERNAL_AUTH_SHARED_SECRET
-        .get()
-        .map(|value| value.as_str())
-        .ok_or_else(|| {
-            reject_api(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal auth is not configured",
-            )
-        })
-}
-
-fn internal_auth_payload(
-    method: &Method,
-    subject: &str,
-    role: &str,
-    session_id: &str,
-    timestamp: i64,
-    request_id: &str,
-) -> String {
-    format!(
-        "{}\n{}\n{}\n{}\n{}\n{}",
-        method.as_str(),
-        subject,
-        role,
-        session_id,
-        timestamp,
-        request_id
-    )
-}
-
-fn verify_internal_principal(
-    method: Method,
-    subject: Option<String>,
-    role: Option<String>,
-    session_id: Option<String>,
-    timestamp: Option<String>,
-    signature: Option<String>,
-    request_id: Option<String>,
-) -> Result<AuthenticatedPrincipal, Rejection> {
-    let subject = subject
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth subject"))?;
-    let role_raw = role
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth role"))?;
-    let role = parse_role(&role_raw)
-        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "invalid internal auth role"))?;
-    let timestamp_raw = timestamp
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth timestamp"))?;
-    let timestamp = timestamp_raw
-        .parse::<i64>()
-        .map_err(|_| reject_api(StatusCode::UNAUTHORIZED, "invalid internal auth timestamp"))?;
-    let signature = signature
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth signature"))?;
-    let request_id = request_id
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing x-request-id"))?;
-    let now = Utc::now().timestamp();
-    if (now - timestamp).abs() > INTERNAL_AUTH_MAX_SKEW_SECONDS {
-        return Err(reject_api(
-            StatusCode::UNAUTHORIZED,
-            "internal auth timestamp outside allowed skew",
-        ));
-    }
-    let session_id = session_id.unwrap_or_default();
-    let payload = internal_auth_payload(
-        &method,
-        &subject,
-        &role_raw.to_ascii_lowercase(),
-        &session_id,
-        timestamp,
-        &request_id,
-    );
-    let signature_bytes = hex::decode(signature)
-        .map_err(|_| reject_api(StatusCode::UNAUTHORIZED, "invalid internal auth signature"))?;
-    let mut mac = HmacSha256::new_from_slice(internal_auth_secret()?.as_bytes()).map_err(|_| {
-        reject_api(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal auth init failed",
-        )
-    })?;
-    mac.update(payload.as_bytes());
-    mac.verify_slice(&signature_bytes).map_err(|_| {
-        reject_api(
-            StatusCode::UNAUTHORIZED,
-            "internal auth verification failed",
-        )
-    })?;
-    Ok(AuthenticatedPrincipal {
-        subject,
-        role,
-        session_id: if session_id.trim().is_empty() {
-            None
-        } else {
-            Some(session_id)
-        },
-    })
-}
-
-fn verify_optional_internal_principal(
-    method: Method,
-    subject: Option<String>,
-    role: Option<String>,
-    session_id: Option<String>,
-    timestamp: Option<String>,
-    signature: Option<String>,
-    request_id: Option<String>,
-) -> Result<Option<AuthenticatedPrincipal>, Rejection> {
-    let auth_present = [
-        subject.as_deref(),
-        role.as_deref(),
-        timestamp.as_deref(),
-        signature.as_deref(),
-    ]
-    .into_iter()
-    .any(|value| value.is_some_and(|inner| !inner.trim().is_empty()));
-    if !auth_present {
-        return Ok(None);
-    }
-    verify_internal_principal(
-        method, subject, role, session_id, timestamp, signature, request_id,
-    )
-    .map(Some)
-}
-
-fn with_principal() -> impl Filter<Extract = (AuthenticatedPrincipal,), Error = Rejection> + Clone {
-    warp::method()
-        .and(warp::header::optional::<String>("x-internal-auth-subject"))
-        .and(warp::header::optional::<String>("x-internal-auth-role"))
-        .and(warp::header::optional::<String>(
-            "x-internal-auth-session-id",
-        ))
-        .and(warp::header::optional::<String>(
-            "x-internal-auth-timestamp",
-        ))
-        .and(warp::header::optional::<String>(
-            "x-internal-auth-signature",
-        ))
-        .and(warp::header::optional::<String>("x-request-id"))
-        .and_then(
-            |method: Method,
-             subject: Option<String>,
-             role: Option<String>,
-             session_id: Option<String>,
-             timestamp: Option<String>,
-             signature: Option<String>,
-             request_id: Option<String>| async move {
-                verify_internal_principal(
-                    method, subject, role, session_id, timestamp, signature, request_id,
-                )
-            },
-        )
-}
-
-fn with_optional_principal(
-) -> impl Filter<Extract = (Option<AuthenticatedPrincipal>,), Error = Rejection> + Clone {
-    warp::method()
-        .and(warp::header::optional::<String>("x-internal-auth-subject"))
-        .and(warp::header::optional::<String>("x-internal-auth-role"))
-        .and(warp::header::optional::<String>(
-            "x-internal-auth-session-id",
-        ))
-        .and(warp::header::optional::<String>(
-            "x-internal-auth-timestamp",
-        ))
-        .and(warp::header::optional::<String>(
-            "x-internal-auth-signature",
-        ))
-        .and(warp::header::optional::<String>("x-request-id"))
-        .and_then(
-            |method: Method,
-             subject: Option<String>,
-             role: Option<String>,
-             session_id: Option<String>,
-             timestamp: Option<String>,
-             signature: Option<String>,
-             request_id: Option<String>| async move {
-                verify_optional_internal_principal(
-                    method, subject, role, session_id, timestamp, signature, request_id,
-                )
-            },
-        )
-}
-
 fn optional_query<T>() -> impl Filter<Extract = (T,), Error = Infallible> + Clone
 where
     T: DeserializeOwned + Default + Send + 'static,
 {
     warp::query::<T>().or(warp::any().map(T::default)).unify()
-}
-
-fn require_user(principal: &AuthenticatedPrincipal) -> Result<(), Rejection> {
-    match principal.role {
-        PrincipalRole::User | PrincipalRole::Admin => Ok(()),
-    }
-}
-
-fn require_admin(principal: &AuthenticatedPrincipal) -> Result<(), Rejection> {
-    if principal.role != PrincipalRole::Admin {
-        return Err(reject_api(StatusCode::FORBIDDEN, "admin role required"));
-    }
-    Ok(())
-}
-
-fn ensure_subject_or_admin(
-    principal: &AuthenticatedPrincipal,
-    user_id: &str,
-) -> Result<(), Rejection> {
-    if principal.role == PrincipalRole::Admin {
-        return Ok(());
-    }
-    ensure_subject_matches(principal, user_id)
-}
-
-fn ensure_subject_matches(
-    principal: &AuthenticatedPrincipal,
-    claimed_user_id: &str,
-) -> Result<(), Rejection> {
-    if claimed_user_id.trim().is_empty() {
-        return Err(reject_api(StatusCode::BAD_REQUEST, "user_id is required"));
-    }
-    if principal.subject != claimed_user_id {
-        return Err(reject_api(
-            StatusCode::FORBIDDEN,
-            "user_id does not match authenticated subject",
-        ));
-    }
-    Ok(())
 }
 
 fn body_limit() -> impl Filter<Extract = (), Error = Rejection> + Clone {
@@ -1236,18 +995,6 @@ fn stats_from_snapshots_and_trades(
     })
 }
 
-fn normalize_request_id(request_id: Option<String>) -> String {
-    request_id
-        .filter(|request_id| !request_id.trim().is_empty())
-        .unwrap_or_else(|| types::generate_op_id("req"))
-}
-
-fn normalize_client_order_id(client_order_id: Option<String>) -> String {
-    client_order_id
-        .filter(|client_order_id| !client_order_id.trim().is_empty())
-        .unwrap_or_else(types::generate_id)
-}
-
 fn sequencer_wal_path() -> String {
     env::var("SEQUENCER_WAL_PATH").unwrap_or_else(|_| "data/sequencer.wal.jsonl".to_string())
 }
@@ -1595,46 +1342,6 @@ fn sequence_admin(
         Command::Admin(command) => Ok(command),
         _ => Err("sequencer returned non-admin command unexpectedly".to_string()),
     }
-}
-
-fn audit(action: &str, request_id: &str, principal: &AuthenticatedPrincipal) {
-    tracing::info!(
-        action = action,
-        request_id = request_id,
-        subject = %principal.subject,
-        role = ?principal.role,
-        session_id = ?principal.session_id,
-        "audit event"
-    );
-}
-
-fn update_lifecycle_after_submit(
-    sequencer: &Sequencer,
-    request_id: &str,
-    result: &matching::SubmitOrderResult,
-) {
-    let _ = sequencer.mark_risk_reserved(request_id);
-    let _ = sequencer.mark_routed(request_id);
-    let _ = sequencer.mark_partition_accepted(request_id);
-    if !result.fills.is_empty() {
-        let _ = sequencer.mark_executed(request_id);
-        let _ = sequencer.mark_settled(request_id);
-    }
-    if result.state != types::OrderState::Active {
-        let _ = sequencer.mark_completed(request_id);
-    }
-}
-
-fn update_lifecycle_after_cancel(sequencer: &Sequencer, request_id: &str) {
-    let _ = sequencer.mark_routed(request_id);
-    let _ = sequencer.mark_executed(request_id);
-    let _ = sequencer.mark_completed(request_id);
-}
-
-fn update_lifecycle_after_admin(sequencer: &Sequencer, request_id: &str) {
-    let _ = sequencer.mark_routed(request_id);
-    let _ = sequencer.mark_executed(request_id);
-    let _ = sequencer.mark_completed(request_id);
 }
 
 fn seed_default_instruments(registry: &PersistentInstrumentRegistry) {
