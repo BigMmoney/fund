@@ -37,22 +37,26 @@ use warp::{
 
 mod accounts;
 mod admin;
+mod bootstrap;
 mod control;
 mod dto;
 mod governance;
 mod liquidation;
 mod markets;
 mod pricing;
+mod stores;
 mod trading;
 
 use accounts::*;
 use admin::*;
+use bootstrap::*;
 use control::*;
 use dto::*;
 use governance::*;
 use liquidation::*;
 use markets::*;
 use pricing::*;
+use stores::*;
 use trading::*;
 
 type JsonRoute = warp::filters::BoxedFilter<(warp::reply::Json,)>;
@@ -1381,62 +1385,6 @@ fn liquidation_retry_delay_secs(policy: &LiquidationPolicyRecord, retry_tier: u3
         .max(0)
 }
 
-fn build_funding_rate_store() -> Arc<PersistentFundingRateStore> {
-    Arc::new(
-        PersistentFundingRateStore::open_jsonl(funding_rates_wal_path())
-            .expect("failed to initialize persistent funding rate store"),
-    )
-}
-
-fn build_risk_automation_audit_store() -> Arc<RiskAutomationAuditStore> {
-    Arc::new(
-        RiskAutomationAuditStore::open_jsonl(risk_automation_audit_wal_path())
-            .expect("failed to initialize risk automation audit store"),
-    )
-}
-
-fn build_liquidation_queue_store() -> Arc<LiquidationQueueStore> {
-    Arc::new(
-        LiquidationQueueStore::open_jsonl(liquidation_queue_wal_path())
-            .expect("failed to initialize liquidation queue store"),
-    )
-}
-
-fn build_liquidation_auction_store() -> Arc<LiquidationAuctionStore> {
-    Arc::new(
-        LiquidationAuctionStore::open_jsonl(liquidation_auction_wal_path())
-            .expect("failed to initialize liquidation auction store"),
-    )
-}
-
-fn build_adl_governance_store() -> Arc<PersistentAdlGovernanceStore> {
-    Arc::new(
-        PersistentAdlGovernanceStore::open_jsonl(adl_governance_wal_path())
-            .expect("failed to initialize ADL governance store"),
-    )
-}
-
-fn build_liquidation_policy_store() -> Arc<PersistentLiquidationPolicyStore> {
-    Arc::new(
-        PersistentLiquidationPolicyStore::open_jsonl(liquidation_policy_wal_path())
-            .expect("failed to initialize liquidation policy store"),
-    )
-}
-
-fn build_index_price_store() -> Arc<PersistentIndexPriceStore> {
-    Arc::new(
-        PersistentIndexPriceStore::open_jsonl(index_price_wal_path())
-            .expect("failed to initialize index price store"),
-    )
-}
-
-fn build_governance_action_store() -> Arc<PendingGovernanceActionStore> {
-    Arc::new(
-        PendingGovernanceActionStore::open_jsonl(governance_action_wal_path())
-            .expect("failed to initialize governance action store"),
-    )
-}
-
 fn append_risk_audit_event(
     audit_store: &RiskAutomationAuditStore,
     event_type: &str,
@@ -1729,16 +1677,6 @@ fn seed_default_instruments(registry: &PersistentInstrumentRegistry) {
     }
 }
 
-fn build_instrument_registry() -> Arc<PersistentInstrumentRegistry> {
-    let registry = Arc::new(
-        PersistentInstrumentRegistry::open_jsonl(instruments_registry_wal_path())
-            .expect("failed to initialize persistent instrument registry"),
-    );
-    if registry.is_empty() {
-        seed_default_instruments(&registry);
-    }
-    registry
-}
 async fn run_liquidation_cycle(
     engine: Arc<PartitionedMatchingEngine>,
     risk: Arc<RiskEngine>,
@@ -2077,108 +2015,23 @@ async fn main() {
     initialize_internal_auth_secret().expect("failed to initialize internal auth secret");
 
     tracing::info!("Starting Rust Exchange...");
-
-    let event_bus = EventBus::new();
-
-    let ledger_wal_path = ledger_wal_path();
-    let ledger_wal = Arc::new(
-        JsonlFileWal::<LedgerDelta>::new(&ledger_wal_path)
-            .expect("failed to initialize ledger WAL file"),
-    );
-    let ledger = Arc::new(LedgerService::with_wal_store(event_bus.clone(), ledger_wal));
-    ledger
-        .recover_from_wal()
-        .expect("failed to recover ledger state from WAL");
-
-    let sequencer_wal_path = sequencer_wal_path();
-    let sequencer_wal = Arc::new(
-        JsonlFileWal::<SequencedCommandRecord>::new(&sequencer_wal_path)
-            .expect("failed to initialize sequencer WAL file"),
-    );
-    let sequencer = Arc::new(Sequencer::with_wal(1, sequencer_wal));
-    sequencer
-        .recover_from_wal()
-        .expect("failed to recover sequencer state from WAL");
-
-    let matching_snapshot_wal_path = matching_snapshot_wal_path();
-    let matching_snapshot_wal: Arc<dyn persistence::WalStore<PartitionSnapshotRecord>> = Arc::new(
-        JsonlFileWal::<PartitionSnapshotRecord>::new(&matching_snapshot_wal_path)
-            .expect("failed to initialize matching snapshot WAL file"),
-    );
-    let trade_journal_wal_path = trade_journal_wal_path();
-    let trade_journal_wal: Arc<dyn persistence::WalStore<TradeJournalRecord>> = Arc::new(
-        JsonlFileWal::<TradeJournalRecord>::new(&trade_journal_wal_path)
-            .expect("failed to initialize trade journal WAL file"),
-    );
-
-    tracing::info!(
-        "WAL initialized: ledger={}, sequencer={}, matching_snapshot={}, trade_journal={}",
-        ledger_wal_path,
-        sequencer_wal_path,
-        matching_snapshot_wal_path,
-        trade_journal_wal_path,
-    );
-
-    let risk = Arc::new(RiskEngine::new(ledger.clone()));
-    let instruments = build_instrument_registry();
-    let funding_rates = build_funding_rate_store();
-    let risk_automation_audit = build_risk_automation_audit_store();
-    let liquidation_queue = build_liquidation_queue_store();
-    let liquidation_auction = build_liquidation_auction_store();
-    let adl_governance = build_adl_governance_store();
-    let liquidation_policy = build_liquidation_policy_store();
-    let index_prices = build_index_price_store();
-    let governance_actions = build_governance_action_store();
-    let engine_instrument_registry: Arc<dyn InstrumentRegistry> = instruments.clone();
-
-    let partitioned_engine = Arc::new(
-        PartitionedMatchingEngine::with_stores_and_registry(
-            PartitionedEngineConfig::default(),
-            event_bus.clone(),
-            risk.clone(),
-            engine_instrument_registry,
-            Some(matching_snapshot_wal),
-            Some(trade_journal_wal.clone()),
-        )
-        .expect("failed to initialize partitioned matching engine with snapshot recovery"),
-    );
-
-    let mut partition_snapshot_seqs: HashMap<usize, u64> = partitioned_engine
-        .export_snapshots()
-        .await
-        .expect("failed to export partition snapshots for replay boundary")
-        .into_iter()
-        .map(|record| {
-            (
-                record.partition_id,
-                record.last_applied_command_seq.unwrap_or(0),
-            )
-        })
-        .collect();
-    for record in sequencer.latest_records().into_iter() {
-        let replay_partitions = partitioned_engine
-            .partitions_for_command(&record.command)
-            .into_iter()
-            .filter(|partition| {
-                record.command_seq > partition_snapshot_seqs.get(partition).copied().unwrap_or(0)
-            })
-            .collect::<Vec<_>>();
-        if replay_partitions.is_empty() {
-            continue;
-        }
-        tracing::info!(
-            command_seq = record.command_seq,
-            request_id = %record.request_id,
-            "replaying sequenced command after snapshot"
-        );
-        partitioned_engine
-            .replay_command(record.command)
-            .await
-            .expect("failed to replay sequenced command after snapshot");
-        for partition in replay_partitions {
-            partition_snapshot_seqs.insert(partition, record.command_seq);
-        }
-    }
+    let app = bootstrap_runtime(EventBus::new()).await;
+    let AppBootstrap {
+        ledger,
+        sequencer,
+        risk,
+        instruments,
+        funding_rates,
+        risk_automation_audit,
+        liquidation_queue,
+        liquidation_auction,
+        adl_governance,
+        liquidation_policy,
+        index_prices,
+        governance_actions,
+        partitioned_engine,
+        trade_journal_wal,
+    } = app;
 
     let ip_rate_limiter = Arc::new(FixedWindowRateLimiter::new(Duration::from_secs(1)));
     let user_rate_limiter = Arc::new(FixedWindowRateLimiter::new(Duration::from_secs(1)));
@@ -2287,38 +2140,18 @@ async fn main() {
         .with(cors)
         .recover(handle_rejection);
 
-    if automation_enabled() {
-        tracing::info!("risk automation enabled; starting liquidation and funding schedulers");
-        tokio::spawn(run_liquidation_scheduler(
-            partitioned_engine.clone(),
-            risk.clone(),
-            instruments.clone(),
-            index_prices.clone(),
-            risk_automation_audit.clone(),
-            liquidation_queue.clone(),
-            adl_governance.clone(),
-        ));
-        tokio::spawn(run_liquidation_worker_scheduler(
-            risk.clone(),
-            instruments.clone(),
-            risk_automation_audit.clone(),
-            liquidation_queue.clone(),
-            liquidation_auction.clone(),
-            adl_governance.clone(),
-            liquidation_policy.clone(),
-        ));
-        tokio::spawn(run_funding_scheduler(
-            partitioned_engine.clone(),
-            risk.clone(),
-            funding_rates.clone(),
-            index_prices.clone(),
-            risk_automation_audit.clone(),
-        ));
-    } else {
-        tracing::info!(
-            "risk automation disabled; set RISK_AUTOMATION_ENABLED=true to enable schedulers"
-        );
-    }
+    spawn_automation_tasks(AutomationRuntime {
+        partitioned_engine: partitioned_engine.clone(),
+        risk: risk.clone(),
+        instruments: instruments.clone(),
+        funding_rates: funding_rates.clone(),
+        risk_automation_audit: risk_automation_audit.clone(),
+        liquidation_queue: liquidation_queue.clone(),
+        liquidation_auction: liquidation_auction.clone(),
+        adl_governance: adl_governance.clone(),
+        liquidation_policy: liquidation_policy.clone(),
+        index_prices: index_prices.clone(),
+    });
 
     let bind_addr = bind_address();
     tracing::info!("Starting HTTP server on {}", bind_addr);
