@@ -537,6 +537,9 @@ Current Chinese handoff / audit documents in this directory:
 - `VALIDATION_REPORT_2026-03-12_ARBITRATION_LADDER_DUAL_APPROVAL.md` ? pricing arbitration / liquidation ladder / dual approval validation
 - `FINAL_WORKSPACE_VALIDATION_REPORT_2026-03-12.md` ? final workspace-wide validation closure report
 - `TRADING_RISK_STATE_MACHINE_ZH_2026-03-12.md` ? formal Chinese trading/risk state-machine report
+- `ARCHITECTURE_MERMAID_ZH_2026-03-12.md` ? Chinese architecture diagrams with Mermaid
+- `TRADING_RULE_AUDIT_ZH_2026-03-12.md` ? line-by-line trading-rule audit report
+- `LARGE_CHAIN_TEST_REPORT_2026-03-12.md` ? crash recovery / latency / 1k-10k scale test report
 
 Recommended read order:
 
@@ -549,3 +552,6 @@ Recommended read order:
 7. `RUNTIME_ERROR_AUDIT_ZH_2026-03-12.md`
 8. `FINAL_WORKSPACE_VALIDATION_REPORT_2026-03-12.md`
 9. `TRADING_RISK_STATE_MACHINE_ZH_2026-03-12.md`
+10. `ARCHITECTURE_MERMAID_ZH_2026-03-12.md`
+11. `TRADING_RULE_AUDIT_ZH_2026-03-12.md`
+12. `LARGE_CHAIN_TEST_REPORT_2026-03-12.md`
