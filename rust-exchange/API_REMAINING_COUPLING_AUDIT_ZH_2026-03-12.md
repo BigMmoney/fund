@@ -1,0 +1,169 @@
+# API 剩余耦合点审查报告（2026-03-12）
+
+## 1. 本轮结论
+
+在完成 `accounts / admin / markets / pricing / governance / liquidation` 六块路由拆分后，`crates/api/src/main.rs` 已经明显从“业务大文件”收敛为“应用装配层”。
+
+但如果目标是继续向更长期可维护的交易后端演进，`main.rs` 里仍然有 3 类剩余耦合值得继续处理。
+
+---
+
+## 2. 剩余耦合点
+
+### 2.1 交易写路径仍集中在 `main.rs`
+
+当前还留在 `main.rs` 的主要 route cluster 是：
+
+- 下单 / 撤单 / replace
+- mass cancel
+- kill-switch
+- market-state
+- reference-price
+
+这组逻辑本质上都属于：
+
+- `trade write path`
+- `market control path`
+
+它们之所以还重，是因为会共同依赖：
+
+- `sequencer`
+- `partitioned_engine`
+- `risk`
+- `principal`
+- `request_id`
+- `lifecycle / command_seq`
+
+所以这一组其实应该继续下沉成两个方向：
+
+1. `trading.rs`：用户态交易写接口
+2. `control.rs`：管理员交易控制接口
+
+### 2.2 DTO / Query / Request 类型仍集中在 `main.rs`
+
+当前 `main.rs` 顶部仍集中定义了大量结构：
+
+- `*Request`
+- `*Query`
+- 与 liquidation / pricing / funding / orders 相关的 API DTO
+
+这说明：
+
+- 路由虽然拆了
+- 但入参/查询对象还没有按域归位
+
+这一点不会导致功能错误，但会持续制造维护摩擦：
+
+- 文件头部噪音大
+- 类型边界不清晰
+- 修改某个子域接口时仍要先翻 `main.rs`
+
+### 2.3 Store builder 仍集中在 `main.rs`
+
+当前以下初始化函数仍集中在 `main.rs`：
+
+- `build_funding_rate_store()`
+- `build_risk_automation_audit_store()`
+- `build_liquidation_queue_store()`
+- `build_liquidation_auction_store()`
+- `build_adl_governance_store()`
+- `build_liquidation_policy_store()`
+- `build_index_price_store()`
+- `build_governance_action_store()`
+
+这对应用启动来说没错，但它暴露了一个事实：
+
+- API 现在不仅在组装 route
+- 也在承担 domain store wiring 的全部细节
+
+后续更理想的方向是：
+
+- 抽 `bootstrap` / `app_context` / `stores` 层
+- 让 `main.rs` 只保留“构建 context + build routes + run server”
+
+---
+
+## 3. 并发与逻辑二次审查
+
+### 3.1 目前没有发现新的并发脏点
+
+在本轮继续拆分后，重新看一遍当前状态：
+
+- route builder 只是从 `main.rs` 分拆到模块，未引入新共享可变状态
+- 原来的 `Arc<...>`、`DashMap`、`Mutex`、append-only store 关系没有被破坏
+- 没有出现把热路径从分区串行改成共享锁并发的退化
+
+所以从线程/竞争角度看，这轮拆分是安全的。
+
+### 3.2 当前最大的风险已从“并发错误”变成“边界仍不够彻底”
+
+现在真正剩下的风险不是：
+
+- 锁顺序死锁
+- 线程竞态写坏账本
+- worker 和 route 抢同一状态机
+
+而是：
+
+- trade write path 仍然偏厚
+- DTO 和 store wiring 仍集中在 `main.rs`
+- API crate 还没有正式的 `app context / domain module / route module` 三级结构
+
+也就是说：
+
+**现在的剩余问题更偏“可维护性与长期演化风险”，而不是明显 correctness bug。**
+
+---
+
+## 4. 推荐的下一刀
+
+如果继续做，我建议按下面顺序：
+
+### 第一刀：拆交易写路径
+
+新增：
+
+- `crates/api/src/trading.rs`
+- `crates/api/src/control.rs`
+
+把以下逻辑移出去：
+
+- submit / cancel / replace
+- mass cancel
+- kill-switch
+- set market state
+- reference price
+
+### 第二刀：拆 DTO 与 Query
+
+新增按域文件，例如：
+
+- `crates/api/src/dto/trading.rs`
+- `crates/api/src/dto/pricing.rs`
+- `crates/api/src/dto/liquidation.rs`
+- `crates/api/src/dto/accounts.rs`
+
+### 第三刀：抽 `AppContext` / bootstrap
+
+让 `main.rs` 只做：
+
+- 创建 `AppContext`
+- 组装各域 route builder
+- 配置 CORS / recover / bind
+- 启动 background tasks
+
+---
+
+## 5. 当前评价
+
+截至本轮，`api` 已经从“超长单文件实现”推进到“领域化 route builder + 主装配层”结构。
+
+这意味着：
+
+- 已经足够支撑继续做更细的拆分
+- 继续拆不会像最开始那样高风险
+- 代码的真正剩余复杂度现在已经更容易被识别和治理
+
+一句话总结：
+
+**本轮之后，`api` 最大的问题已不再是文件过大，而是最后一层 trade/control/DTO/bootstrap 边界还没彻底落完。**
