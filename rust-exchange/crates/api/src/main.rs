@@ -1,0 +1,3347 @@
+use chrono::{DateTime, Utc};
+use dashmap::DashMap;
+use eventbus::EventBus;
+use hmac::{Hmac, Mac};
+use instruments::{InstrumentRegistry, PersistentInstrumentRegistry};
+use ledger::LedgerService;
+use matching::partitioned::TradeJournalRecord;
+use matching::{
+    MarketRuntimeSnapshot, PartitionSnapshotRecord, PartitionedEngineConfig,
+    PartitionedMatchingEngine, RestingOrderSnapshot,
+};
+use parking_lot::Mutex;
+use persistence::JsonlFileWal;
+use projections::{project_margin, project_pnl, project_positions};
+use risk::{AdlCandidate, AdlGovernance, RiskEngine};
+use sequencer::{SequencedCommandRecord, Sequencer};
+use serde::de::DeserializeOwned;
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::convert::Infallible;
+use std::env;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+use std::time::Instant;
+use tracing_subscriber;
+use types::{
+    AdminAction, AdminCommand, AuthenticatedPrincipal, CancelOrderCommand, Command,
+    CommandMetadata, InstrumentKind, InstrumentSpec, LedgerDelta, MarginMode, MarketState,
+    MassCancelByMarketCommand, MassCancelBySessionCommand, MassCancelByUserCommand,
+    NewOrderCommand, OrderType, PrincipalRole, ReplaceOrderCommand, Side, TimeInForce,
+};
+use warp::{
+    http::{Method, StatusCode},
+    reject::Reject,
+    Filter, Rejection, Reply,
+};
+
+mod accounts;
+mod admin;
+mod governance;
+mod liquidation;
+mod markets;
+mod pricing;
+
+use accounts::*;
+use admin::*;
+use governance::*;
+use liquidation::*;
+use markets::*;
+use pricing::*;
+
+type JsonRoute = warp::filters::BoxedFilter<(warp::reply::Json,)>;
+
+type HmacSha256 = Hmac<sha2::Sha256>;
+
+const INTERNAL_AUTH_MAX_SKEW_SECONDS: i64 = 30;
+
+static INTERNAL_AUTH_SHARED_SECRET: OnceLock<String> = OnceLock::new();
+
+#[derive(serde::Deserialize)]
+struct DepositRequest {
+    user_id: String,
+    amount: i64,
+    op_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct IntentRequest {
+    request_id: Option<String>,
+    client_order_id: Option<String>,
+    market_id: String,
+    side: Side,
+    price: i64,
+    amount: i64,
+    outcome: i32,
+}
+
+#[derive(serde::Deserialize)]
+struct OrderRequest {
+    request_id: Option<String>,
+    client_order_id: Option<String>,
+    session_id: Option<String>,
+    market_id: String,
+    side: Side,
+    order_type: Option<OrderType>,
+    time_in_force: Option<TimeInForce>,
+    price: Option<i64>,
+    amount: i64,
+    outcome: i32,
+    post_only: Option<bool>,
+    reduce_only: Option<bool>,
+    leverage: Option<u32>,
+    expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(serde::Deserialize)]
+struct CancelOrderRequest {
+    request_id: Option<String>,
+    market_id: String,
+    outcome: Option<i32>,
+    order_id: String,
+    client_order_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct MassCancelByUserRequest {
+    request_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct MassCancelBySessionRequest {
+    request_id: Option<String>,
+    session_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct MassCancelByMarketRequest {
+    request_id: Option<String>,
+    market_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct KillSwitchRequest {
+    request_id: Option<String>,
+    enabled: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct SetMarketStateRequest {
+    request_id: Option<String>,
+    market_id: String,
+    outcome: Option<i32>,
+    state: MarketState,
+}
+
+#[derive(serde::Deserialize)]
+struct ReferencePriceRequest {
+    market_id: String,
+    outcome: i32,
+    source: Option<String>,
+    reference_price: i64,
+}
+
+#[derive(serde::Deserialize)]
+struct ReplaceOrderRequest {
+    request_id: Option<String>,
+    market_id: String,
+    outcome: Option<i32>,
+    order_id: String,
+    new_client_order_id: Option<String>,
+    new_price: Option<i64>,
+    new_amount: Option<i64>,
+    new_time_in_force: Option<TimeInForce>,
+    post_only: Option<bool>,
+    reduce_only: Option<bool>,
+    new_leverage: Option<u32>,
+    new_expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(serde::Deserialize)]
+struct LiquidationExecuteRequest {
+    request_id: Option<String>,
+    user_id: String,
+    liquidator_user_id: String,
+    market_id: String,
+    outcome: Option<i32>,
+    mark_price: i64,
+    leverage: Option<u32>,
+    maintenance_margin_bps: Option<i64>,
+    penalty_bps: Option<i64>,
+}
+
+#[derive(serde::Deserialize)]
+struct FundingSettlementRequest {
+    request_id: Option<String>,
+    long_user_id: String,
+    short_user_id: String,
+    market_id: String,
+    outcome: Option<i32>,
+    mark_price: i64,
+    funding_rate_ppm: i64,
+}
+
+#[derive(serde::Deserialize)]
+struct InsuranceFundDepositRequest {
+    request_id: Option<String>,
+    amount: i64,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct BookQuery {
+    outcome: Option<i32>,
+    depth: Option<usize>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct TradesQuery {
+    market_id: Option<String>,
+    user_id: Option<String>,
+    outcome: Option<i32>,
+    limit: Option<usize>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct OrdersQuery {
+    market_id: Option<String>,
+    outcome: Option<i32>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct HistoryQuery {
+    outcome: Option<i32>,
+    limit: Option<usize>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct MarginQuery {
+    market_id: String,
+    outcome: Option<i32>,
+    mark_price: Option<i64>,
+    leverage: Option<u32>,
+    maintenance_margin_bps: Option<i64>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct PnlQuery {
+    market_id: String,
+    outcome: Option<i32>,
+    entry_price: Option<i64>,
+    mark_price: Option<i64>,
+}
+
+#[derive(serde::Deserialize)]
+struct FundingRateUpsertRequest {
+    market_id: String,
+    outcome: Option<i32>,
+    funding_rate_ppm: i64,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct FundingRatesQuery {
+    market_id: Option<String>,
+    outcome: Option<i32>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct RiskEventsQuery {
+    limit: Option<usize>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct LiquidationQueueQuery {
+    limit: Option<usize>,
+    status: Option<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct LiquidationAuctionsQuery {
+    limit: Option<usize>,
+    status: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LiquidationAuctionBidRequest {
+    bid_price: i64,
+    bid_quantity: i64,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct AdlGovernanceUpdateRequest {
+    maintenance_margin_bps: Option<i64>,
+    leverage_weight_bps: Option<i64>,
+    bankruptcy_distance_weight_bps: Option<i64>,
+    size_weight_bps: Option<i64>,
+    buffer_weight_bps: Option<i64>,
+    max_candidates: Option<usize>,
+    max_socialized_loss_share_bps_per_candidate: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct LiquidationPolicyUpdateRequest {
+    auction_window_secs: Option<i64>,
+    retry_backoff_secs: Option<Vec<i64>>,
+    max_retry_tiers: Option<u32>,
+    max_auction_rounds: Option<u32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct IndexPriceUpsertRequest {
+    market_id: String,
+    outcome: Option<i32>,
+    index_price: i64,
+    source: Option<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct FairPriceQuery {
+    market_id: String,
+    outcome: Option<i32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct LiquidationQueueOverrideRequest {
+    action: String,
+    liquidator_user_id: Option<String>,
+    retry_tier: Option<u32>,
+    next_attempt_secs: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct FundingRateRecord {
+    market_id: String,
+    outcome: i32,
+    funding_rate_ppm: i64,
+    updated_by: String,
+    recorded_at: DateTime<Utc>,
+}
+
+struct PersistentFundingRateStore {
+    rates: DashMap<String, FundingRateRecord>,
+    store: Arc<dyn persistence::WalStore<FundingRateRecord>>,
+}
+
+impl PersistentFundingRateStore {
+    fn new(store: Arc<dyn persistence::WalStore<FundingRateRecord>>) -> anyhow::Result<Self> {
+        let result = Self {
+            rates: DashMap::new(),
+            store,
+        };
+        for record in result.store.entries()? {
+            result
+                .rates
+                .insert(rate_key(&record.market_id, record.outcome), record);
+        }
+        Ok(result)
+    }
+
+    fn open_jsonl(path: impl Into<std::path::PathBuf>) -> anyhow::Result<Self> {
+        let store: Arc<dyn persistence::WalStore<FundingRateRecord>> =
+            Arc::new(JsonlFileWal::new(path)?);
+        Self::new(store)
+    }
+
+    fn upsert(&self, record: FundingRateRecord) -> anyhow::Result<()> {
+        self.store.append(&record)?;
+        self.rates
+            .insert(rate_key(&record.market_id, record.outcome), record);
+        Ok(())
+    }
+
+    fn list(&self) -> Vec<FundingRateRecord> {
+        let mut items: Vec<_> = self
+            .rates
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+        items.sort_by(|lhs, rhs| {
+            lhs.market_id
+                .cmp(&rhs.market_id)
+                .then_with(|| lhs.outcome.cmp(&rhs.outcome))
+        });
+        items
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct RiskAutomationAuditRecord {
+    event_id: String,
+    event_type: String,
+    status: String,
+    market_id: String,
+    outcome: i32,
+    user_id: Option<String>,
+    counterparty_user_id: Option<String>,
+    request_id: String,
+    detail: serde_json::Value,
+    recorded_at: DateTime<Utc>,
+}
+
+struct RiskAutomationAuditStore {
+    store: Arc<dyn persistence::WalStore<RiskAutomationAuditRecord>>,
+}
+
+impl RiskAutomationAuditStore {
+    fn new(store: Arc<dyn persistence::WalStore<RiskAutomationAuditRecord>>) -> Self {
+        Self { store }
+    }
+
+    fn open_jsonl(path: impl Into<std::path::PathBuf>) -> anyhow::Result<Self> {
+        let store: Arc<dyn persistence::WalStore<RiskAutomationAuditRecord>> =
+            Arc::new(JsonlFileWal::new(path)?);
+        Ok(Self::new(store))
+    }
+
+    fn append(&self, record: RiskAutomationAuditRecord) -> anyhow::Result<()> {
+        self.store.append(&record)
+    }
+
+    fn list_recent(&self, limit: usize) -> anyhow::Result<Vec<RiskAutomationAuditRecord>> {
+        let mut items = self.store.entries()?;
+        items.sort_by(|lhs, rhs| rhs.recorded_at.cmp(&lhs.recorded_at));
+        items.truncate(limit);
+        Ok(items)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct LiquidationQueueRecord {
+    queue_id: String,
+    source: String,
+    status: String,
+    market_id: String,
+    outcome: i32,
+    user_id: String,
+    liquidator_user_id: String,
+    mark_price: i64,
+    #[serde(default)]
+    position_qty: i64,
+    #[serde(default)]
+    remaining_position_qty: i64,
+    #[serde(default)]
+    filled_position_qty: i64,
+    #[serde(default)]
+    auction_round: u32,
+    margin_ratio_bps: Option<i64>,
+    adl_candidates: Vec<AdlCandidate>,
+    #[serde(default)]
+    retry_tier: u32,
+    #[serde(default)]
+    retry_count: u32,
+    #[serde(default)]
+    strategy: String,
+    #[serde(default)]
+    next_attempt_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    last_attempt_at: Option<DateTime<Utc>>,
+    error: Option<String>,
+    recorded_at: DateTime<Utc>,
+}
+
+fn liquidation_queue_status_is_active(status: &str) -> bool {
+    matches!(status, "queued" | "auction_open" | "running")
+}
+
+fn liquidation_strategy_for_tier(retry_tier: u32) -> &'static str {
+    match retry_tier {
+        0 => "auction",
+        1 => "system_backstop",
+        _ => "adl_backstop",
+    }
+}
+
+struct LiquidationQueueStore {
+    entries: DashMap<String, LiquidationQueueRecord>,
+    store: Arc<dyn persistence::WalStore<LiquidationQueueRecord>>,
+    write_lock: Mutex<()>,
+}
+
+impl LiquidationQueueStore {
+    fn new(store: Arc<dyn persistence::WalStore<LiquidationQueueRecord>>) -> anyhow::Result<Self> {
+        let result = Self {
+            entries: DashMap::new(),
+            store,
+            write_lock: Mutex::new(()),
+        };
+        for mut record in result.store.entries()? {
+            if record.strategy.is_empty() {
+                record.strategy = liquidation_strategy_for_tier(record.retry_tier).to_string();
+            }
+            if record.remaining_position_qty == 0 && record.position_qty != 0 {
+                record.remaining_position_qty = record.position_qty.abs();
+            }
+            result.entries.insert(record.queue_id.clone(), record);
+        }
+        Ok(result)
+    }
+
+    fn open_jsonl(path: impl Into<std::path::PathBuf>) -> anyhow::Result<Self> {
+        let store: Arc<dyn persistence::WalStore<LiquidationQueueRecord>> =
+            Arc::new(JsonlFileWal::new(path)?);
+        Self::new(store)
+    }
+
+    fn append(&self, record: LiquidationQueueRecord) -> anyhow::Result<()> {
+        let _guard = self.write_lock.lock();
+        self.store.append(&record)?;
+        self.entries.insert(record.queue_id.clone(), record);
+        Ok(())
+    }
+
+    fn append_if_no_active_position(&self, record: LiquidationQueueRecord) -> anyhow::Result<bool> {
+        let _guard = self.write_lock.lock();
+        let has_active = self.entries.iter().any(|entry| {
+            let item = entry.value();
+            item.market_id == record.market_id
+                && item.outcome == record.outcome
+                && item.user_id == record.user_id
+                && liquidation_queue_status_is_active(&item.status)
+        });
+        if has_active {
+            return Ok(false);
+        }
+        self.store.append(&record)?;
+        self.entries.insert(record.queue_id.clone(), record);
+        Ok(true)
+    }
+
+    fn get(&self, queue_id: &str) -> Option<LiquidationQueueRecord> {
+        self.entries
+            .get(queue_id)
+            .map(|entry| entry.value().clone())
+    }
+
+    fn list_recent(
+        &self,
+        limit: usize,
+        status_filter: Option<&str>,
+    ) -> Vec<LiquidationQueueRecord> {
+        let mut items: Vec<_> = self
+            .entries
+            .iter()
+            .map(|entry| entry.value().clone())
+            .filter(|item| status_filter.map_or(true, |status| item.status == status))
+            .collect();
+        items.sort_by(|lhs, rhs| rhs.recorded_at.cmp(&lhs.recorded_at));
+        items.truncate(limit);
+        items
+    }
+
+    fn list_by_statuses_oldest(
+        &self,
+        limit: usize,
+        statuses: &[&str],
+    ) -> Vec<LiquidationQueueRecord> {
+        let mut items: Vec<_> = self
+            .entries
+            .iter()
+            .map(|entry| entry.value().clone())
+            .filter(|item| statuses.iter().any(|status| item.status == *status))
+            .collect();
+        items.sort_by(|lhs, rhs| lhs.recorded_at.cmp(&rhs.recorded_at));
+        items.truncate(limit);
+        items
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct LiquidationAuctionBid {
+    bidder_user_id: String,
+    bid_price: i64,
+    #[serde(default)]
+    bid_quantity: i64,
+    submitted_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct LiquidationAuctionRecord {
+    auction_id: String,
+    queue_id: String,
+    status: String,
+    market_id: String,
+    outcome: i32,
+    liquidated_user_id: String,
+    reserve_price: i64,
+    mark_price: i64,
+    #[serde(default)]
+    round: u32,
+    #[serde(default)]
+    target_position_qty: i64,
+    #[serde(default)]
+    filled_position_qty: i64,
+    opened_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+    best_bid_price: Option<i64>,
+    best_bidder_user_id: Option<String>,
+    bids: Vec<LiquidationAuctionBid>,
+    winner_user_id: Option<String>,
+    error: Option<String>,
+    recorded_at: DateTime<Utc>,
+}
+
+struct LiquidationAuctionStore {
+    entries: DashMap<String, LiquidationAuctionRecord>,
+    store: Arc<dyn persistence::WalStore<LiquidationAuctionRecord>>,
+    write_lock: Mutex<()>,
+}
+
+impl LiquidationAuctionStore {
+    fn new(
+        store: Arc<dyn persistence::WalStore<LiquidationAuctionRecord>>,
+    ) -> anyhow::Result<Self> {
+        let result = Self {
+            entries: DashMap::new(),
+            store,
+            write_lock: Mutex::new(()),
+        };
+        for record in result.store.entries()? {
+            result.entries.insert(record.queue_id.clone(), record);
+        }
+        Ok(result)
+    }
+
+    fn open_jsonl(path: impl Into<std::path::PathBuf>) -> anyhow::Result<Self> {
+        let store: Arc<dyn persistence::WalStore<LiquidationAuctionRecord>> =
+            Arc::new(JsonlFileWal::new(path)?);
+        Self::new(store)
+    }
+
+    fn append(&self, record: LiquidationAuctionRecord) -> anyhow::Result<()> {
+        let _guard = self.write_lock.lock();
+        self.store.append(&record)?;
+        self.entries.insert(record.queue_id.clone(), record);
+        Ok(())
+    }
+
+    fn submit_bid(
+        &self,
+        queue_id: &str,
+        bidder_user_id: &str,
+        bid_price: i64,
+        bid_quantity: i64,
+        now: DateTime<Utc>,
+    ) -> anyhow::Result<LiquidationAuctionRecord> {
+        let _guard = self.write_lock.lock();
+        let mut next = self
+            .entries
+            .get(queue_id)
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| anyhow::anyhow!("liquidation auction not found"))?;
+        if next.status != "open" {
+            anyhow::bail!("auction is not open");
+        }
+        if next.expires_at <= now {
+            anyhow::bail!("auction already expired");
+        }
+        next.bids.push(LiquidationAuctionBid {
+            bidder_user_id: bidder_user_id.to_string(),
+            bid_price,
+            bid_quantity,
+            submitted_at: now,
+        });
+        next.bids.sort_by(|lhs, rhs| {
+            rhs.bid_price
+                .cmp(&lhs.bid_price)
+                .then_with(|| lhs.submitted_at.cmp(&rhs.submitted_at))
+        });
+        next.best_bid_price = next.bids.first().map(|bid| bid.bid_price);
+        next.best_bidder_user_id = next.bids.first().map(|bid| bid.bidder_user_id.clone());
+        next.recorded_at = now;
+        self.store.append(&next)?;
+        self.entries.insert(next.queue_id.clone(), next.clone());
+        Ok(next)
+    }
+
+    fn get(&self, queue_id: &str) -> Option<LiquidationAuctionRecord> {
+        self.entries
+            .get(queue_id)
+            .map(|entry| entry.value().clone())
+    }
+
+    fn list_recent(
+        &self,
+        limit: usize,
+        status_filter: Option<&str>,
+    ) -> Vec<LiquidationAuctionRecord> {
+        let mut items: Vec<_> = self
+            .entries
+            .iter()
+            .map(|entry| entry.value().clone())
+            .filter(|item| status_filter.map_or(true, |status| item.status == status))
+            .collect();
+        items.sort_by(|lhs, rhs| rhs.recorded_at.cmp(&lhs.recorded_at));
+        items.truncate(limit);
+        items
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct AdlGovernanceRecord {
+    governance: AdlGovernance,
+    updated_by: String,
+    recorded_at: DateTime<Utc>,
+}
+
+struct PersistentAdlGovernanceStore {
+    current: Mutex<AdlGovernanceRecord>,
+    store: Arc<dyn persistence::WalStore<AdlGovernanceRecord>>,
+}
+
+impl PersistentAdlGovernanceStore {
+    fn default_record() -> AdlGovernanceRecord {
+        AdlGovernanceRecord {
+            governance: AdlGovernance::default(),
+            updated_by: "system-default".to_string(),
+            recorded_at: Utc::now(),
+        }
+    }
+
+    fn new(store: Arc<dyn persistence::WalStore<AdlGovernanceRecord>>) -> anyhow::Result<Self> {
+        let current = store
+            .entries()?
+            .into_iter()
+            .last()
+            .unwrap_or_else(Self::default_record);
+        Ok(Self {
+            current: Mutex::new(current),
+            store,
+        })
+    }
+
+    fn open_jsonl(path: impl Into<std::path::PathBuf>) -> anyhow::Result<Self> {
+        let store: Arc<dyn persistence::WalStore<AdlGovernanceRecord>> =
+            Arc::new(JsonlFileWal::new(path)?);
+        Self::new(store)
+    }
+
+    fn current(&self) -> AdlGovernanceRecord {
+        self.current.lock().clone()
+    }
+
+    fn upsert(&self, record: AdlGovernanceRecord) -> anyhow::Result<()> {
+        let mut guard = self.current.lock();
+        self.store.append(&record)?;
+        *guard = record;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct LiquidationPolicyRecord {
+    auction_window_secs: i64,
+    retry_backoff_secs: Vec<i64>,
+    max_retry_tiers: u32,
+    #[serde(default = "default_max_auction_rounds")]
+    max_auction_rounds: u32,
+    updated_by: String,
+    recorded_at: DateTime<Utc>,
+}
+
+struct PersistentLiquidationPolicyStore {
+    current: Mutex<LiquidationPolicyRecord>,
+    store: Arc<dyn persistence::WalStore<LiquidationPolicyRecord>>,
+}
+
+impl PersistentLiquidationPolicyStore {
+    fn default_record() -> LiquidationPolicyRecord {
+        LiquidationPolicyRecord {
+            auction_window_secs: liquidation_auction_window_secs(),
+            retry_backoff_secs: vec![0, 5, 15],
+            max_retry_tiers: 3,
+            max_auction_rounds: 3,
+            updated_by: "system-default".to_string(),
+            recorded_at: Utc::now(),
+        }
+    }
+
+    fn new(store: Arc<dyn persistence::WalStore<LiquidationPolicyRecord>>) -> anyhow::Result<Self> {
+        let current = store
+            .entries()?
+            .into_iter()
+            .last()
+            .unwrap_or_else(Self::default_record);
+        Ok(Self {
+            current: Mutex::new(current),
+            store,
+        })
+    }
+
+    fn open_jsonl(path: impl Into<std::path::PathBuf>) -> anyhow::Result<Self> {
+        let store: Arc<dyn persistence::WalStore<LiquidationPolicyRecord>> =
+            Arc::new(JsonlFileWal::new(path)?);
+        Self::new(store)
+    }
+
+    fn current(&self) -> LiquidationPolicyRecord {
+        self.current.lock().clone()
+    }
+
+    fn upsert(&self, record: LiquidationPolicyRecord) -> anyhow::Result<()> {
+        let mut guard = self.current.lock();
+        self.store.append(&record)?;
+        *guard = record;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct IndexPriceRecord {
+    market_id: String,
+    outcome: i32,
+    index_price: i64,
+    source: String,
+    recorded_at: DateTime<Utc>,
+}
+
+#[derive(Clone)]
+struct FixedWindowRateLimiter {
+    window: Duration,
+    states: Arc<DashMap<String, VecDeque<Instant>>>,
+}
+
+#[derive(Debug)]
+struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl Reject for ApiError {}
+
+impl FixedWindowRateLimiter {
+    fn new(window: Duration) -> Self {
+        Self {
+            window,
+            states: Arc::new(DashMap::new()),
+        }
+    }
+
+    fn check(&self, key: &str, limit: usize) -> Result<(), Rejection> {
+        let now = Instant::now();
+        let mut bucket = self.states.entry(key.to_string()).or_default();
+        while bucket
+            .front()
+            .is_some_and(|timestamp| now.duration_since(*timestamp) > self.window)
+        {
+            bucket.pop_front();
+        }
+        if bucket.len() >= limit {
+            return Err(warp::reject::custom(ApiError {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                message: "rate limit exceeded".to_string(),
+            }));
+        }
+        bucket.push_back(now);
+        Ok(())
+    }
+}
+
+fn reject_api(status: StatusCode, message: impl Into<String>) -> Rejection {
+    warp::reject::custom(ApiError {
+        status,
+        message: message.into(),
+    })
+}
+
+fn parse_role(value: &str) -> Option<PrincipalRole> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "user" => Some(PrincipalRole::User),
+        "admin" => Some(PrincipalRole::Admin),
+        _ => None,
+    }
+}
+
+fn initialize_internal_auth_secret() -> anyhow::Result<()> {
+    let secret = env::var("INTERNAL_AUTH_SHARED_SECRET")
+        .map_err(|_| anyhow::anyhow!("INTERNAL_AUTH_SHARED_SECRET must be configured"))?;
+    let secret = secret.trim().to_string();
+    if secret.is_empty() {
+        anyhow::bail!("INTERNAL_AUTH_SHARED_SECRET must not be empty");
+    }
+    let _ = INTERNAL_AUTH_SHARED_SECRET.set(secret);
+    Ok(())
+}
+
+fn internal_auth_secret() -> Result<&'static str, Rejection> {
+    INTERNAL_AUTH_SHARED_SECRET
+        .get()
+        .map(|value| value.as_str())
+        .ok_or_else(|| {
+            reject_api(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal auth is not configured",
+            )
+        })
+}
+
+fn internal_auth_payload(
+    method: &Method,
+    subject: &str,
+    role: &str,
+    session_id: &str,
+    timestamp: i64,
+    request_id: &str,
+) -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        method.as_str(),
+        subject,
+        role,
+        session_id,
+        timestamp,
+        request_id
+    )
+}
+
+fn verify_internal_principal(
+    method: Method,
+    subject: Option<String>,
+    role: Option<String>,
+    session_id: Option<String>,
+    timestamp: Option<String>,
+    signature: Option<String>,
+    request_id: Option<String>,
+) -> Result<AuthenticatedPrincipal, Rejection> {
+    let subject = subject
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth subject"))?;
+    let role_raw = role
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth role"))?;
+    let role = parse_role(&role_raw)
+        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "invalid internal auth role"))?;
+    let timestamp_raw = timestamp
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth timestamp"))?;
+    let timestamp = timestamp_raw
+        .parse::<i64>()
+        .map_err(|_| reject_api(StatusCode::UNAUTHORIZED, "invalid internal auth timestamp"))?;
+    let signature = signature
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing internal auth signature"))?;
+    let request_id = request_id
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing x-request-id"))?;
+    let now = Utc::now().timestamp();
+    if (now - timestamp).abs() > INTERNAL_AUTH_MAX_SKEW_SECONDS {
+        return Err(reject_api(
+            StatusCode::UNAUTHORIZED,
+            "internal auth timestamp outside allowed skew",
+        ));
+    }
+    let session_id = session_id.unwrap_or_default();
+    let payload = internal_auth_payload(
+        &method,
+        &subject,
+        &role_raw.to_ascii_lowercase(),
+        &session_id,
+        timestamp,
+        &request_id,
+    );
+    let signature_bytes = hex::decode(signature)
+        .map_err(|_| reject_api(StatusCode::UNAUTHORIZED, "invalid internal auth signature"))?;
+    let mut mac = HmacSha256::new_from_slice(internal_auth_secret()?.as_bytes()).map_err(|_| {
+        reject_api(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal auth init failed",
+        )
+    })?;
+    mac.update(payload.as_bytes());
+    mac.verify_slice(&signature_bytes).map_err(|_| {
+        reject_api(
+            StatusCode::UNAUTHORIZED,
+            "internal auth verification failed",
+        )
+    })?;
+    Ok(AuthenticatedPrincipal {
+        subject,
+        role,
+        session_id: if session_id.trim().is_empty() {
+            None
+        } else {
+            Some(session_id)
+        },
+    })
+}
+
+fn verify_optional_internal_principal(
+    method: Method,
+    subject: Option<String>,
+    role: Option<String>,
+    session_id: Option<String>,
+    timestamp: Option<String>,
+    signature: Option<String>,
+    request_id: Option<String>,
+) -> Result<Option<AuthenticatedPrincipal>, Rejection> {
+    let auth_present = [
+        subject.as_deref(),
+        role.as_deref(),
+        timestamp.as_deref(),
+        signature.as_deref(),
+    ]
+    .into_iter()
+    .any(|value| value.is_some_and(|inner| !inner.trim().is_empty()));
+    if !auth_present {
+        return Ok(None);
+    }
+    verify_internal_principal(
+        method, subject, role, session_id, timestamp, signature, request_id,
+    )
+    .map(Some)
+}
+
+fn with_principal() -> impl Filter<Extract = (AuthenticatedPrincipal,), Error = Rejection> + Clone {
+    warp::method()
+        .and(warp::header::optional::<String>("x-internal-auth-subject"))
+        .and(warp::header::optional::<String>("x-internal-auth-role"))
+        .and(warp::header::optional::<String>(
+            "x-internal-auth-session-id",
+        ))
+        .and(warp::header::optional::<String>(
+            "x-internal-auth-timestamp",
+        ))
+        .and(warp::header::optional::<String>(
+            "x-internal-auth-signature",
+        ))
+        .and(warp::header::optional::<String>("x-request-id"))
+        .and_then(
+            |method: Method,
+             subject: Option<String>,
+             role: Option<String>,
+             session_id: Option<String>,
+             timestamp: Option<String>,
+             signature: Option<String>,
+             request_id: Option<String>| async move {
+                verify_internal_principal(
+                    method, subject, role, session_id, timestamp, signature, request_id,
+                )
+            },
+        )
+}
+
+fn with_optional_principal(
+) -> impl Filter<Extract = (Option<AuthenticatedPrincipal>,), Error = Rejection> + Clone {
+    warp::method()
+        .and(warp::header::optional::<String>("x-internal-auth-subject"))
+        .and(warp::header::optional::<String>("x-internal-auth-role"))
+        .and(warp::header::optional::<String>(
+            "x-internal-auth-session-id",
+        ))
+        .and(warp::header::optional::<String>(
+            "x-internal-auth-timestamp",
+        ))
+        .and(warp::header::optional::<String>(
+            "x-internal-auth-signature",
+        ))
+        .and(warp::header::optional::<String>("x-request-id"))
+        .and_then(
+            |method: Method,
+             subject: Option<String>,
+             role: Option<String>,
+             session_id: Option<String>,
+             timestamp: Option<String>,
+             signature: Option<String>,
+             request_id: Option<String>| async move {
+                verify_optional_internal_principal(
+                    method, subject, role, session_id, timestamp, signature, request_id,
+                )
+            },
+        )
+}
+
+fn optional_query<T>() -> impl Filter<Extract = (T,), Error = Infallible> + Clone
+where
+    T: DeserializeOwned + Default + Send + 'static,
+{
+    warp::query::<T>().or(warp::any().map(T::default)).unify()
+}
+
+fn require_user(principal: &AuthenticatedPrincipal) -> Result<(), Rejection> {
+    match principal.role {
+        PrincipalRole::User | PrincipalRole::Admin => Ok(()),
+    }
+}
+
+fn require_admin(principal: &AuthenticatedPrincipal) -> Result<(), Rejection> {
+    if principal.role != PrincipalRole::Admin {
+        return Err(reject_api(StatusCode::FORBIDDEN, "admin role required"));
+    }
+    Ok(())
+}
+
+fn ensure_subject_or_admin(
+    principal: &AuthenticatedPrincipal,
+    user_id: &str,
+) -> Result<(), Rejection> {
+    if principal.role == PrincipalRole::Admin {
+        return Ok(());
+    }
+    ensure_subject_matches(principal, user_id)
+}
+
+fn ensure_subject_matches(
+    principal: &AuthenticatedPrincipal,
+    claimed_user_id: &str,
+) -> Result<(), Rejection> {
+    if claimed_user_id.trim().is_empty() {
+        return Err(reject_api(StatusCode::BAD_REQUEST, "user_id is required"));
+    }
+    if principal.subject != claimed_user_id {
+        return Err(reject_api(
+            StatusCode::FORBIDDEN,
+            "user_id does not match authenticated subject",
+        ));
+    }
+    Ok(())
+}
+
+fn body_limit() -> impl Filter<Extract = (), Error = Rejection> + Clone {
+    warp::body::content_length_limit(16 * 1024)
+}
+
+fn remote_ip() -> impl Filter<Extract = (Option<SocketAddr>,), Error = Infallible> + Clone {
+    warp::addr::remote()
+}
+
+async fn handle_rejection(rejection: Rejection) -> Result<impl Reply, Infallible> {
+    if let Some(error) = rejection.find::<ApiError>() {
+        let body = serde_json::json!({"status":"error","error":error.message});
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&body),
+            error.status,
+        ));
+    }
+    if rejection.is_not_found() {
+        let body = serde_json::json!({"status":"error","error":"not found"});
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&body),
+            StatusCode::NOT_FOUND,
+        ));
+    }
+    let body = serde_json::json!({"status":"error","error":"internal server error"});
+    Ok(warp::reply::with_status(
+        warp::reply::json(&body),
+        StatusCode::INTERNAL_SERVER_ERROR,
+    ))
+}
+
+fn bind_address() -> SocketAddr {
+    let host = env::var("API_BIND_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = env::var("API_BIND_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(3030);
+    let ip = host
+        .parse::<IpAddr>()
+        .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+    SocketAddr::new(ip, port)
+}
+
+fn flatten_market_snapshots(records: &[PartitionSnapshotRecord]) -> Vec<MarketRuntimeSnapshot> {
+    records
+        .iter()
+        .flat_map(|record| record.snapshot.markets.iter().cloned())
+        .collect()
+}
+
+fn market_best_levels(snapshot: &MarketRuntimeSnapshot) -> (Option<i64>, Option<i64>) {
+    let mut best_bid = None;
+    let mut best_ask = None;
+    for order in &snapshot.orders {
+        match order.side {
+            Side::Buy => {
+                best_bid = Some(best_bid.map_or(order.price, |value: i64| value.max(order.price)))
+            }
+            Side::Sell => {
+                best_ask = Some(best_ask.map_or(order.price, |value: i64| value.min(order.price)))
+            }
+        }
+    }
+    (best_bid, best_ask)
+}
+
+fn market_state_rank(state: MarketState) -> usize {
+    match state {
+        MarketState::Normal => 0,
+        MarketState::Stress => 1,
+        MarketState::AuctionCall => 2,
+        MarketState::CancelOnly => 3,
+        MarketState::Halted => 4,
+    }
+}
+
+fn aggregate_market_state(states: impl Iterator<Item = MarketState>) -> MarketState {
+    states
+        .max_by_key(|state| market_state_rank(*state))
+        .unwrap_or(MarketState::Normal)
+}
+
+fn snapshot_to_market_view(snapshot: &MarketRuntimeSnapshot) -> serde_json::Value {
+    let (best_bid, best_ask) = market_best_levels(snapshot);
+    serde_json::json!({
+        "market_id": snapshot.market_id,
+        "outcome": snapshot.outcome,
+        "state": snapshot.state,
+        "reference_price": snapshot.reference_price,
+        "last_trade_price": snapshot.last_trade_price,
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "open_orders": snapshot.orders.len(),
+    })
+}
+
+fn snapshots_to_market_list(snapshots: &[MarketRuntimeSnapshot]) -> Vec<serde_json::Value> {
+    let mut grouped: BTreeMap<String, Vec<&MarketRuntimeSnapshot>> = BTreeMap::new();
+    for snapshot in snapshots {
+        grouped
+            .entry(snapshot.market_id.clone())
+            .or_default()
+            .push(snapshot);
+    }
+
+    grouped
+        .into_iter()
+        .map(|(market_id, group)| {
+            let state = aggregate_market_state(group.iter().map(|snapshot| snapshot.state));
+            let outcomes: Vec<i32> = group.iter().map(|snapshot| snapshot.outcome).collect();
+            let total_open_orders: usize = group.iter().map(|snapshot| snapshot.orders.len()).sum();
+            serde_json::json!({
+                "id": market_id,
+                "market_id": market_id,
+                "name": market_id,
+                "state": state,
+                "outcomes": outcomes,
+                "open_orders": total_open_orders,
+                "markets": group.into_iter().map(snapshot_to_market_view).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
+fn validate_instrument_spec(spec: &InstrumentSpec) -> Result<(), Rejection> {
+    if spec.instrument_id.trim().is_empty() {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "instrument_id is required",
+        ));
+    }
+    if spec.quote_asset.trim().is_empty() {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "quote_asset is required",
+        ));
+    }
+    if spec.risk_policy_id.trim().is_empty() {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "risk_policy_id is required",
+        ));
+    }
+    if spec.tick_size <= 0 {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "tick_size must be positive",
+        ));
+    }
+    if spec.lot_size <= 0 {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "lot_size must be positive",
+        ));
+    }
+    if spec.price_band_bps < 0 {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "price_band_bps must be non-negative",
+        ));
+    }
+    match spec.kind {
+        InstrumentKind::Spot => {
+            if spec.margin_mode.is_some() || spec.max_leverage.is_some() {
+                return Err(reject_api(
+                    StatusCode::BAD_REQUEST,
+                    "spot instruments cannot define margin settings",
+                ));
+            }
+        }
+        InstrumentKind::Margin | InstrumentKind::Perpetual => {
+            if spec.max_leverage.unwrap_or(0) == 0 {
+                return Err(reject_api(
+                    StatusCode::BAD_REQUEST,
+                    "derivative instruments require positive max_leverage",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn orders_to_levels(
+    orders: &[RestingOrderSnapshot],
+    side: Side,
+    depth: usize,
+) -> Vec<serde_json::Value> {
+    let mut levels: BTreeMap<i64, (i64, usize)> = BTreeMap::new();
+    for order in orders.iter().filter(|order| order.side == side) {
+        let entry = levels.entry(order.price).or_insert((0, 0));
+        entry.0 += order.remaining_amount;
+        entry.1 += 1;
+    }
+
+    let mut items: Vec<_> = levels.into_iter().collect();
+    if side == Side::Buy {
+        items.reverse();
+    }
+    items
+        .into_iter()
+        .take(depth)
+        .map(|(price, (amount, count))| {
+            serde_json::json!({
+                "price": price,
+                "amount": amount,
+                "count": count,
+            })
+        })
+        .collect()
+}
+
+fn snapshot_to_order_book(snapshot: &MarketRuntimeSnapshot, depth: usize) -> serde_json::Value {
+    serde_json::json!({
+        "market_id": snapshot.market_id,
+        "outcome": snapshot.outcome,
+        "bids": orders_to_levels(&snapshot.orders, Side::Buy, depth),
+        "asks": orders_to_levels(&snapshot.orders, Side::Sell, depth),
+        "timestamp": Utc::now(),
+    })
+}
+
+fn snapshots_to_orders(
+    snapshots: &[MarketRuntimeSnapshot],
+    user_id: &str,
+    market_filter: Option<&str>,
+    outcome_filter: Option<i32>,
+) -> Vec<serde_json::Value> {
+    let mut orders: Vec<_> = snapshots
+        .iter()
+        .filter(|snapshot| market_filter.map_or(true, |market_id| market_id == snapshot.market_id))
+        .filter(|snapshot| outcome_filter.map_or(true, |outcome| outcome == snapshot.outcome))
+        .flat_map(|snapshot| snapshot.orders.iter())
+        .filter(|order| order.user_id == user_id)
+        .map(|order| {
+            serde_json::json!({
+                "id": order.order_id,
+                "market_id": order.market_id,
+                "outcome": order.outcome,
+                "side": order.side,
+                "price": order.price,
+                "amount": order.original_amount,
+                "filled": order.original_amount - order.remaining_amount,
+                "remaining": order.remaining_amount,
+                "leverage": order.leverage,
+                "reduce_only": order.reduce_only,
+                "status": if order.remaining_amount < order.original_amount { "partial" } else { "open" },
+                "created_at": Utc::now(),
+            })
+        })
+        .collect();
+    orders.sort_by(|lhs, rhs| {
+        rhs["created_at"]
+            .to_string()
+            .cmp(&lhs["created_at"].to_string())
+    });
+    orders
+}
+
+fn trade_record_to_json(record: &TradeJournalRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.trade_id,
+        "market_id": record.market_id,
+        "outcome": record.outcome,
+        "price": record.price,
+        "amount": record.amount,
+        "buyer": record.buy_user_id,
+        "seller": record.sell_user_id,
+        "buy_order_id": record.buy_order_id,
+        "sell_order_id": record.sell_order_id,
+        "timestamp": record.recorded_at,
+    })
+}
+
+fn trades_to_history(
+    market_id: &str,
+    outcome: Option<i32>,
+    trades: &[TradeJournalRecord],
+    limit: usize,
+) -> serde_json::Value {
+    let mut grouped: BTreeMap<String, Vec<&TradeJournalRecord>> = BTreeMap::new();
+    for trade in trades
+        .iter()
+        .filter(|trade| trade.market_id == market_id)
+        .filter(|trade| outcome.map_or(true, |value| value == trade.outcome))
+    {
+        let key = trade.recorded_at.format("%Y-%m-%dT%H:00:00Z").to_string();
+        grouped.entry(key).or_default().push(trade);
+    }
+
+    let mut data: Vec<_> = grouped
+        .into_iter()
+        .map(|(timestamp, bucket)| {
+            let open = bucket.first().map(|trade| trade.price).unwrap_or(0);
+            let close = bucket.last().map(|trade| trade.price).unwrap_or(open);
+            let high = bucket.iter().map(|trade| trade.price).max().unwrap_or(open);
+            let low = bucket.iter().map(|trade| trade.price).min().unwrap_or(open);
+            let volume: i64 = bucket.iter().map(|trade| trade.amount).sum();
+            serde_json::json!({
+                "timestamp": timestamp,
+                "price": close,
+                "volume": volume,
+                "high": high,
+                "low": low,
+                "open": open,
+                "close": close,
+            })
+        })
+        .collect();
+    data.sort_by(|lhs, rhs| {
+        lhs["timestamp"]
+            .to_string()
+            .cmp(&rhs["timestamp"].to_string())
+    });
+    if data.len() > limit {
+        data = data.split_off(data.len() - limit);
+    }
+    serde_json::json!({
+        "market_id": market_id,
+        "interval": "1h",
+        "data": data,
+    })
+}
+
+fn deposits_from_ledger(user_id: &str, ledger_entries: &[LedgerDelta]) -> Vec<serde_json::Value> {
+    let account = format!("U:{}:USDC", user_id);
+    ledger_entries
+        .iter()
+        .filter(|delta| {
+            delta.entries.iter().any(|entry| {
+                entry.credit_account == account && entry.debit_account == "SYS:ONCHAIN_VAULT:USDC"
+            })
+        })
+        .map(|delta| {
+            let amount: i64 = delta
+                .entries
+                .iter()
+                .filter(|entry| entry.credit_account == account)
+                .map(|entry| entry.amount)
+                .sum();
+            serde_json::json!({
+                "id": delta.op_id,
+                "amount": amount,
+                "asset": "USDC",
+                "tx_hash": delta.op_id,
+                "status": "confirmed",
+                "timestamp": delta.timestamp,
+            })
+        })
+        .collect()
+}
+
+fn stats_from_snapshots_and_trades(
+    snapshots: &[MarketRuntimeSnapshot],
+    trades: &[TradeJournalRecord],
+    ledger_entries: &[LedgerDelta],
+) -> serde_json::Value {
+    let total_volume_24h: i64 = trades
+        .iter()
+        .map(|trade| trade.price.saturating_mul(trade.amount))
+        .sum();
+    let total_liquidity: i64 = snapshots
+        .iter()
+        .flat_map(|snapshot| snapshot.orders.iter())
+        .map(|order| order.remaining_amount)
+        .sum();
+    let total_users = ledger_entries
+        .iter()
+        .flat_map(|delta| delta.entries.iter())
+        .filter_map(|entry| entry.credit_account.strip_prefix("U:"))
+        .filter_map(|account| account.split(':').next())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+
+    serde_json::json!({
+        "TotalVolume24h": total_volume_24h,
+        "TotalTrades24h": trades.len(),
+        "ActiveMarkets": snapshots.len(),
+        "TotalUsers": total_users,
+        "TotalLiquidity": total_liquidity,
+        "LastUpdated": Utc::now(),
+    })
+}
+
+fn normalize_request_id(request_id: Option<String>) -> String {
+    request_id
+        .filter(|request_id| !request_id.trim().is_empty())
+        .unwrap_or_else(|| types::generate_op_id("req"))
+}
+
+fn normalize_client_order_id(client_order_id: Option<String>) -> String {
+    client_order_id
+        .filter(|client_order_id| !client_order_id.trim().is_empty())
+        .unwrap_or_else(types::generate_id)
+}
+
+fn sequencer_wal_path() -> String {
+    env::var("SEQUENCER_WAL_PATH").unwrap_or_else(|_| "data/sequencer.wal.jsonl".to_string())
+}
+
+fn ledger_wal_path() -> String {
+    env::var("LEDGER_WAL_PATH").unwrap_or_else(|_| "data/ledger.wal.jsonl".to_string())
+}
+
+fn matching_snapshot_wal_path() -> String {
+    env::var("MATCHING_SNAPSHOT_WAL_PATH")
+        .unwrap_or_else(|_| "data/matching.snapshot.jsonl".to_string())
+}
+
+fn trade_journal_wal_path() -> String {
+    env::var("TRADE_JOURNAL_WAL_PATH")
+        .unwrap_or_else(|_| "data/trade_journal.wal.jsonl".to_string())
+}
+
+fn instruments_registry_wal_path() -> String {
+    env::var("INSTRUMENTS_REGISTRY_WAL_PATH")
+        .unwrap_or_else(|_| "data/instruments.registry.jsonl".to_string())
+}
+
+fn funding_rates_wal_path() -> String {
+    env::var("FUNDING_RATES_WAL_PATH").unwrap_or_else(|_| "data/funding_rates.jsonl".to_string())
+}
+
+fn risk_automation_audit_wal_path() -> String {
+    env::var("RISK_AUTOMATION_AUDIT_WAL_PATH")
+        .unwrap_or_else(|_| "data/risk_automation.audit.jsonl".to_string())
+}
+
+fn liquidation_queue_wal_path() -> String {
+    env::var("LIQUIDATION_QUEUE_WAL_PATH")
+        .unwrap_or_else(|_| "data/liquidation.queue.jsonl".to_string())
+}
+
+fn liquidation_auction_wal_path() -> String {
+    env::var("LIQUIDATION_AUCTION_WAL_PATH")
+        .unwrap_or_else(|_| "data/liquidation.auction.jsonl".to_string())
+}
+
+fn adl_governance_wal_path() -> String {
+    env::var("ADL_GOVERNANCE_WAL_PATH").unwrap_or_else(|_| "data/adl.governance.jsonl".to_string())
+}
+
+fn liquidation_policy_wal_path() -> String {
+    env::var("LIQUIDATION_POLICY_WAL_PATH")
+        .unwrap_or_else(|_| "data/liquidation.policy.jsonl".to_string())
+}
+
+fn index_price_wal_path() -> String {
+    env::var("INDEX_PRICE_WAL_PATH").unwrap_or_else(|_| "data/index.price.jsonl".to_string())
+}
+
+fn governance_action_wal_path() -> String {
+    env::var("GOVERNANCE_ACTION_WAL_PATH")
+        .unwrap_or_else(|_| "data/governance.actions.jsonl".to_string())
+}
+
+fn env_bool(name: &str, default: bool) -> bool {
+    env::var(name)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(default)
+}
+
+fn automation_enabled() -> bool {
+    env_bool("RISK_AUTOMATION_ENABLED", false)
+}
+
+fn liquidation_interval_secs() -> u64 {
+    env::var("RISK_LIQUIDATION_INTERVAL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(30)
+}
+
+fn funding_interval_secs() -> u64 {
+    env::var("RISK_FUNDING_INTERVAL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(60)
+}
+
+fn liquidation_worker_interval_secs() -> u64 {
+    env::var("RISK_LIQUIDATION_WORKER_INTERVAL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(5)
+}
+
+fn liquidation_auction_window_secs() -> i64 {
+    env::var("RISK_LIQUIDATION_AUCTION_WINDOW_SECS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(15)
+}
+
+fn automation_liquidator_user_id() -> String {
+    env::var("RISK_AUTOMATION_LIQUIDATOR_USER_ID")
+        .unwrap_or_else(|_| "system-liquidator".to_string())
+}
+
+fn automation_maintenance_margin_bps() -> i64 {
+    env::var("RISK_AUTOMATION_MAINTENANCE_MARGIN_BPS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(1_000)
+}
+
+fn automation_liquidation_penalty_bps() -> i64 {
+    env::var("RISK_AUTOMATION_LIQUIDATION_PENALTY_BPS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(500)
+}
+
+fn default_max_auction_rounds() -> u32 {
+    3
+}
+
+fn liquidation_retry_delay_secs(policy: &LiquidationPolicyRecord, retry_tier: u32) -> i64 {
+    policy
+        .retry_backoff_secs
+        .get(retry_tier as usize)
+        .copied()
+        .or_else(|| policy.retry_backoff_secs.last().copied())
+        .unwrap_or(0)
+        .max(0)
+}
+
+fn build_funding_rate_store() -> Arc<PersistentFundingRateStore> {
+    Arc::new(
+        PersistentFundingRateStore::open_jsonl(funding_rates_wal_path())
+            .expect("failed to initialize persistent funding rate store"),
+    )
+}
+
+fn build_risk_automation_audit_store() -> Arc<RiskAutomationAuditStore> {
+    Arc::new(
+        RiskAutomationAuditStore::open_jsonl(risk_automation_audit_wal_path())
+            .expect("failed to initialize risk automation audit store"),
+    )
+}
+
+fn build_liquidation_queue_store() -> Arc<LiquidationQueueStore> {
+    Arc::new(
+        LiquidationQueueStore::open_jsonl(liquidation_queue_wal_path())
+            .expect("failed to initialize liquidation queue store"),
+    )
+}
+
+fn build_liquidation_auction_store() -> Arc<LiquidationAuctionStore> {
+    Arc::new(
+        LiquidationAuctionStore::open_jsonl(liquidation_auction_wal_path())
+            .expect("failed to initialize liquidation auction store"),
+    )
+}
+
+fn build_adl_governance_store() -> Arc<PersistentAdlGovernanceStore> {
+    Arc::new(
+        PersistentAdlGovernanceStore::open_jsonl(adl_governance_wal_path())
+            .expect("failed to initialize ADL governance store"),
+    )
+}
+
+fn build_liquidation_policy_store() -> Arc<PersistentLiquidationPolicyStore> {
+    Arc::new(
+        PersistentLiquidationPolicyStore::open_jsonl(liquidation_policy_wal_path())
+            .expect("failed to initialize liquidation policy store"),
+    )
+}
+
+fn build_index_price_store() -> Arc<PersistentIndexPriceStore> {
+    Arc::new(
+        PersistentIndexPriceStore::open_jsonl(index_price_wal_path())
+            .expect("failed to initialize index price store"),
+    )
+}
+
+fn build_governance_action_store() -> Arc<PendingGovernanceActionStore> {
+    Arc::new(
+        PendingGovernanceActionStore::open_jsonl(governance_action_wal_path())
+            .expect("failed to initialize governance action store"),
+    )
+}
+
+fn append_risk_audit_event(
+    audit_store: &RiskAutomationAuditStore,
+    event_type: &str,
+    status: &str,
+    market_id: &str,
+    outcome: i32,
+    user_id: Option<String>,
+    counterparty_user_id: Option<String>,
+    request_id: &str,
+    detail: serde_json::Value,
+) {
+    let _ = audit_store.append(RiskAutomationAuditRecord {
+        event_id: types::generate_op_id("risk-event"),
+        event_type: event_type.to_string(),
+        status: status.to_string(),
+        market_id: market_id.to_string(),
+        outcome,
+        user_id,
+        counterparty_user_id,
+        request_id: request_id.to_string(),
+        detail,
+        recorded_at: Utc::now(),
+    });
+}
+
+fn sequence_new_order(
+    sequencer: &Sequencer,
+    request_id: String,
+    client_order_id: String,
+    user_id: String,
+    session_id: Option<String>,
+    market_id: String,
+    side: Side,
+    order_type: OrderType,
+    time_in_force: TimeInForce,
+    price: Option<i64>,
+    amount: i64,
+    outcome: i32,
+    post_only: bool,
+    reduce_only: bool,
+    leverage: Option<u32>,
+    expires_at: Option<DateTime<Utc>>,
+) -> Result<NewOrderCommand, String> {
+    let command = Command::NewOrder(NewOrderCommand {
+        metadata: CommandMetadata::new(request_id),
+        client_order_id,
+        user_id,
+        session_id,
+        market_id,
+        side,
+        order_type,
+        time_in_force,
+        price,
+        amount,
+        outcome,
+        post_only,
+        reduce_only,
+        leverage,
+        expires_at,
+    });
+
+    match sequencer
+        .sequence_and_append(command)
+        .map_err(|error| error.to_string())?
+    {
+        Command::NewOrder(command) => Ok(command),
+        _ => Err("sequencer returned non-new-order command unexpectedly".to_string()),
+    }
+}
+
+fn sequence_command(sequencer: &Sequencer, command: Command) -> Result<Command, String> {
+    sequencer
+        .sequence_and_append(command)
+        .map_err(|error| error.to_string())
+}
+
+fn sequence_cancel_order(
+    sequencer: &Sequencer,
+    request_id: String,
+    user_id: String,
+    market_id: String,
+    outcome: Option<i32>,
+    order_id: String,
+    client_order_id: Option<String>,
+) -> Result<CancelOrderCommand, String> {
+    match sequence_command(
+        sequencer,
+        Command::CancelOrder(CancelOrderCommand {
+            metadata: CommandMetadata::new(request_id),
+            user_id,
+            market_id,
+            outcome,
+            order_id,
+            client_order_id,
+        }),
+    )? {
+        Command::CancelOrder(command) => Ok(command),
+        _ => Err("sequencer returned non-cancel-order command unexpectedly".to_string()),
+    }
+}
+
+fn sequence_replace_order(
+    sequencer: &Sequencer,
+    request_id: String,
+    user_id: String,
+    market_id: String,
+    outcome: Option<i32>,
+    order_id: String,
+    new_client_order_id: Option<String>,
+    new_price: Option<i64>,
+    new_amount: Option<i64>,
+    new_time_in_force: Option<TimeInForce>,
+    post_only: Option<bool>,
+    reduce_only: Option<bool>,
+    new_leverage: Option<u32>,
+    new_expires_at: Option<DateTime<Utc>>,
+) -> Result<ReplaceOrderCommand, String> {
+    match sequence_command(
+        sequencer,
+        Command::ReplaceOrder(ReplaceOrderCommand {
+            metadata: CommandMetadata::new(request_id),
+            user_id,
+            market_id,
+            outcome,
+            order_id,
+            new_client_order_id,
+            new_price,
+            new_amount,
+            new_time_in_force,
+            post_only,
+            reduce_only,
+            new_leverage,
+            new_expires_at,
+        }),
+    )? {
+        Command::ReplaceOrder(command) => Ok(command),
+        _ => Err("sequencer returned non-replace-order command unexpectedly".to_string()),
+    }
+}
+
+fn sequence_mass_cancel_by_user(
+    sequencer: &Sequencer,
+    request_id: String,
+    user_id: String,
+) -> Result<MassCancelByUserCommand, String> {
+    match sequence_command(
+        sequencer,
+        Command::MassCancelByUser(MassCancelByUserCommand {
+            metadata: CommandMetadata::new(request_id),
+            user_id,
+        }),
+    )? {
+        Command::MassCancelByUser(command) => Ok(command),
+        _ => Err("sequencer returned non-mass-cancel-user command unexpectedly".to_string()),
+    }
+}
+
+fn sequence_mass_cancel_by_session(
+    sequencer: &Sequencer,
+    request_id: String,
+    user_id: String,
+    session_id: String,
+) -> Result<MassCancelBySessionCommand, String> {
+    match sequence_command(
+        sequencer,
+        Command::MassCancelBySession(MassCancelBySessionCommand {
+            metadata: CommandMetadata::new(request_id),
+            user_id,
+            session_id,
+        }),
+    )? {
+        Command::MassCancelBySession(command) => Ok(command),
+        _ => Err("sequencer returned non-mass-cancel-session command unexpectedly".to_string()),
+    }
+}
+
+fn sequence_mass_cancel_by_market(
+    sequencer: &Sequencer,
+    request_id: String,
+    market_id: String,
+) -> Result<MassCancelByMarketCommand, String> {
+    match sequence_command(
+        sequencer,
+        Command::MassCancelByMarket(MassCancelByMarketCommand {
+            metadata: CommandMetadata::new(request_id),
+            market_id,
+        }),
+    )? {
+        Command::MassCancelByMarket(command) => Ok(command),
+        _ => Err("sequencer returned non-mass-cancel-market command unexpectedly".to_string()),
+    }
+}
+
+fn sequence_admin(
+    sequencer: &Sequencer,
+    request_id: String,
+    actor_id: String,
+    action: AdminAction,
+) -> Result<AdminCommand, String> {
+    match sequence_command(
+        sequencer,
+        Command::Admin(AdminCommand {
+            metadata: CommandMetadata::new(request_id),
+            actor_id,
+            action,
+        }),
+    )? {
+        Command::Admin(command) => Ok(command),
+        _ => Err("sequencer returned non-admin command unexpectedly".to_string()),
+    }
+}
+
+fn audit(action: &str, request_id: &str, principal: &AuthenticatedPrincipal) {
+    tracing::info!(
+        action = action,
+        request_id = request_id,
+        subject = %principal.subject,
+        role = ?principal.role,
+        session_id = ?principal.session_id,
+        "audit event"
+    );
+}
+
+fn update_lifecycle_after_submit(
+    sequencer: &Sequencer,
+    request_id: &str,
+    result: &matching::SubmitOrderResult,
+) {
+    let _ = sequencer.mark_risk_reserved(request_id);
+    let _ = sequencer.mark_routed(request_id);
+    let _ = sequencer.mark_partition_accepted(request_id);
+    if !result.fills.is_empty() {
+        let _ = sequencer.mark_executed(request_id);
+        let _ = sequencer.mark_settled(request_id);
+    }
+    if result.state != types::OrderState::Active {
+        let _ = sequencer.mark_completed(request_id);
+    }
+}
+
+fn update_lifecycle_after_cancel(sequencer: &Sequencer, request_id: &str) {
+    let _ = sequencer.mark_routed(request_id);
+    let _ = sequencer.mark_executed(request_id);
+    let _ = sequencer.mark_completed(request_id);
+}
+
+fn update_lifecycle_after_admin(sequencer: &Sequencer, request_id: &str) {
+    let _ = sequencer.mark_routed(request_id);
+    let _ = sequencer.mark_executed(request_id);
+    let _ = sequencer.mark_completed(request_id);
+}
+
+fn seed_default_instruments(registry: &PersistentInstrumentRegistry) {
+    for spec in [
+        InstrumentSpec {
+            instrument_id: "btc-usdt".to_string(),
+            kind: InstrumentKind::Spot,
+            quote_asset: "USDC".to_string(),
+            margin_mode: None,
+            max_leverage: None,
+            tick_size: 1,
+            lot_size: 1,
+            price_band_bps: 1_000,
+            risk_policy_id: "spot-v1".to_string(),
+        },
+        InstrumentSpec {
+            instrument_id: "margin:btc-usdt".to_string(),
+            kind: InstrumentKind::Margin,
+            quote_asset: "USDC".to_string(),
+            margin_mode: Some(MarginMode::Isolated),
+            max_leverage: Some(20),
+            tick_size: 1,
+            lot_size: 1,
+            price_band_bps: 1_000,
+            risk_policy_id: "margin-v1".to_string(),
+        },
+        InstrumentSpec {
+            instrument_id: "perp:btc-usdt".to_string(),
+            kind: InstrumentKind::Perpetual,
+            quote_asset: "USDC".to_string(),
+            margin_mode: Some(MarginMode::Isolated),
+            max_leverage: Some(20),
+            tick_size: 1,
+            lot_size: 1,
+            price_band_bps: 1_000,
+            risk_policy_id: "perpetual-v1".to_string(),
+        },
+    ] {
+        let _ = registry.upsert(spec);
+    }
+}
+
+fn build_instrument_registry() -> Arc<PersistentInstrumentRegistry> {
+    let registry = Arc::new(
+        PersistentInstrumentRegistry::open_jsonl(instruments_registry_wal_path())
+            .expect("failed to initialize persistent instrument registry"),
+    );
+    if registry.is_empty() {
+        seed_default_instruments(&registry);
+    }
+    registry
+}
+async fn run_liquidation_cycle(
+    engine: Arc<PartitionedMatchingEngine>,
+    risk: Arc<RiskEngine>,
+    instruments: Arc<PersistentInstrumentRegistry>,
+    index_prices: Arc<PersistentIndexPriceStore>,
+    audit_store: Arc<RiskAutomationAuditStore>,
+    queue_store: Arc<LiquidationQueueStore>,
+    adl_governance_store: Arc<PersistentAdlGovernanceStore>,
+    liquidator_user_id: &str,
+    maintenance_margin_bps: i64,
+    _penalty_bps: i64,
+) {
+    let records = match engine.export_snapshots().await {
+        Ok(records) => records,
+        Err(error) => {
+            append_risk_audit_event(
+                audit_store.as_ref(),
+                "liquidation_cycle",
+                "error",
+                "*",
+                0,
+                None,
+                None,
+                "automation-liquidation-cycle",
+                serde_json::json!({"error": error.to_string()}),
+            );
+            return;
+        }
+    };
+    let governance = adl_governance_store.current().governance;
+    let snapshots = flatten_market_snapshots(&records);
+    let user_ids = risk.ledger().user_ids();
+
+    for snapshot in snapshots {
+        let instrument = instruments.resolve(&snapshot.market_id);
+        if instrument.kind == InstrumentKind::Spot {
+            continue;
+        }
+        let Some(mark_price) = fair_price_quote_for_snapshot(&snapshot, index_prices.as_ref())
+            .map(|quote| quote.fair_price)
+        else {
+            continue;
+        };
+        let candidates = match risk.liquidation_candidates(
+            &user_ids,
+            &instrument,
+            snapshot.outcome,
+            mark_price,
+            instrument.max_leverage,
+            maintenance_margin_bps,
+        ) {
+            Ok(candidates) => candidates,
+            Err(error) => {
+                append_risk_audit_event(
+                    audit_store.as_ref(),
+                    "liquidation_scan",
+                    "error",
+                    &snapshot.market_id,
+                    snapshot.outcome,
+                    None,
+                    None,
+                    "automation-liquidation-scan",
+                    serde_json::json!({"error": error.to_string()}),
+                );
+                continue;
+            }
+        };
+
+        for candidate in candidates {
+            if candidate.user_id == liquidator_user_id {
+                continue;
+            }
+            let request_id = types::generate_op_id("auto-liq");
+            let adl_candidates = risk.adl_ranking_with_governance(
+                &instrument,
+                snapshot.outcome,
+                mark_price,
+                candidate.position_qty,
+                &governance,
+            );
+            let record = LiquidationQueueRecord {
+                queue_id: request_id.clone(),
+                source: "automation".to_string(),
+                status: "queued".to_string(),
+                market_id: snapshot.market_id.clone(),
+                outcome: snapshot.outcome,
+                user_id: candidate.user_id.clone(),
+                liquidator_user_id: liquidator_user_id.to_string(),
+                mark_price,
+                position_qty: candidate.position_qty,
+                remaining_position_qty: candidate.position_qty.abs(),
+                filled_position_qty: 0,
+                auction_round: 0,
+                margin_ratio_bps: candidate.margin_ratio_bps,
+                adl_candidates: adl_candidates.clone(),
+                retry_tier: 0,
+                retry_count: 0,
+                strategy: liquidation_strategy_for_tier(0).to_string(),
+                next_attempt_at: None,
+                last_attempt_at: None,
+                error: None,
+                recorded_at: Utc::now(),
+            };
+            match queue_store.append_if_no_active_position(record) {
+                Ok(true) => append_risk_audit_event(
+                    audit_store.as_ref(),
+                    "liquidation_queued",
+                    "queued",
+                    &snapshot.market_id,
+                    snapshot.outcome,
+                    Some(candidate.user_id.clone()),
+                    Some(liquidator_user_id.to_string()),
+                    &request_id,
+                    serde_json::json!({
+                        "mark_price": mark_price,
+                        "position_qty": candidate.position_qty,
+                        "margin_ratio_bps": candidate.margin_ratio_bps,
+                        "maintenance_margin_required": candidate.maintenance_margin_required,
+                        "retry_tier": 0,
+                        "adl_candidates": adl_candidates,
+                    }),
+                ),
+                Ok(false) => append_risk_audit_event(
+                    audit_store.as_ref(),
+                    "liquidation_queued",
+                    "skipped",
+                    &snapshot.market_id,
+                    snapshot.outcome,
+                    Some(candidate.user_id.clone()),
+                    Some(liquidator_user_id.to_string()),
+                    &request_id,
+                    serde_json::json!({"reason": "active liquidation already exists"}),
+                ),
+                Err(error) => append_risk_audit_event(
+                    audit_store.as_ref(),
+                    "liquidation_queued",
+                    "error",
+                    &snapshot.market_id,
+                    snapshot.outcome,
+                    Some(candidate.user_id.clone()),
+                    Some(liquidator_user_id.to_string()),
+                    &request_id,
+                    serde_json::json!({"error": error.to_string()}),
+                ),
+            };
+        }
+    }
+}
+
+async fn run_funding_cycle(
+    engine: Arc<PartitionedMatchingEngine>,
+    risk: Arc<RiskEngine>,
+    funding_rates: Arc<PersistentFundingRateStore>,
+    index_prices: Arc<PersistentIndexPriceStore>,
+    audit_store: Arc<RiskAutomationAuditStore>,
+) {
+    let records = match engine.export_snapshots().await {
+        Ok(records) => records,
+        Err(error) => {
+            append_risk_audit_event(
+                audit_store.as_ref(),
+                "funding_cycle",
+                "error",
+                "*",
+                0,
+                None,
+                None,
+                "automation-funding-cycle",
+                serde_json::json!({"error": error.to_string()}),
+            );
+            return;
+        }
+    };
+    let snapshots = flatten_market_snapshots(&records);
+    let user_ids = risk.ledger().user_ids();
+    for rate in funding_rates.list() {
+        let Some(mark_price) = resolve_mark_price_for_market(
+            &snapshots,
+            index_prices.as_ref(),
+            &rate.market_id,
+            rate.outcome,
+        ) else {
+            append_risk_audit_event(
+                audit_store.as_ref(),
+                "funding_batch",
+                "skipped",
+                &rate.market_id,
+                rate.outcome,
+                None,
+                None,
+                "automation-funding-skip",
+                serde_json::json!({"reason": "mark price unavailable"}),
+            );
+            continue;
+        };
+        let request_id = types::generate_op_id("auto-funding");
+        match risk.settle_funding_batch(
+            &rate.market_id,
+            rate.outcome,
+            mark_price,
+            rate.funding_rate_ppm,
+            &user_ids,
+            &request_id,
+        ) {
+            Ok(settlements) if settlements.is_empty() => append_risk_audit_event(
+                audit_store.as_ref(),
+                "funding_batch",
+                "skipped",
+                &rate.market_id,
+                rate.outcome,
+                None,
+                None,
+                &request_id,
+                serde_json::json!({"reason": "no eligible counterparties"}),
+            ),
+            Ok(settlements) => {
+                for settlement in settlements {
+                    append_risk_audit_event(
+                        audit_store.as_ref(),
+                        "funding_settled",
+                        "ok",
+                        &rate.market_id,
+                        rate.outcome,
+                        Some(settlement.payer_user_id.clone()),
+                        Some(settlement.receiver_user_id.clone()),
+                        &request_id,
+                        serde_json::json!(settlement),
+                    );
+                }
+            }
+            Err(error) => append_risk_audit_event(
+                audit_store.as_ref(),
+                "funding_batch",
+                "error",
+                &rate.market_id,
+                rate.outcome,
+                None,
+                None,
+                &request_id,
+                serde_json::json!({"error": error.to_string()}),
+            ),
+        }
+    }
+}
+
+async fn run_liquidation_scheduler(
+    engine: Arc<PartitionedMatchingEngine>,
+    risk: Arc<RiskEngine>,
+    instruments: Arc<PersistentInstrumentRegistry>,
+    index_prices: Arc<PersistentIndexPriceStore>,
+    audit_store: Arc<RiskAutomationAuditStore>,
+    queue_store: Arc<LiquidationQueueStore>,
+    adl_governance_store: Arc<PersistentAdlGovernanceStore>,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(liquidation_interval_secs()));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let liquidator_user_id = automation_liquidator_user_id();
+    let maintenance_margin_bps = automation_maintenance_margin_bps();
+    let penalty_bps = automation_liquidation_penalty_bps();
+    loop {
+        interval.tick().await;
+        run_liquidation_cycle(
+            engine.clone(),
+            risk.clone(),
+            instruments.clone(),
+            index_prices.clone(),
+            audit_store.clone(),
+            queue_store.clone(),
+            adl_governance_store.clone(),
+            &liquidator_user_id,
+            maintenance_margin_bps,
+            penalty_bps,
+        )
+        .await;
+    }
+}
+
+async fn run_liquidation_worker_scheduler(
+    risk: Arc<RiskEngine>,
+    instruments: Arc<PersistentInstrumentRegistry>,
+    audit_store: Arc<RiskAutomationAuditStore>,
+    queue_store: Arc<LiquidationQueueStore>,
+    auction_store: Arc<LiquidationAuctionStore>,
+    adl_governance_store: Arc<PersistentAdlGovernanceStore>,
+    liquidation_policy_store: Arc<PersistentLiquidationPolicyStore>,
+) {
+    let mut interval =
+        tokio::time::interval(Duration::from_secs(liquidation_worker_interval_secs()));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let liquidator_user_id = automation_liquidator_user_id();
+    let maintenance_margin_bps = automation_maintenance_margin_bps();
+    let penalty_bps = automation_liquidation_penalty_bps();
+    loop {
+        interval.tick().await;
+        run_liquidation_queue_worker(
+            risk.clone(),
+            instruments.clone(),
+            audit_store.clone(),
+            queue_store.clone(),
+            auction_store.clone(),
+            adl_governance_store.clone(),
+            liquidation_policy_store.clone(),
+            &liquidator_user_id,
+            maintenance_margin_bps,
+            penalty_bps,
+        )
+        .await;
+    }
+}
+
+async fn run_funding_scheduler(
+    engine: Arc<PartitionedMatchingEngine>,
+    risk: Arc<RiskEngine>,
+    funding_rates: Arc<PersistentFundingRateStore>,
+    index_prices: Arc<PersistentIndexPriceStore>,
+    audit_store: Arc<RiskAutomationAuditStore>,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(funding_interval_secs()));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        run_funding_cycle(
+            engine.clone(),
+            risk.clone(),
+            funding_rates.clone(),
+            index_prices.clone(),
+            audit_store.clone(),
+        )
+        .await;
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::init();
+    initialize_internal_auth_secret().expect("failed to initialize internal auth secret");
+
+    tracing::info!("Starting Rust Exchange...");
+
+    let event_bus = EventBus::new();
+
+    let ledger_wal_path = ledger_wal_path();
+    let ledger_wal = Arc::new(
+        JsonlFileWal::<LedgerDelta>::new(&ledger_wal_path)
+            .expect("failed to initialize ledger WAL file"),
+    );
+    let ledger = Arc::new(LedgerService::with_wal_store(event_bus.clone(), ledger_wal));
+    ledger
+        .recover_from_wal()
+        .expect("failed to recover ledger state from WAL");
+
+    let sequencer_wal_path = sequencer_wal_path();
+    let sequencer_wal = Arc::new(
+        JsonlFileWal::<SequencedCommandRecord>::new(&sequencer_wal_path)
+            .expect("failed to initialize sequencer WAL file"),
+    );
+    let sequencer = Arc::new(Sequencer::with_wal(1, sequencer_wal));
+    sequencer
+        .recover_from_wal()
+        .expect("failed to recover sequencer state from WAL");
+
+    let matching_snapshot_wal_path = matching_snapshot_wal_path();
+    let matching_snapshot_wal: Arc<dyn persistence::WalStore<PartitionSnapshotRecord>> = Arc::new(
+        JsonlFileWal::<PartitionSnapshotRecord>::new(&matching_snapshot_wal_path)
+            .expect("failed to initialize matching snapshot WAL file"),
+    );
+    let trade_journal_wal_path = trade_journal_wal_path();
+    let trade_journal_wal: Arc<dyn persistence::WalStore<TradeJournalRecord>> = Arc::new(
+        JsonlFileWal::<TradeJournalRecord>::new(&trade_journal_wal_path)
+            .expect("failed to initialize trade journal WAL file"),
+    );
+
+    tracing::info!(
+        "WAL initialized: ledger={}, sequencer={}, matching_snapshot={}, trade_journal={}",
+        ledger_wal_path,
+        sequencer_wal_path,
+        matching_snapshot_wal_path,
+        trade_journal_wal_path,
+    );
+
+    let risk = Arc::new(RiskEngine::new(ledger.clone()));
+    let instruments = build_instrument_registry();
+    let funding_rates = build_funding_rate_store();
+    let risk_automation_audit = build_risk_automation_audit_store();
+    let liquidation_queue = build_liquidation_queue_store();
+    let liquidation_auction = build_liquidation_auction_store();
+    let adl_governance = build_adl_governance_store();
+    let liquidation_policy = build_liquidation_policy_store();
+    let index_prices = build_index_price_store();
+    let governance_actions = build_governance_action_store();
+    let engine_instrument_registry: Arc<dyn InstrumentRegistry> = instruments.clone();
+
+    let partitioned_engine = Arc::new(
+        PartitionedMatchingEngine::with_stores_and_registry(
+            PartitionedEngineConfig::default(),
+            event_bus.clone(),
+            risk.clone(),
+            engine_instrument_registry,
+            Some(matching_snapshot_wal),
+            Some(trade_journal_wal.clone()),
+        )
+        .expect("failed to initialize partitioned matching engine with snapshot recovery"),
+    );
+
+    let mut partition_snapshot_seqs: HashMap<usize, u64> = partitioned_engine
+        .export_snapshots()
+        .await
+        .expect("failed to export partition snapshots for replay boundary")
+        .into_iter()
+        .map(|record| {
+            (
+                record.partition_id,
+                record.last_applied_command_seq.unwrap_or(0),
+            )
+        })
+        .collect();
+    for record in sequencer.latest_records().into_iter() {
+        let replay_partitions = partitioned_engine
+            .partitions_for_command(&record.command)
+            .into_iter()
+            .filter(|partition| {
+                record.command_seq > partition_snapshot_seqs.get(partition).copied().unwrap_or(0)
+            })
+            .collect::<Vec<_>>();
+        if replay_partitions.is_empty() {
+            continue;
+        }
+        tracing::info!(
+            command_seq = record.command_seq,
+            request_id = %record.request_id,
+            "replaying sequenced command after snapshot"
+        );
+        partitioned_engine
+            .replay_command(record.command)
+            .await
+            .expect("failed to replay sequenced command after snapshot");
+        for partition in replay_partitions {
+            partition_snapshot_seqs.insert(partition, record.command_seq);
+        }
+    }
+
+    let ledger_clone = ledger.clone();
+    let sequencer_for_intent = sequencer.clone();
+    let sequencer_for_order = sequencer.clone();
+    let ip_rate_limiter = Arc::new(FixedWindowRateLimiter::new(Duration::from_secs(1)));
+    let user_rate_limiter = Arc::new(FixedWindowRateLimiter::new(Duration::from_secs(1)));
+    let admin_rate_limiter = Arc::new(FixedWindowRateLimiter::new(Duration::from_secs(1)));
+
+    let ip_rate_limiter_for_deposit = ip_rate_limiter.clone();
+    let admin_rate_limiter_for_deposit = admin_rate_limiter.clone();
+    let deposit_route = warp::path("deposit")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: DepositRequest| {
+                let ledger = ledger_clone.clone();
+                let admin_rate_limiter = admin_rate_limiter_for_deposit.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_deposit.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    audit("deposit", &req.op_id, &principal);
+                    let resp =
+                        match ledger.process_deposit(&req.user_id, req.amount, req.op_id.clone()) {
+                            Ok(_) => serde_json::json!({"status":"ok"}),
+                            Err(e) => serde_json::json!({"status":"error","error":e.to_string()}),
+                        };
+                    Ok::<_, warp::Rejection>(warp::reply::json(&resp))
+                }
+            },
+        );
+
+    let ip_rate_limiter_for_intent = ip_rate_limiter.clone();
+    let user_rate_limiter_for_intent = user_rate_limiter.clone();
+    let partitioned_engine_for_intent = partitioned_engine.clone();
+    let intent_route = warp::path("intent")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: IntentRequest| {
+                let engine = partitioned_engine_for_intent.clone();
+                let sequencer = sequencer_for_intent.clone();
+                let user_rate_limiter = user_rate_limiter_for_intent.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_intent.clone();
+                async move {
+                    require_user(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    user_rate_limiter.check(&format!("user:{}", principal.subject), 30)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    let client_order_id = normalize_client_order_id(req.client_order_id);
+                    audit("intent", &request_id, &principal);
+
+                    let command = match sequence_new_order(
+                        &sequencer,
+                        request_id.clone(),
+                        client_order_id,
+                        principal.subject.clone(),
+                        principal.session_id.clone(),
+                        req.market_id.clone(),
+                        req.side,
+                        OrderType::Limit,
+                        TimeInForce::Gtc,
+                        Some(req.price),
+                        req.amount,
+                        req.outcome,
+                        false,
+                        false,
+                        None,
+                        None,
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.submit_new_order(command).await {
+                        Ok(result) => {
+                            update_lifecycle_after_submit(&sequencer, &request_id, &result);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status":"ok",
+                                "order_id": result.order_id,
+                                "request_id": result.metadata.request_id,
+                                "command_seq": result.metadata.command_seq,
+                                "lifecycle": result.metadata.lifecycle,
+                                "market_state": result.market_state,
+                                "order_state": result.state,
+                                "remaining_amount": result.remaining_amount,
+                                "fills": result.fills.len(),
+                            })))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status":"error",
+                                "error":error.to_string()
+                            })))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_1 = partitioned_engine.clone();
+    let ip_rate_limiter_for_submit = ip_rate_limiter.clone();
+    let user_rate_limiter_for_submit = user_rate_limiter.clone();
+    let submit_order_route = warp::path("submit-order")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: OrderRequest| {
+                let engine = partitioned_engine_1.clone();
+                let sequencer = sequencer_for_order.clone();
+                let user_rate_limiter = user_rate_limiter_for_submit.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_submit.clone();
+                async move {
+                    require_user(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    user_rate_limiter.check(&format!("user:{}", principal.subject), 30)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    let client_order_id = normalize_client_order_id(req.client_order_id);
+                    let order_type = req.order_type.unwrap_or(OrderType::Limit);
+                    let time_in_force = req.time_in_force.unwrap_or(TimeInForce::Gtc);
+                    let post_only = req.post_only.unwrap_or(false);
+                    let reduce_only = req.reduce_only.unwrap_or(false);
+                    audit("submit_order", &request_id, &principal);
+
+                    let command = match sequence_new_order(
+                        &sequencer,
+                        request_id.clone(),
+                        client_order_id,
+                        principal.subject.clone(),
+                        principal.session_id.clone().or(req.session_id.clone()),
+                        req.market_id.clone(),
+                        req.side,
+                        order_type,
+                        time_in_force,
+                        req.price,
+                        req.amount,
+                        req.outcome,
+                        post_only,
+                        reduce_only,
+                        req.leverage,
+                        req.expires_at,
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.submit_new_order(command).await {
+                        Ok(result) => {
+                            update_lifecycle_after_submit(&sequencer, &request_id, &result);
+                            let resp = serde_json::json!({
+                                "status":"ok",
+                                "order_id": result.order_id,
+                                "request_id": result.metadata.request_id,
+                                "command_seq": result.metadata.command_seq,
+                                "lifecycle": result.metadata.lifecycle,
+                                "market_state": result.market_state,
+                                "order_state": result.state,
+                                "remaining_amount": result.remaining_amount,
+                                "fills": result.fills.len(),
+                            });
+                            Ok::<_, warp::Rejection>(warp::reply::json(&resp))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            let resp =
+                                serde_json::json!({"status":"error","error":error.to_string()});
+                            Ok::<_, warp::Rejection>(warp::reply::json(&resp))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_3 = partitioned_engine.clone();
+    let ip_rate_limiter_for_cancel = ip_rate_limiter.clone();
+    let user_rate_limiter_for_cancel = user_rate_limiter.clone();
+    let sequencer_for_cancel_order = sequencer.clone();
+    let cancel_order_route = warp::path("cancel-order")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: CancelOrderRequest| {
+                let engine = partitioned_engine_3.clone();
+                let sequencer = sequencer_for_cancel_order.clone();
+                let user_rate_limiter = user_rate_limiter_for_cancel.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_cancel.clone();
+                async move {
+                    require_user(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    user_rate_limiter.check(&format!("user:{}", principal.subject), 30)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    audit("cancel_order", &request_id, &principal);
+                    let command = match sequence_cancel_order(
+                        &sequencer,
+                        request_id.clone(),
+                        principal.subject,
+                        req.market_id,
+                        req.outcome,
+                        req.order_id,
+                        req.client_order_id,
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.cancel_order(command).await {
+                        Ok(result) => {
+                            update_lifecycle_after_cancel(&sequencer, &request_id);
+                            let resp = serde_json::json!({
+                                "status": "ok",
+                                "request_id": result.metadata.request_id,
+                                "command_seq": result.metadata.command_seq,
+                                "lifecycle": result.metadata.lifecycle,
+                                "market_state": result.market_state,
+                                "cancelled_order_ids": result.cancelled_order_ids,
+                            });
+                            Ok::<_, warp::Rejection>(warp::reply::json(&resp))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(
+                                &serde_json::json!({"status":"error","error":error.to_string()}),
+                            ))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_2b = partitioned_engine.clone();
+    let ip_rate_limiter_for_replace = ip_rate_limiter.clone();
+    let user_rate_limiter_for_replace = user_rate_limiter.clone();
+    let sequencer_for_replace_order = sequencer.clone();
+    let replace_order_route = warp::path("replace-order")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: ReplaceOrderRequest| {
+                let engine = partitioned_engine_2b.clone();
+                let sequencer = sequencer_for_replace_order.clone();
+                let user_rate_limiter = user_rate_limiter_for_replace.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_replace.clone();
+                async move {
+                    require_user(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    user_rate_limiter.check(&format!("user:{}", principal.subject), 30)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    audit("replace_order", &request_id, &principal);
+                    let command = sequence_replace_order(
+                        &sequencer,
+                        request_id.clone(),
+                        principal.subject,
+                        req.market_id,
+                        req.outcome,
+                        req.order_id,
+                        req.new_client_order_id,
+                        req.new_price,
+                        req.new_amount,
+                        req.new_time_in_force,
+                        req.post_only,
+                        req.reduce_only,
+                        req.new_leverage,
+                        req.new_expires_at,
+                    )
+                    .map_err(|error| reject_api(StatusCode::BAD_REQUEST, error))?;
+
+                    match engine.replace_order(command).await {
+                        Ok(result) => {
+                            update_lifecycle_after_submit(&sequencer, &request_id, &result);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status":"ok",
+                                "order_id": result.order_id,
+                                "request_id": result.metadata.request_id,
+                                "command_seq": result.metadata.command_seq,
+                                "lifecycle": result.metadata.lifecycle,
+                                "market_state": result.market_state,
+                                "order_state": result.state,
+                                "remaining_amount": result.remaining_amount,
+                                "fills": result.fills.len(),
+                            })))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(
+                                &serde_json::json!({"status":"error","error":error.to_string()}),
+                            ))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_4 = partitioned_engine.clone();
+    let ip_rate_limiter_for_mass_cancel_user = ip_rate_limiter.clone();
+    let user_rate_limiter_for_mass_cancel_user = user_rate_limiter.clone();
+    let sequencer_for_mass_cancel_user = sequencer.clone();
+    let mass_cancel_user_route = warp::path!("mass-cancel" / "user")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: MassCancelByUserRequest| {
+                let engine = partitioned_engine_4.clone();
+                let sequencer = sequencer_for_mass_cancel_user.clone();
+                let user_rate_limiter = user_rate_limiter_for_mass_cancel_user.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_mass_cancel_user.clone();
+                async move {
+                    require_user(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    user_rate_limiter.check(&format!("user:{}", principal.subject), 30)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    audit("mass_cancel_user", &request_id, &principal);
+                    let command = match sequence_mass_cancel_by_user(
+                        &sequencer,
+                        request_id.clone(),
+                        principal.subject,
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.mass_cancel_by_user(command).await {
+                        Ok(result) => {
+                            update_lifecycle_after_cancel(&sequencer, &request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status": "ok",
+                                "request_id": result.metadata.request_id,
+                                "command_seq": result.metadata.command_seq,
+                                "lifecycle": result.metadata.lifecycle,
+                                "market_state": result.market_state,
+                                "cancelled_count": result.cancelled_order_ids.len(),
+                                "cancelled_order_ids": result.cancelled_order_ids,
+                            })))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(
+                                &serde_json::json!({"status":"error","error":error.to_string()}),
+                            ))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_5 = partitioned_engine.clone();
+    let ip_rate_limiter_for_mass_cancel_session = ip_rate_limiter.clone();
+    let user_rate_limiter_for_mass_cancel_session = user_rate_limiter.clone();
+    let sequencer_for_mass_cancel_session = sequencer.clone();
+    let mass_cancel_session_route = warp::path!("mass-cancel" / "session")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: MassCancelBySessionRequest| {
+                let engine = partitioned_engine_5.clone();
+                let sequencer = sequencer_for_mass_cancel_session.clone();
+                let user_rate_limiter = user_rate_limiter_for_mass_cancel_session.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_mass_cancel_session.clone();
+                async move {
+                    require_user(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    user_rate_limiter.check(&format!("user:{}", principal.subject), 30)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    audit("mass_cancel_session", &request_id, &principal);
+                    let command = match sequence_mass_cancel_by_session(
+                        &sequencer,
+                        request_id.clone(),
+                        principal.subject,
+                        req.session_id,
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.mass_cancel_by_session(command).await {
+                        Ok(result) => {
+                            update_lifecycle_after_cancel(&sequencer, &request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status": "ok",
+                                "request_id": result.metadata.request_id,
+                                "command_seq": result.metadata.command_seq,
+                                "lifecycle": result.metadata.lifecycle,
+                                "market_state": result.market_state,
+                                "cancelled_count": result.cancelled_order_ids.len(),
+                                "cancelled_order_ids": result.cancelled_order_ids,
+                            })))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(
+                                &serde_json::json!({"status":"error","error":error.to_string()}),
+                            ))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_6 = partitioned_engine.clone();
+    let ip_rate_limiter_for_mass_cancel_market = ip_rate_limiter.clone();
+    let admin_rate_limiter_for_mass_cancel_market = admin_rate_limiter.clone();
+    let sequencer_for_mass_cancel_market = sequencer.clone();
+    let mass_cancel_market_route = warp::path!("mass-cancel" / "market")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: MassCancelByMarketRequest| {
+                let engine = partitioned_engine_6.clone();
+                let sequencer = sequencer_for_mass_cancel_market.clone();
+                let admin_rate_limiter = admin_rate_limiter_for_mass_cancel_market.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_mass_cancel_market.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    audit("mass_cancel_market", &request_id, &principal);
+                    let command = match sequence_mass_cancel_by_market(
+                        &sequencer,
+                        request_id.clone(),
+                        req.market_id,
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.mass_cancel_by_market(command).await {
+                        Ok(result) => {
+                            update_lifecycle_after_cancel(&sequencer, &request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status": "ok",
+                                "request_id": result.metadata.request_id,
+                                "command_seq": result.metadata.command_seq,
+                                "lifecycle": result.metadata.lifecycle,
+                                "market_state": result.market_state,
+                                "cancelled_count": result.cancelled_order_ids.len(),
+                                "cancelled_order_ids": result.cancelled_order_ids,
+                            })))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(
+                                &serde_json::json!({"status":"error","error":error.to_string()}),
+                            ))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_7 = partitioned_engine.clone();
+    let ip_rate_limiter_for_kill_switch = ip_rate_limiter.clone();
+    let admin_rate_limiter_for_kill_switch = admin_rate_limiter.clone();
+    let sequencer_for_kill_switch = sequencer.clone();
+    let kill_switch_route = warp::path!("admin" / "kill-switch")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: KillSwitchRequest| {
+                let engine = partitioned_engine_7.clone();
+                let sequencer = sequencer_for_kill_switch.clone();
+                let admin_rate_limiter = admin_rate_limiter_for_kill_switch.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_kill_switch.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    audit("kill_switch", &request_id, &principal);
+                    let command = match sequence_admin(
+                        &sequencer,
+                        request_id.clone(),
+                        principal.subject,
+                        AdminAction::KillSwitch {
+                            enabled: req.enabled,
+                        },
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.submit_admin(command).await {
+                        Ok(()) => {
+                            update_lifecycle_after_admin(&sequencer, &request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status": "ok",
+                                "kill_switch_enabled": engine.kill_switch_enabled(),
+                            })))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(
+                                &serde_json::json!({"status":"error","error":error.to_string()}),
+                            ))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_8 = partitioned_engine.clone();
+    let ip_rate_limiter_for_market_state = ip_rate_limiter.clone();
+    let admin_rate_limiter_for_market_state = admin_rate_limiter.clone();
+    let sequencer_for_market_state = sequencer.clone();
+    let set_market_state_route = warp::path!("admin" / "market-state")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: SetMarketStateRequest| {
+                let engine = partitioned_engine_8.clone();
+                let sequencer = sequencer_for_market_state.clone();
+                let admin_rate_limiter = admin_rate_limiter_for_market_state.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_market_state.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    audit("market_state", &request_id, &principal);
+                    let command = match sequence_admin(
+                        &sequencer,
+                        request_id.clone(),
+                        principal.subject,
+                        AdminAction::SetMarketState {
+                            market_id: req.market_id,
+                            outcome: req.outcome,
+                            state: req.state,
+                        },
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                    };
+
+                    match engine.submit_admin(command).await {
+                        Ok(()) => {
+                            update_lifecycle_after_admin(&sequencer, &request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status": "ok",
+                            })))
+                        }
+                        Err(error) => {
+                            let _ = sequencer.mark_rejected(&request_id);
+                            Ok::<_, warp::Rejection>(warp::reply::json(
+                                &serde_json::json!({"status":"error","error":error.to_string()}),
+                            ))
+                        }
+                    }
+                }
+            },
+        );
+
+    let partitioned_engine_9 = partitioned_engine.clone();
+    let ip_rate_limiter_for_reference = ip_rate_limiter.clone();
+    let admin_rate_limiter_for_reference = admin_rate_limiter.clone();
+    let reference_price_route = warp::path!("market" / "reference-price")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(warp::body::json())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: ReferencePriceRequest| {
+                let engine = partitioned_engine_9.clone();
+                let admin_rate_limiter = admin_rate_limiter_for_reference.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_reference.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    audit("reference_price", "manual-reference", &principal);
+                    match engine
+                        .update_reference_price(
+                            req.market_id,
+                            req.outcome,
+                            req.source.unwrap_or_else(|| "manual".to_string()),
+                            req.reference_price,
+                        )
+                        .await
+                    {
+                        Ok(snapshot) => {
+                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                                "status": "ok",
+                                "market_id": snapshot.market_id,
+                                "outcome": snapshot.outcome,
+                                "market_state": snapshot.state,
+                                "reference_price": snapshot.reference_price,
+                                "best_bid": snapshot.best_bid,
+                                "best_ask": snapshot.best_ask,
+                            })))
+                        }
+                        Err(error) => Ok::<_, warp::Rejection>(warp::reply::json(
+                            &serde_json::json!({"status":"error","error":error.to_string()}),
+                        )),
+                    }
+                }
+            },
+        );
+    let account_routes = build_account_routes(
+        partitioned_engine.clone(),
+        risk.clone(),
+        instruments.clone(),
+        ledger.clone(),
+        index_prices.clone(),
+        ip_rate_limiter.clone(),
+        user_rate_limiter.clone(),
+    );
+    let market_routes = build_market_routes(
+        partitioned_engine.clone(),
+        trade_journal_wal.clone(),
+        ledger.clone(),
+        ip_rate_limiter.clone(),
+        user_rate_limiter.clone(),
+        admin_rate_limiter.clone(),
+    );
+    let admin_routes = build_admin_routes(
+        risk.clone(),
+        instruments.clone(),
+        funding_rates.clone(),
+        risk_automation_audit.clone(),
+        ip_rate_limiter.clone(),
+        admin_rate_limiter.clone(),
+    );
+    let pricing_admin_routes = build_pricing_routes(
+        partitioned_engine.clone(),
+        index_prices.clone(),
+        governance_actions.clone(),
+        ip_rate_limiter.clone(),
+        admin_rate_limiter.clone(),
+    );
+    let governance_admin_routes = build_governance_routes(
+        adl_governance.clone(),
+        liquidation_policy.clone(),
+        index_prices.clone(),
+        liquidation_queue.clone(),
+        governance_actions.clone(),
+        ip_rate_limiter.clone(),
+        admin_rate_limiter.clone(),
+    );
+    let liquidation_admin_routes = build_liquidation_routes(
+        risk.clone(),
+        instruments.clone(),
+        adl_governance.clone(),
+        liquidation_queue.clone(),
+        liquidation_auction.clone(),
+        ledger.clone(),
+        ip_rate_limiter.clone(),
+        admin_rate_limiter.clone(),
+        user_rate_limiter.clone(),
+    );
+    let metrics_route = warp::path("metrics")
+        .and(warp::get())
+        .map(move || -> warp::reply::Json {
+            warp::reply::json(&serde_json::json!({
+                "status": "disabled",
+                "prototype_only": false,
+                "message": "prototype metrics removed from the primary runtime"
+            }))
+        });
+
+    let static_files = warp::fs::dir("./frontend");
+    let cors = warp::cors()
+        .allow_origin("http://127.0.0.1:5173")
+        .allow_origin("http://localhost:5173")
+        .allow_methods(vec!["GET", "POST"])
+        .allow_headers(vec![
+            "authorization",
+            "content-type",
+            "x-request-id",
+            "x-internal-auth-subject",
+            "x-internal-auth-role",
+            "x-internal-auth-session-id",
+            "x-internal-auth-timestamp",
+            "x-internal-auth-signature",
+        ]);
+    let routes = deposit_route
+        .or(intent_route)
+        .or(submit_order_route)
+        .or(cancel_order_route)
+        .or(replace_order_route)
+        .or(mass_cancel_user_route)
+        .or(mass_cancel_session_route)
+        .or(mass_cancel_market_route)
+        .or(kill_switch_route)
+        .or(set_market_state_route)
+        .or(reference_price_route)
+        .or(admin_routes)
+        .or(pricing_admin_routes)
+        .or(governance_admin_routes)
+        .or(liquidation_admin_routes)
+        .or(account_routes)
+        .or(market_routes)
+        .or(metrics_route)
+        .or(static_files)
+        .with(cors)
+        .recover(handle_rejection);
+
+    if automation_enabled() {
+        tracing::info!("risk automation enabled; starting liquidation and funding schedulers");
+        tokio::spawn(run_liquidation_scheduler(
+            partitioned_engine.clone(),
+            risk.clone(),
+            instruments.clone(),
+            index_prices.clone(),
+            risk_automation_audit.clone(),
+            liquidation_queue.clone(),
+            adl_governance.clone(),
+        ));
+        tokio::spawn(run_liquidation_worker_scheduler(
+            risk.clone(),
+            instruments.clone(),
+            risk_automation_audit.clone(),
+            liquidation_queue.clone(),
+            liquidation_auction.clone(),
+            adl_governance.clone(),
+            liquidation_policy.clone(),
+        ));
+        tokio::spawn(run_funding_scheduler(
+            partitioned_engine.clone(),
+            risk.clone(),
+            funding_rates.clone(),
+            index_prices.clone(),
+            risk_automation_audit.clone(),
+        ));
+    } else {
+        tracing::info!(
+            "risk automation disabled; set RISK_AUTOMATION_ENABLED=true to enable schedulers"
+        );
+    }
+
+    let bind_addr = bind_address();
+    tracing::info!("Starting HTTP server on {}", bind_addr);
+    tokio::spawn(async move {
+        warp::serve(routes).run(bind_addr).await;
+    });
+
+    tracing::info!("Exchange running with HTTP. Press Ctrl+C to exit.");
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for Ctrl+C");
+    tracing::info!("Shutting down...");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use persistence::InMemoryWal;
+
+    fn sample_queue_record(queue_id: &str) -> LiquidationQueueRecord {
+        LiquidationQueueRecord {
+            queue_id: queue_id.to_string(),
+            source: "automation".to_string(),
+            status: "queued".to_string(),
+            market_id: "BTC-USD-PERP".to_string(),
+            outcome: 0,
+            user_id: "user-a".to_string(),
+            liquidator_user_id: "liq-system".to_string(),
+            mark_price: 100_000,
+            position_qty: 10,
+            remaining_position_qty: 10,
+            filled_position_qty: 0,
+            auction_round: 0,
+            margin_ratio_bps: Some(500),
+            adl_candidates: Vec::new(),
+            retry_tier: 0,
+            retry_count: 0,
+            strategy: liquidation_strategy_for_tier(0).to_string(),
+            next_attempt_at: None,
+            last_attempt_at: None,
+            error: None,
+            recorded_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn liquidation_queue_store_deduplicates_active_positions() {
+        let store =
+            LiquidationQueueStore::new(Arc::new(InMemoryWal::<LiquidationQueueRecord>::new()))
+                .expect("queue store");
+        assert!(store
+            .append_if_no_active_position(sample_queue_record("q1"))
+            .expect("append first"));
+        assert!(!store
+            .append_if_no_active_position(sample_queue_record("q2"))
+            .expect("dedupe second"));
+        assert_eq!(store.list_recent(10, None).len(), 1);
+    }
+
+    #[test]
+    fn liquidation_auction_store_accumulates_bids_without_losing_best_bid() {
+        let store =
+            LiquidationAuctionStore::new(Arc::new(InMemoryWal::<LiquidationAuctionRecord>::new()))
+                .expect("auction store");
+        let now = Utc::now();
+        store
+            .append(LiquidationAuctionRecord {
+                auction_id: "auction-1".to_string(),
+                queue_id: "queue-1".to_string(),
+                status: "open".to_string(),
+                market_id: "BTC-USD-PERP".to_string(),
+                outcome: 0,
+                liquidated_user_id: "user-a".to_string(),
+                reserve_price: 99_000,
+                mark_price: 100_000,
+                round: 0,
+                target_position_qty: 10,
+                filled_position_qty: 0,
+                opened_at: now,
+                expires_at: now + chrono::Duration::seconds(30),
+                best_bid_price: None,
+                best_bidder_user_id: None,
+                bids: Vec::new(),
+                winner_user_id: None,
+                error: None,
+                recorded_at: now,
+            })
+            .expect("seed auction");
+
+        let first = store
+            .submit_bid("queue-1", "mm-1", 100_100, 5, now)
+            .expect("first bid");
+        let second = store
+            .submit_bid(
+                "queue-1",
+                "mm-2",
+                100_250,
+                7,
+                now + chrono::Duration::milliseconds(1),
+            )
+            .expect("second bid");
+
+        assert_eq!(first.bids.len(), 1);
+        assert_eq!(second.bids.len(), 2);
+        assert_eq!(second.best_bid_price, Some(100_250));
+        assert_eq!(second.best_bidder_user_id.as_deref(), Some("mm-2"));
+    }
+}
