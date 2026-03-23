@@ -8,6 +8,15 @@ use std::sync::Arc;
 use thiserror::Error;
 use types::{Command, CommandLifecycle, CommandMetadata};
 
+/// Controls how sequence gaps are handled during WAL recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SequencerRecoveryPolicy {
+    /// Abort recovery on any gap (default, strict).
+    Strict,
+    /// Log gaps as critical warnings and continue from max_seq + 1.
+    AllowGaps,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SequencedCommandRecord {
     pub request_id: String,
@@ -37,6 +46,8 @@ pub enum SequencerError {
         from: CommandLifecycle,
         to: CommandLifecycle,
     },
+    #[error("sequence gap detected during recovery: {gap_count} missing entries")]
+    RecoveryGap { gap_count: usize },
 }
 
 pub struct Sequencer {
@@ -70,6 +81,13 @@ impl Sequencer {
     }
 
     pub fn recover_from_wal(&self) -> Result<usize, SequencerError> {
+        self.recover_from_wal_with_policy(SequencerRecoveryPolicy::Strict)
+    }
+
+    pub fn recover_from_wal_with_policy(
+        &self,
+        policy: SequencerRecoveryPolicy,
+    ) -> Result<usize, SequencerError> {
         let _guard = self.write_lock.lock();
         let records = self
             .wal_store
@@ -79,10 +97,45 @@ impl Sequencer {
         self.record_by_request.clear();
 
         let mut max_seq = 0u64;
+        let mut seen_seqs = std::collections::BTreeSet::new();
         for record in &records {
             self.record_by_request
                 .insert(record.request_id.clone(), record.clone());
+            if record.command_seq > 0 {
+                seen_seqs.insert(record.command_seq);
+            }
             max_seq = max_seq.max(record.command_seq);
+        }
+
+        // Detect sequence gaps and log warnings.
+        if !seen_seqs.is_empty() {
+            let min_seq = *seen_seqs.iter().next().unwrap();
+            let expected_count = (max_seq - min_seq + 1) as usize;
+            if seen_seqs.len() < expected_count {
+                let mut gaps = Vec::new();
+                for seq in min_seq..=max_seq {
+                    if !seen_seqs.contains(&seq) {
+                        gaps.push(seq);
+                        if gaps.len() >= 20 {
+                            break; // limit log output
+                        }
+                    }
+                }
+                tracing::error!(
+                    gap_count = expected_count - seen_seqs.len(),
+                    first_gaps = ?gaps,
+                    "sequence gap detected during WAL recovery"
+                );
+                if policy == SequencerRecoveryPolicy::Strict {
+                    return Err(SequencerError::RecoveryGap {
+                        gap_count: expected_count - seen_seqs.len(),
+                    });
+                }
+                tracing::warn!(
+                    gap_count = expected_count - seen_seqs.len(),
+                    "AllowGaps policy: continuing recovery despite sequence gaps"
+                );
+            }
         }
 
         let next_seq = if records.is_empty() {
@@ -334,6 +387,13 @@ mod tests {
             reduce_only: false,
             leverage: None,
             expires_at: None,
+            stp_mode: types::StpMode::default(),
+            trigger_price: None,
+            trigger_type: None,
+            display_qty: None,
+            min_fill_qty: None,
+            stp_group_id: None,
+            is_market_maker: false,
         })
     }
 
@@ -522,5 +582,36 @@ mod tests {
             .collect();
 
         assert_eq!(ordered, vec!["req-2".to_string(), "req-1".to_string()]);
+    }
+
+    #[test]
+    fn allow_gaps_policy_continues_despite_sequence_gap() {
+        let wal = Arc::new(InMemoryWal::<SequencedCommandRecord>::new());
+        // Manually append records with a gap: seq 1, 2, 4 (missing 3)
+        let make_record = |seq: u64, req: &str| SequencedCommandRecord {
+            request_id: req.to_string(),
+            command_seq: seq,
+            command: new_order_command(req, &format!("o-{seq}")),
+            recorded_at: Utc::now(),
+        };
+        wal.append(&make_record(1, "r1")).unwrap();
+        wal.append(&make_record(2, "r2")).unwrap();
+        wal.append(&make_record(4, "r4")).unwrap();
+
+        // Strict should fail.
+        let seq_strict = Sequencer::with_wal(1, wal.clone());
+        assert!(matches!(
+            seq_strict.recover_from_wal(),
+            Err(SequencerError::RecoveryGap { gap_count: 1 })
+        ));
+
+        // AllowGaps should succeed and set next_seq = 5.
+        let seq_lenient = Sequencer::with_wal(1, wal);
+        let count = seq_lenient
+            .recover_from_wal_with_policy(SequencerRecoveryPolicy::AllowGaps)
+            .unwrap();
+        assert_eq!(count, 3);
+        // next_seq should be max_seq + 1 = 5
+        assert_eq!(seq_lenient.next_seq.load(Ordering::SeqCst), 5);
     }
 }

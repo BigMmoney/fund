@@ -7,3 +7,7 @@ edition.workspace = true
 types = { path = "../types" }
 tokio.workspace = true
 parking_lot.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }

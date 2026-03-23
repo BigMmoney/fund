@@ -1,5 +1,44 @@
 use super::*;
 
+fn auction_round_reserve_price(
+    base_reserve: i64,
+    round: u32,
+    policy: &LiquidationPolicyRecord,
+) -> i64 {
+    let discount_bps = policy
+        .auction_reserve_step_bps
+        .max(0)
+        .saturating_mul(round as i64)
+        .min(9_900);
+    base_reserve
+        .saturating_mul(10_000 - discount_bps)
+        .saturating_div(10_000)
+        .max(1)
+}
+
+fn valid_auction_price_levels(auction: &LiquidationAuctionRecord) -> Vec<LiquidationAuctionLevel> {
+    auction
+        .price_levels
+        .iter()
+        .filter(|level| level.bid_price >= auction.reserve_price && level.total_quantity > 0)
+        .cloned()
+        .collect()
+}
+
+fn valid_bids_for_level(
+    auction: &LiquidationAuctionRecord,
+    bid_price: i64,
+) -> Vec<LiquidationAuctionBid> {
+    let mut bids: Vec<_> = auction
+        .bids
+        .iter()
+        .filter(|bid| bid.bid_price == bid_price && bid.bid_quantity > 0)
+        .cloned()
+        .collect();
+    bids.sort_by(|lhs, rhs| lhs.submitted_at.cmp(&rhs.submitted_at));
+    bids
+}
+
 pub(crate) fn apply_liquidation_queue_override(
     queue_store: &LiquidationQueueStore,
     queue_id: &str,
@@ -72,20 +111,31 @@ pub(crate) fn apply_liquidation_queue_override(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_liquidation_queue_worker(
+    engine: Arc<PartitionedMatchingEngine>,
     risk: Arc<RiskEngine>,
     instruments: Arc<PersistentInstrumentRegistry>,
+    index_prices: Arc<PersistentIndexPriceStore>,
     audit_store: Arc<RiskAutomationAuditStore>,
     queue_store: Arc<LiquidationQueueStore>,
     auction_store: Arc<LiquidationAuctionStore>,
     adl_governance_store: Arc<PersistentAdlGovernanceStore>,
     liquidation_policy_store: Arc<PersistentLiquidationPolicyStore>,
+    position_costs: Arc<PositionCostLedgerStore>,
+    _trade_journal_wal: Arc<dyn persistence::WalStore<TradeJournalRecord>>,
     default_liquidator_user_id: &str,
-    maintenance_margin_bps: i64,
-    penalty_bps: i64,
 ) {
     let now = Utc::now();
     let governance = adl_governance_store.current().governance;
     let policy = liquidation_policy_store.current();
+    let market_snapshots = match engine.export_snapshots().await {
+        Ok(snapshots) => snapshots,
+        Err(e) => {
+            tracing::error!(error = %e, "liquidation scheduler: failed to export matching snapshots — skipping round");
+            return;
+        }
+    };
+    let flattened_snapshots = flatten_market_snapshots(&market_snapshots);
+    let entry_prices = position_costs.entry_price_map();
     let pending = queue_store.list_by_statuses_oldest(1000, &["queued", "auction_open"]);
     for item in pending {
         if item
@@ -96,24 +146,37 @@ pub(crate) async fn run_liquidation_queue_worker(
         }
 
         let instrument = instruments.resolve(&item.market_id);
-        let refreshed_adl = risk.adl_ranking_with_governance(
+        let inst_maintenance_margin_bps = risk::effective_maintenance_margin_bps(&instrument);
+        let inst_penalty_bps = risk::effective_liquidation_penalty_bps(&instrument);
+        let refreshed_mark_price = flattened_snapshots
+            .iter()
+            .find(|snapshot| {
+                snapshot.market_id == item.market_id && snapshot.outcome == item.outcome
+            })
+            .and_then(|snapshot| fair_price_quote_for_snapshot(snapshot, index_prices.as_ref()))
+            .map(|quote| quote.fair_price)
+            .unwrap_or(item.mark_price);
+        let refreshed_adl = risk.adl_ranking_with_governance_and_entry_prices(
             &instrument,
             item.outcome,
-            item.mark_price,
+            refreshed_mark_price,
             item.position_qty,
             &governance,
+            &entry_prices,
         );
-        let current_item = if refreshed_adl != item.adl_candidates {
-            let updated = LiquidationQueueRecord {
-                adl_candidates: refreshed_adl.clone(),
-                recorded_at: now,
-                ..item.clone()
+        let current_item =
+            if refreshed_adl != item.adl_candidates || refreshed_mark_price != item.mark_price {
+                let updated = LiquidationQueueRecord {
+                    mark_price: refreshed_mark_price,
+                    adl_candidates: refreshed_adl.clone(),
+                    recorded_at: now,
+                    ..item.clone()
+                };
+                let _ = queue_store.append(updated.clone());
+                updated
+            } else {
+                item.clone()
             };
-            let _ = queue_store.append(updated.clone());
-            updated
-        } else {
-            item.clone()
-        };
 
         let schedule_retry = |chosen_liquidator: String,
                               error_text: String,
@@ -182,12 +245,22 @@ pub(crate) async fn run_liquidation_queue_worker(
             match auction {
                 None if current_item.status == "queued" => {
                     let reserve_price = risk
-                        .bankruptcy_reference_price(
+                        .bankruptcy_reference_price_with_entry_price(
                             &current_item.user_id,
                             &instrument,
                             current_item.outcome,
                             current_item.mark_price,
+                            entry_prices
+                                .get(&(
+                                    current_item.user_id.clone(),
+                                    current_item.market_id.clone(),
+                                    current_item.outcome,
+                                ))
+                                .copied(),
                         )
+                        .map(|price| {
+                            auction_round_reserve_price(price, current_item.auction_round, &policy)
+                        })
                         .unwrap_or(current_item.mark_price);
                     let record = LiquidationAuctionRecord {
                         auction_id: format!(
@@ -209,8 +282,10 @@ pub(crate) async fn run_liquidation_queue_worker(
                             + chrono::Duration::seconds(policy.auction_window_secs.max(1)),
                         best_bid_price: None,
                         best_bidder_user_id: None,
+                        price_levels: Vec::new(),
                         bids: Vec::new(),
                         winner_user_id: None,
+                        clearing_price: None,
                         error: None,
                         recorded_at: now,
                     };
@@ -239,21 +314,25 @@ pub(crate) async fn run_liquidation_queue_worker(
                 }
                 Some(auction) if auction.status == "open" && auction.expires_at > now => continue,
                 Some(auction) if auction.status == "open" => {
-                    let valid_bids: Vec<_> = auction
-                        .bids
-                        .iter()
-                        .filter(|bid| {
-                            bid.bid_price >= auction.reserve_price && bid.bid_quantity > 0
-                        })
-                        .cloned()
-                        .collect();
-                    if valid_bids.is_empty() {
+                    let valid_levels = valid_auction_price_levels(&auction);
+                    if valid_levels.is_empty() {
+                        let _ = auction_store.append(LiquidationAuctionRecord {
+                            status: "failed".to_string(),
+                            error: Some("auction ended without valid ladder bids".to_string()),
+                            recorded_at: now,
+                            ..auction.clone()
+                        });
+                        // Advance auction_round so the next retry opens a new auction
+                        let advanced_item = LiquidationQueueRecord {
+                            auction_round: current_item.auction_round.saturating_add(1),
+                            ..current_item.clone()
+                        };
                         schedule_retry(
                             default_liquidator_user_id.to_string(),
                             "auction ended without valid ladder bids".to_string(),
                             &queue_store,
                             &audit_store,
-                            &current_item,
+                            &advanced_item,
                             &policy,
                         );
                         continue;
@@ -268,53 +347,76 @@ pub(crate) async fn run_liquidation_queue_worker(
                     let mut filled_position_qty = current_item.filled_position_qty;
                     let mut matched_fills = Vec::new();
                     let mut last_winner: Option<String> = None;
-                    for (fill_index, bid) in valid_bids.into_iter().enumerate() {
+                    let mut clearing_price = None;
+                    let mut fill_index = 0usize;
+                    for (level_index, level) in valid_levels.into_iter().enumerate() {
                         if remaining_position_qty <= 0 {
                             break;
                         }
-                        let executable_qty = remaining_position_qty.min(bid.bid_quantity).max(0);
-                        if executable_qty <= 0 {
-                            continue;
-                        }
-                        let fill_request_id = format!(
-                            "{}:round:{}:fill:{}",
-                            current_item.queue_id, current_item.auction_round, fill_index
-                        );
-                        match risk.execute_partial_liquidation_with_governance(
-                            &current_item.user_id,
-                            &bid.bidder_user_id,
-                            &instrument,
-                            current_item.outcome,
-                            current_item.mark_price,
-                            instrument.max_leverage,
-                            maintenance_margin_bps,
-                            penalty_bps,
-                            Some(executable_qty),
-                            &fill_request_id,
-                            &governance,
-                        ) {
-                            Ok(execution) => {
-                                remaining_position_qty = remaining_position_qty
-                                    .saturating_sub(execution.transferred_position_qty)
-                                    .max(0);
-                                filled_position_qty = filled_position_qty
-                                    .saturating_add(execution.transferred_position_qty);
-                                last_winner = Some(execution.liquidator_user_id.clone());
-                                matched_fills.push(serde_json::json!({
-                                    "bidder_user_id": bid.bidder_user_id,
-                                    "bid_price": bid.bid_price,
-                                    "bid_quantity": bid.bid_quantity,
-                                    "execution": execution,
-                                }));
+                        for bid in valid_bids_for_level(&auction, level.bid_price) {
+                            if remaining_position_qty <= 0 {
+                                break;
                             }
-                            Err(error) => {
-                                matched_fills.push(serde_json::json!({
-                                    "bidder_user_id": bid.bidder_user_id,
-                                    "bid_price": bid.bid_price,
-                                    "bid_quantity": bid.bid_quantity,
-                                    "error": error.to_string(),
-                                }));
+                            let executable_qty =
+                                remaining_position_qty.min(bid.bid_quantity).max(0);
+                            if executable_qty <= 0 {
+                                continue;
                             }
+                            let fill_request_id = format!(
+                                "{}:round:{}:level:{}:fill:{}",
+                                current_item.queue_id,
+                                current_item.auction_round,
+                                level_index,
+                                fill_index
+                            );
+                            match risk.execute_partial_liquidation_with_governance_at_price(
+                                &current_item.user_id,
+                                &bid.bidder_user_id,
+                                &instrument,
+                                current_item.outcome,
+                                current_item.mark_price,
+                                bid.bid_price,
+                                instrument.max_leverage,
+                                inst_maintenance_margin_bps,
+                                inst_penalty_bps,
+                                Some(executable_qty),
+                                &fill_request_id,
+                                &governance,
+                                entry_prices
+                                    .get(&(
+                                        current_item.user_id.clone(),
+                                        current_item.market_id.clone(),
+                                        current_item.outcome,
+                                    ))
+                                    .copied(),
+                            ) {
+                                Ok(execution) => {
+                                    remaining_position_qty = remaining_position_qty
+                                        .saturating_sub(execution.transferred_position_qty)
+                                        .max(0);
+                                    filled_position_qty = filled_position_qty
+                                        .saturating_add(execution.transferred_position_qty);
+                                    last_winner = Some(execution.liquidator_user_id.clone());
+                                    clearing_price = Some(level.bid_price);
+                                    matched_fills.push(serde_json::json!({
+                                        "level_price": level.bid_price,
+                                        "bidder_user_id": bid.bidder_user_id,
+                                        "bid_price": bid.bid_price,
+                                        "bid_quantity": bid.bid_quantity,
+                                        "execution": execution,
+                                    }));
+                                }
+                                Err(error) => {
+                                    matched_fills.push(serde_json::json!({
+                                        "level_price": level.bid_price,
+                                        "bidder_user_id": bid.bidder_user_id,
+                                        "bid_price": bid.bid_price,
+                                        "bid_quantity": bid.bid_quantity,
+                                        "error": error.to_string(),
+                                    }));
+                                }
+                            }
+                            fill_index = fill_index.saturating_add(1);
                         }
                     }
                     if filled_position_qty == current_item.filled_position_qty {
@@ -341,6 +443,7 @@ pub(crate) async fn run_liquidation_queue_worker(
                             "partial".to_string()
                         },
                         winner_user_id: last_winner.clone(),
+                        clearing_price,
                         filled_position_qty,
                         recorded_at: now,
                         ..auction.clone()
@@ -442,18 +545,26 @@ pub(crate) async fn run_liquidation_queue_worker(
             recorded_at: now,
             ..current_item.clone()
         });
-        match risk.execute_partial_liquidation_with_governance(
+        match risk.execute_partial_liquidation_with_governance_at_price(
             &current_item.user_id,
             &chosen_liquidator,
             &instrument,
             current_item.outcome,
             current_item.mark_price,
+            current_item.mark_price,
             instrument.max_leverage,
-            maintenance_margin_bps,
-            penalty_bps,
+            inst_maintenance_margin_bps,
+            inst_penalty_bps,
             Some(current_item.remaining_position_qty.max(0)),
             &current_item.queue_id,
             &governance,
+            entry_prices
+                .get(&(
+                    current_item.user_id.clone(),
+                    current_item.market_id.clone(),
+                    current_item.outcome,
+                ))
+                .copied(),
         ) {
             Ok(execution) => {
                 let remaining_position_qty = current_item
@@ -504,19 +615,18 @@ pub(crate) async fn run_liquidation_queue_worker(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_liquidation_routes(
-    risk: Arc<RiskEngine>,
-    instruments: Arc<PersistentInstrumentRegistry>,
-    adl_governance: Arc<PersistentAdlGovernanceStore>,
+    _risk: Arc<RiskEngine>,
+    _instruments: Arc<PersistentInstrumentRegistry>,
+    _adl_governance: Arc<PersistentAdlGovernanceStore>,
     liquidation_queue: Arc<LiquidationQueueStore>,
     liquidation_auction: Arc<LiquidationAuctionStore>,
     ledger: Arc<LedgerService>,
+    governance_actions: Arc<PendingGovernanceActionStore>,
     ip_rate_limiter: Arc<FixedWindowRateLimiter>,
     admin_rate_limiter: Arc<FixedWindowRateLimiter>,
     user_rate_limiter: Arc<FixedWindowRateLimiter>,
 ) -> JsonRoute {
-    let risk_for_liquidation = risk.clone();
-    let instruments_for_liquidation = instruments.clone();
-    let adl_governance_for_liquidation = adl_governance.clone();
+    let governance_actions_for_liquidation = governance_actions.clone();
     let ip_rate_limiter_for_liquidation = ip_rate_limiter.clone();
     let admin_rate_limiter_for_liquidation = admin_rate_limiter.clone();
     let liquidation_execute_route = warp::path!("admin" / "risk" / "liquidations" / "execute")
@@ -529,9 +639,7 @@ pub(crate) fn build_liquidation_routes(
             move |principal: AuthenticatedPrincipal,
                   remote: Option<SocketAddr>,
                   req: LiquidationExecuteRequest| {
-                let risk = risk_for_liquidation.clone();
-                let instruments = instruments_for_liquidation.clone();
-                let adl_governance = adl_governance_for_liquidation.clone();
+                let governance_actions = governance_actions_for_liquidation.clone();
                 let ip_rate_limiter = ip_rate_limiter_for_liquidation.clone();
                 let admin_rate_limiter = admin_rate_limiter_for_liquidation.clone();
                 async move {
@@ -541,28 +649,24 @@ pub(crate) fn build_liquidation_routes(
                         .unwrap_or_else(|| "unknown".to_string());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
-                    let request_id = normalize_request_id(req.request_id);
+                    let request_id = normalize_request_id(req.request_id.clone());
                     audit("liquidation_execute", &request_id, &principal);
-                    let instrument = instruments.resolve(&req.market_id);
-                    let governance = adl_governance.current();
-                    let execution = risk
-                        .execute_liquidation_with_governance(
-                            &req.user_id,
-                            &req.liquidator_user_id,
-                            &instrument,
-                            req.outcome.unwrap_or(0),
-                            req.mark_price,
-                            req.leverage.or(instrument.max_leverage),
-                            req.maintenance_margin_bps.unwrap_or(1_000),
-                            req.penalty_bps.unwrap_or(500),
-                            &request_id,
-                            &governance.governance,
-                        )
-                        .map_err(|error| reject_api(StatusCode::BAD_REQUEST, error.to_string()))?;
+                    let pending = create_pending_governance_action(
+                        governance_actions.as_ref(),
+                        "liquidation_execute",
+                        serde_json::to_value(&req).map_err(|error| {
+                            reject_api(StatusCode::BAD_REQUEST, error.to_string())
+                        })?,
+                        &principal.subject,
+                        Some(request_id.clone()),
+                    )
+                    .map_err(|error| {
+                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
-                        "status": "ok",
+                        "status": "pending",
                         "request_id": request_id,
-                        "execution": execution,
+                        "approval": pending,
                     })))
                 }
             },
@@ -772,13 +876,94 @@ pub(crate) fn build_liquidation_routes(
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
                     let request_id = normalize_request_id(req.request_id);
                     audit("insurance_fund_deposit", &request_id, &principal);
-                    ledger
-                        .deposit_insurance_fund(req.amount, request_id.clone())
-                        .map_err(|error| reject_api(StatusCode::BAD_REQUEST, error.to_string()))?;
+                    if req.amount <= 0 {
+                        return Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            "insurance fund deposit amount must be positive",
+                        ));
+                    }
+                    const MAX_INSURANCE_DEPOSIT: i64 = 10_000_000_000;
+                    if req.amount > MAX_INSURANCE_DEPOSIT {
+                        return Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            "insurance fund deposit exceeds single-operation cap",
+                        ));
+                    }
+                    if let Some(ref mkt) = req.market_id {
+                        ledger
+                            .deposit_insurance_fund_for(mkt, req.amount, request_id.clone())
+                            .map_err(|error| {
+                                reject_api(StatusCode::BAD_REQUEST, error.to_string())
+                            })?;
+                    } else {
+                        ledger
+                            .deposit_insurance_fund(req.amount, request_id.clone())
+                            .map_err(|error| {
+                                reject_api(StatusCode::BAD_REQUEST, error.to_string())
+                            })?;
+                    }
+                    let response_balance = if let Some(ref mkt) = req.market_id {
+                        ledger.insurance_fund_balance_for(mkt)
+                    } else {
+                        ledger.insurance_fund_balance()
+                    };
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "ok",
                         "request_id": request_id,
-                        "balance": ledger.insurance_fund_balance(),
+                        "balance": response_balance,
+                        "market_id": req.market_id,
+                    })))
+                }
+            },
+        );
+    // ── User-facing liquidation history ──────────────────────────────
+    let liquidation_queue_for_user = liquidation_queue.clone();
+    let ip_rate_limiter_for_user_liq = ip_rate_limiter.clone();
+    let user_rate_limiter_for_user_liq = user_rate_limiter.clone();
+    let user_liquidation_history_route = warp::path!("liquidations" / String)
+        .and(warp::path::end())
+        .and(warp::get())
+        .and(with_principal())
+        .and(remote_ip())
+        .and_then(
+            move |user_id: String,
+                  principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>| {
+                let queue_store = liquidation_queue_for_user.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_user_liq.clone();
+                let user_rate_limiter = user_rate_limiter_for_user_liq.clone();
+                async move {
+                    ensure_subject_or_admin(&principal, &user_id)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    user_rate_limiter.check(&format!("user-read:{}", principal.subject), 30)?;
+                    let items: Vec<serde_json::Value> = queue_store
+                        .list_by_user(&user_id, 200)
+                        .into_iter()
+                        .map(|rec| {
+                            serde_json::json!({
+                                "queue_id": rec.queue_id,
+                                "market_id": rec.market_id,
+                                "outcome": rec.outcome,
+                                "status": rec.status,
+                                "strategy": rec.strategy,
+                                "mark_price": rec.mark_price,
+                                "position_qty": rec.position_qty,
+                                "remaining_position_qty": rec.remaining_position_qty,
+                                "filled_position_qty": rec.filled_position_qty,
+                                "margin_ratio_bps": rec.margin_ratio_bps,
+                                "auction_round": rec.auction_round,
+                                "retry_tier": rec.retry_tier,
+                                "recorded_at": rec.recorded_at,
+                            })
+                        })
+                        .collect();
+                    Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "user_id": user_id,
+                        "items": items,
                     })))
                 }
             },
@@ -794,5 +979,33 @@ pub(crate) fn build_liquidation_routes(
         .unify()
         .or(insurance_fund_deposit_route)
         .unify()
+        .or(user_liquidation_history_route)
+        .unify()
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auction_round_reserve_price_relaxes_each_round() {
+        let policy = LiquidationPolicyRecord {
+            auction_window_secs: 30,
+            retry_backoff_secs: vec![0, 5, 15],
+            max_retry_tiers: 3,
+            max_auction_rounds: 3,
+            auction_reserve_step_bps: 250,
+            updated_by: "tester".to_string(),
+            recorded_at: Utc::now(),
+        };
+
+        let round0 = auction_round_reserve_price(100_000, 0, &policy);
+        let round1 = auction_round_reserve_price(100_000, 1, &policy);
+        let round2 = auction_round_reserve_price(100_000, 2, &policy);
+
+        assert_eq!(round0, 100_000);
+        assert!(round1 < round0);
+        assert!(round2 < round1);
+    }
 }

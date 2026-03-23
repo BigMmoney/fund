@@ -103,6 +103,7 @@ impl HighPerformanceMatchingEngine {
     }
 
     /// 提交订单到撮合引擎
+    #[allow(clippy::result_large_err)]
     pub fn submit_order(&self, order: Order) -> Result<(), Order> {
         self.pending_orders.push(order)
     }
@@ -214,6 +215,12 @@ impl HighPerformanceMatchingEngine {
                             outcome: buy_order.outcome,
                             timestamp: chrono::Utc::now(),
                             op_id: format!("fill_{}", uuid::Uuid::new_v4()),
+                            fee: 0,
+                            fee_bps: 0,
+                            is_maker: false,
+                            aggressor_side: Some(buy_order.side),
+                            fill_index: 0,
+                            settlement_status: Default::default(),
                         };
 
                         fills.push(fill);

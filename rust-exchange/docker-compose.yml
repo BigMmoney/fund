@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  exchange:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3030:3030"
+    volumes:
+      - exchange-data:/app/data
+      - ./config:/app/config:ro
+    environment:
+      RUST_LOG: "info"
+      API_BIND_HOST: "0.0.0.0"
+      API_BIND_PORT: "3030"
+      INTERNAL_AUTH_SHARED_SECRET: "${INTERNAL_AUTH_SHARED_SECRET:?Set INTERNAL_AUTH_SHARED_SECRET env var}"
+      LEDGER_WAL_PATH: "/app/data/ledger.wal.jsonl"
+      SEQUENCER_WAL_PATH: "/app/data/sequencer.wal.jsonl"
+      MATCHING_SNAPSHOT_WAL_PATH: "/app/data/matching.snapshot.jsonl"
+      TRADE_JOURNAL_WAL_PATH: "/app/data/trade_journal.wal.jsonl"
+      TRADE_SETTLEMENT_WAL_PATH: "/app/data/trade_settlement.wal.jsonl"
+      INSTRUMENTS_REGISTRY_WAL_PATH: "/app/data/instruments.registry.jsonl"
+      FUNDING_RATES_WAL_PATH: "/app/data/funding_rates.jsonl"
+      RISK_AUTOMATION_AUDIT_WAL_PATH: "/app/data/risk_automation.audit.jsonl"
+      LIQUIDATION_QUEUE_WAL_PATH: "/app/data/liquidation.queue.jsonl"
+      LIQUIDATION_AUCTION_WAL_PATH: "/app/data/liquidation.auction.jsonl"
+      ADL_GOVERNANCE_WAL_PATH: "/app/data/adl.governance.jsonl"
+      LIQUIDATION_POLICY_WAL_PATH: "/app/data/liquidation.policy.jsonl"
+      INDEX_PRICE_WAL_PATH: "/app/data/index.price.jsonl"
+      INDEX_SOURCE_POLICY_WAL_PATH: "/app/data/index.source.policy.jsonl"
+      POSITION_COST_STATE_WAL_PATH: "/app/data/position.cost.state.jsonl"
+      POSITION_COST_EVENT_WAL_PATH: "/app/data/position.cost.events.jsonl"
+      GOVERNANCE_ACTION_WAL_PATH: "/app/data/governance.actions.jsonl"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/3030' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+volumes:
+  exchange-data:

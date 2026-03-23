@@ -28,6 +28,10 @@ vendor/
 # Logs
 logs/
 *.log
+frontend-modern/*.log
+frontend-modern/*.err.log
+rust-exchange/*_stdout.log
+rust-exchange/*_stderr.log
 
 # Data directories
 data/
@@ -50,6 +54,12 @@ config.production.yaml
 bin/
 dist/
 build/
+rust-exchange/target/
+rust-exchange/target-scale/
+rust-exchange/target-scale2/
+rust-exchange/target-scale3/
+rust-exchange/target-scale4/
+rust-exchange/target-scale5/
 
 # OS-specific
 Thumbs.db
@@ -65,6 +75,8 @@ temp/
 # Local deliverables and mutable archive aliases
 deliverables/
 docs/benchmarks/archives/*_latest/
+docs/benchmarks/archives/
+docs/neurips_track/arxiv/versions/
 
 # Node modules (for frontend)
 node_modules/

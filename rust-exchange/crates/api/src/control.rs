@@ -4,6 +4,7 @@ pub(crate) fn build_control_routes(
     partitioned_engine: Arc<PartitionedMatchingEngine>,
     ledger: Arc<LedgerService>,
     sequencer: Arc<Sequencer>,
+    governance_actions: Arc<PendingGovernanceActionStore>,
     ip_rate_limiter: Arc<FixedWindowRateLimiter>,
     admin_rate_limiter: Arc<FixedWindowRateLimiter>,
 ) -> JsonRoute {
@@ -30,6 +31,19 @@ pub(crate) fn build_control_routes(
                         .unwrap_or_else(|| "unknown".to_string());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    if req.amount <= 0 {
+                        return Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            "deposit amount must be positive",
+                        ));
+                    }
+                    const MAX_SINGLE_DEPOSIT: i64 = 10_000_000_000; // 10B subunits
+                    if req.amount > MAX_SINGLE_DEPOSIT {
+                        return Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            "deposit amount exceeds single-operation cap",
+                        ));
+                    }
                     audit("deposit", &req.op_id, &principal);
                     let resp =
                         match ledger.process_deposit(&req.user_id, req.amount, req.op_id.clone()) {
@@ -92,9 +106,7 @@ pub(crate) fn build_control_routes(
                         }
                         Err(error) => {
                             let _ = sequencer.mark_rejected(&request_id);
-                            Ok::<_, warp::Rejection>(warp::reply::json(
-                                &serde_json::json!({"status":"error","error":error.to_string()}),
-                            ))
+                            Err(reject_submission_error(&error))
                         }
                     }
                 }
@@ -102,6 +114,7 @@ pub(crate) fn build_control_routes(
         );
 
     let partitioned_engine_7 = partitioned_engine.clone();
+    let governance_actions_for_kill_switch = governance_actions.clone();
     let ip_rate_limiter_for_kill_switch = ip_rate_limiter.clone();
     let admin_rate_limiter_for_kill_switch = admin_rate_limiter.clone();
     let sequencer_for_kill_switch = sequencer.clone();
@@ -116,7 +129,8 @@ pub(crate) fn build_control_routes(
                   remote: Option<SocketAddr>,
                   req: KillSwitchRequest| {
                 let engine = partitioned_engine_7.clone();
-                let sequencer = sequencer_for_kill_switch.clone();
+                let _sequencer = sequencer_for_kill_switch.clone();
+                let governance_actions = governance_actions_for_kill_switch.clone();
                 let admin_rate_limiter = admin_rate_limiter_for_kill_switch.clone();
                 let ip_rate_limiter = ip_rate_limiter_for_kill_switch.clone();
                 async move {
@@ -126,40 +140,31 @@ pub(crate) fn build_control_routes(
                         .unwrap_or_else(|| "unknown".to_string());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
-                    let request_id = normalize_request_id(req.request_id);
+                    let request_id = normalize_request_id(req.request_id.clone());
                     audit("kill_switch", &request_id, &principal);
-                    let command = match sequence_admin(
-                        &sequencer,
-                        request_id.clone(),
-                        principal.subject,
-                        AdminAction::KillSwitch {
-                            enabled: req.enabled,
-                        },
-                    ) {
-                        Ok(command) => command,
-                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
-                    };
-
-                    match engine.submit_admin(command).await {
-                        Ok(()) => {
-                            update_lifecycle_after_admin(&sequencer, &request_id);
-                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
-                                "status": "ok",
-                                "kill_switch_enabled": engine.kill_switch_enabled(),
-                            })))
-                        }
-                        Err(error) => {
-                            let _ = sequencer.mark_rejected(&request_id);
-                            Ok::<_, warp::Rejection>(warp::reply::json(
-                                &serde_json::json!({"status":"error","error":error.to_string()}),
-                            ))
-                        }
-                    }
+                    let pending = create_pending_governance_action(
+                        governance_actions.as_ref(),
+                        "kill_switch",
+                        serde_json::to_value(&req).map_err(|error| {
+                            reject_api(StatusCode::BAD_REQUEST, error.to_string())
+                        })?,
+                        &principal.subject,
+                        Some(request_id),
+                    )
+                    .map_err(|error| {
+                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
+                    Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "pending",
+                        "approval": pending,
+                        "kill_switch_enabled": engine.kill_switch_enabled(),
+                    })))
                 }
             },
         );
 
     let partitioned_engine_8 = partitioned_engine.clone();
+    let governance_actions_for_market_state = governance_actions.clone();
     let ip_rate_limiter_for_market_state = ip_rate_limiter.clone();
     let admin_rate_limiter_for_market_state = admin_rate_limiter.clone();
     let sequencer_for_market_state = sequencer.clone();
@@ -173,8 +178,9 @@ pub(crate) fn build_control_routes(
             move |principal: AuthenticatedPrincipal,
                   remote: Option<SocketAddr>,
                   req: SetMarketStateRequest| {
-                let engine = partitioned_engine_8.clone();
-                let sequencer = sequencer_for_market_state.clone();
+                let _engine = partitioned_engine_8.clone();
+                let _sequencer = sequencer_for_market_state.clone();
+                let governance_actions = governance_actions_for_market_state.clone();
                 let admin_rate_limiter = admin_rate_limiter_for_market_state.clone();
                 let ip_rate_limiter = ip_rate_limiter_for_market_state.clone();
                 async move {
@@ -184,44 +190,33 @@ pub(crate) fn build_control_routes(
                         .unwrap_or_else(|| "unknown".to_string());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
-                    let request_id = normalize_request_id(req.request_id);
+                    let request_id = normalize_request_id(req.request_id.clone());
                     audit("market_state", &request_id, &principal);
-                    let command = match sequence_admin(
-                        &sequencer,
-                        request_id.clone(),
-                        principal.subject,
-                        AdminAction::SetMarketState {
-                            market_id: req.market_id,
-                            outcome: req.outcome,
-                            state: req.state,
-                        },
-                    ) {
-                        Ok(command) => command,
-                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
-                    };
-
-                    match engine.submit_admin(command).await {
-                        Ok(()) => {
-                            update_lifecycle_after_admin(&sequencer, &request_id);
-                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
-                                "status": "ok",
-                            })))
-                        }
-                        Err(error) => {
-                            let _ = sequencer.mark_rejected(&request_id);
-                            Ok::<_, warp::Rejection>(warp::reply::json(
-                                &serde_json::json!({"status":"error","error":error.to_string()}),
-                            ))
-                        }
-                    }
+                    let pending = create_pending_governance_action(
+                        governance_actions.as_ref(),
+                        "set_market_state",
+                        serde_json::to_value(&req).map_err(|error| {
+                            reject_api(StatusCode::BAD_REQUEST, error.to_string())
+                        })?,
+                        &principal.subject,
+                        Some(request_id),
+                    )
+                    .map_err(|error| {
+                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
+                    Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "pending",
+                        "approval": pending,
+                    })))
                 }
             },
         );
 
     let partitioned_engine_9 = partitioned_engine.clone();
+    let governance_actions_for_reference = governance_actions.clone();
     let ip_rate_limiter_for_reference = ip_rate_limiter.clone();
     let admin_rate_limiter_for_reference = admin_rate_limiter.clone();
-    let reference_price_route = warp::path!("market" / "reference-price")
+    let reference_price_route = warp::path!("admin" / "reference-price")
         .and(warp::post())
         .and(with_principal())
         .and(remote_ip())
@@ -231,7 +226,8 @@ pub(crate) fn build_control_routes(
             move |principal: AuthenticatedPrincipal,
                   remote: Option<SocketAddr>,
                   req: ReferencePriceRequest| {
-                let engine = partitioned_engine_9.clone();
+                let _engine = partitioned_engine_9.clone();
+                let governance_actions = governance_actions_for_reference.clone();
                 let admin_rate_limiter = admin_rate_limiter_for_reference.clone();
                 let ip_rate_limiter = ip_rate_limiter_for_reference.clone();
                 async move {
@@ -243,31 +239,22 @@ pub(crate) fn build_control_routes(
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
                     audit("reference_price", &request_id, &principal);
-                    match engine
-                        .update_reference_price(
-                            req.market_id,
-                            req.outcome,
-                            req.source.unwrap_or_else(|| "manual".to_string()),
-                            req.reference_price,
-                        )
-                        .await
-                    {
-                        Ok(snapshot) => {
-                            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
-                                "status": "ok",
-                                "request_id": request_id,
-                                "market_id": snapshot.market_id,
-                                "outcome": snapshot.outcome,
-                                "market_state": snapshot.state,
-                                "reference_price": snapshot.reference_price,
-                                "best_bid": snapshot.best_bid,
-                                "best_ask": snapshot.best_ask,
-                            })))
-                        }
-                        Err(error) => Ok::<_, warp::Rejection>(warp::reply::json(
-                            &serde_json::json!({"status":"error","error":error.to_string()}),
-                        )),
-                    }
+                    let pending = create_pending_governance_action(
+                        governance_actions.as_ref(),
+                        "reference_price",
+                        serde_json::to_value(&req).map_err(|error| {
+                            reject_api(StatusCode::BAD_REQUEST, error.to_string())
+                        })?,
+                        &principal.subject,
+                        Some(request_id),
+                    )
+                    .map_err(|error| {
+                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
+                    Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "pending",
+                        "approval": pending,
+                    })))
                 }
             },
         );

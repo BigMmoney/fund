@@ -44,8 +44,21 @@ pub(crate) fn build_liquidation_policy_store() -> Arc<PersistentLiquidationPolic
 
 pub(crate) fn build_index_price_store() -> Arc<PersistentIndexPriceStore> {
     Arc::new(
-        PersistentIndexPriceStore::open_jsonl(index_price_wal_path())
-            .expect("failed to initialize index price store"),
+        PersistentIndexPriceStore::open_jsonl(
+            index_price_wal_path(),
+            index_source_policy_wal_path(),
+        )
+        .expect("failed to initialize index price store"),
+    )
+}
+
+pub(crate) fn build_position_cost_store() -> Arc<PositionCostLedgerStore> {
+    Arc::new(
+        PositionCostLedgerStore::open_jsonl(
+            position_cost_state_wal_path(),
+            position_cost_event_wal_path(),
+        )
+        .expect("failed to initialize position cost ledger store"),
     )
 }
 

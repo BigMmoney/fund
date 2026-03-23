@@ -1,0 +1,5 @@
+[target.x86_64-pc-windows-msvc]
+# On some Windows setups `link.exe` may crash while producing PDBs for large crates.
+# `/DEBUG:NONE` disables PDB generation and tends to stabilize linking.
+rustflags = ["-C", "link-arg=/DEBUG:NONE"]
+

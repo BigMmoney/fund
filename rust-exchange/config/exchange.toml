@@ -1,0 +1,59 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │  Rust Exchange — 默认配置                               │
+# │  加载优先级: 环境变量 > 此文件 > 硬编码默认值             │
+# │  路径: config/exchange.toml  (或 $EXCHANGE_CONFIG_PATH)  │
+# └─────────────────────────────────────────────────────────┘
+
+[server]
+bind_host = "127.0.0.1"
+bind_port = 3030
+log_level = "info"
+max_body_size_bytes  = 16384
+request_timeout_secs = 30
+
+# ── WAL 持久化路径 ────────────────────────────────────────
+[wal]
+data_dir              = "data"
+rotation_max_entries  = 100000
+group_commit_size     = 64
+ledger                = "data/ledger.wal.jsonl"
+sequencer             = "data/sequencer.wal.jsonl"
+matching_snapshot     = "data/matching.snapshot.jsonl"
+trade_journal         = "data/trade_journal.wal.jsonl"
+trade_settlement      = "data/trade_settlement.wal.jsonl"
+instruments_registry  = "data/instruments.registry.jsonl"
+funding_rates         = "data/funding_rates.jsonl"
+risk_automation_audit = "data/risk_automation.audit.jsonl"
+liquidation_queue     = "data/liquidation.queue.jsonl"
+liquidation_auction   = "data/liquidation.auction.jsonl"
+adl_governance        = "data/adl.governance.jsonl"
+liquidation_policy    = "data/liquidation.policy.jsonl"
+index_price           = "data/index.price.jsonl"
+index_source_policy   = "data/index.source.policy.jsonl"
+position_cost_state   = "data/position.cost.state.jsonl"
+position_cost_events  = "data/position.cost.events.jsonl"
+governance_actions    = "data/governance.actions.jsonl"
+
+# ── 风控自动化 ────────────────────────────────────────────
+[risk]
+automation_enabled                = false
+liquidation_interval_secs         = 30
+funding_interval_secs             = 60
+liquidation_worker_interval_secs  = 5
+liquidation_auction_window_secs   = 15
+liquidator_user_id                = "system-liquidator"
+maintenance_margin_bps            = 1000
+liquidation_penalty_bps           = 500
+position_cost_resync_interval_ms  = 60000
+
+# ── CORS ──────────────────────────────────────────────────
+[cors]
+allowed_origins = [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+]
+
+# ── WebSocket ─────────────────────────────────────────────
+[websocket]
+orderbook_snapshot_interval_ms = 200
+max_connections                = 1024

@@ -5,15 +5,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
-use types::{Event, Fill, Intent, IntentStatus, Order, OrderState, Side};
+use types::{Event, Fill, Intent, IntentStatus, Order, OrderState, OrderType, Side, TimeInForce};
 
 pub mod high_performance;
 pub mod partitioned;
 pub use high_performance::{HighPerformanceMatchingEngine, PerformanceMetrics};
 pub use partitioned::{
-    CancelResult, MarketRuntimeSnapshot, MarketSnapshot, PartitionQueueDepth,
-    PartitionSnapshotRecord, PartitionStateSnapshot, PartitionedEngineConfig,
-    PartitionedMatchingEngine, RestingOrderSnapshot, SubmissionError, SubmitOrderResult,
+    CancelResult, MarketRuntimeSnapshot, MarketSnapshot, OrderBookDepth, OrderBookLevel,
+    PartitionQueueDepth, PartitionSnapshotRecord, PartitionStateSnapshot, PartitionedEngineConfig,
+    PartitionedMatchingEngine, PriceImpactEstimate, RestingOrderSnapshot, SubmissionError,
+    SubmitOrderResult, TradeStatistics, TriggerOrderSnapshot,
 };
 
 #[derive(Clone)]
@@ -155,11 +156,20 @@ impl MatchingEngine {
                 user_id: intent.user_id.clone(),
                 market_id: intent.market_id.clone(),
                 side: intent.side,
+                order_type: OrderType::Limit,
+                time_in_force: TimeInForce::Gtc,
                 price: intent.price,
                 amount: intent.amount,
+                filled_amount: 0,
                 outcome: intent.outcome,
                 status: OrderState::PendingNew,
                 created_at: intent.created_at,
+                updated_at: None,
+                client_order_id: None,
+                trigger_price: None,
+                trigger_type: None,
+                cumulative_fee: 0,
+                avg_fill_price: None,
             };
 
             match intent.side {
@@ -275,6 +285,12 @@ impl MatchingEngine {
                         outcome: order.outcome,
                         timestamp: chrono::Utc::now(),
                         op_id: types::generate_op_id("fill"),
+                        fee: 0,
+                        fee_bps: 0,
+                        is_maker: false,
+                        aggressor_side: None,
+                        fill_index: 0,
+                        settlement_status: Default::default(),
                     });
                 }
             }
@@ -294,6 +310,12 @@ impl MatchingEngine {
                         outcome: order.outcome,
                         timestamp: chrono::Utc::now(),
                         op_id: types::generate_op_id("fill"),
+                        fee: 0,
+                        fee_bps: 0,
+                        is_maker: false,
+                        aggressor_side: None,
+                        fill_index: 0,
+                        settlement_status: Default::default(),
                     });
                 }
             }

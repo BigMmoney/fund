@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 ledger = { path = "../ledger" }
 types = { path = "../types" }
+chrono = { workspace = true }
 thiserror.workspace = true
 serde.workspace = true
 tracing.workspace = true

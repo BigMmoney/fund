@@ -8,8 +8,8 @@ use persistence::{InMemoryWal, WalStore};
 use risk::RiskEngine;
 use std::sync::Arc;
 use types::{
-    Command, CommandLifecycle, CommandMetadata, InstrumentKind, InstrumentSpec, LedgerDelta,
-    MarginMode, NewOrderCommand, OrderType, Side, TimeInForce,
+    Command, CommandLifecycle, CommandMetadata, InstrumentKind, InstrumentSpec, InstrumentStatus,
+    LedgerDelta, MarginMode, NewOrderCommand, OrderType, Side, StpMode, TimeInForce,
 };
 
 fn main() {
@@ -308,6 +308,7 @@ fn config() -> PartitionedEngineConfig {
         min_cancel_events_before_guard: 2,
         cancel_only_price_band_bps: 500,
         halt_price_band_bps: 1_000,
+        ..Default::default()
     }
 }
 
@@ -335,6 +336,13 @@ fn new_order(
         reduce_only: false,
         leverage: None,
         expires_at: None,
+        stp_mode: StpMode::default(),
+        trigger_price: None,
+        trigger_type: None,
+        display_qty: None,
+        min_fill_qty: None,
+        stp_group_id: None,
+        is_market_maker: false,
     }
 }
 
@@ -368,6 +376,7 @@ fn benchmark_registry() -> Arc<dyn InstrumentRegistry> {
     registry.register(InstrumentSpec {
         instrument_id: "btc-usdt".to_string(),
         kind: InstrumentKind::Spot,
+        base_asset: String::new(),
         quote_asset: "USDC".to_string(),
         margin_mode: None,
         max_leverage: None,
@@ -375,10 +384,31 @@ fn benchmark_registry() -> Arc<dyn InstrumentRegistry> {
         lot_size: 1,
         price_band_bps: 1_000,
         risk_policy_id: "spot-v1".to_string(),
+        min_order_amount: 0,
+        max_notional: 0,
+        maker_fee_bps: 0,
+        taker_fee_bps: 0,
+        max_position_notional: 0,
+        maintenance_margin_bps: 0,
+        contract_multiplier: 1,
+        funding_interval_secs: 0,
+        status: InstrumentStatus::Active,
+        circuit_breaker: None,
+        mm_protection: None,
+        max_order_amount: 0,
+        order_type_rule: None,
+        margin_rule: None,
+        liquidation_rule: None,
+        fee_schedule: None,
+        margin_tiers: None,
+        expiry: None,
+        option_spec: None,
+        settlement_currency: None,
     });
     registry.register(InstrumentSpec {
         instrument_id: "margin:btc-usdt".to_string(),
         kind: InstrumentKind::Margin,
+        base_asset: String::new(),
         quote_asset: "USDC".to_string(),
         margin_mode: Some(MarginMode::Isolated),
         max_leverage: Some(20),
@@ -386,10 +416,31 @@ fn benchmark_registry() -> Arc<dyn InstrumentRegistry> {
         lot_size: 1,
         price_band_bps: 1_000,
         risk_policy_id: "margin-v1".to_string(),
+        min_order_amount: 0,
+        max_notional: 0,
+        maker_fee_bps: 0,
+        taker_fee_bps: 0,
+        max_position_notional: 0,
+        maintenance_margin_bps: 0,
+        contract_multiplier: 1,
+        funding_interval_secs: 0,
+        status: InstrumentStatus::Active,
+        circuit_breaker: None,
+        mm_protection: None,
+        max_order_amount: 0,
+        order_type_rule: None,
+        margin_rule: None,
+        liquidation_rule: None,
+        fee_schedule: None,
+        margin_tiers: None,
+        expiry: None,
+        option_spec: None,
+        settlement_currency: None,
     });
     registry.register(InstrumentSpec {
         instrument_id: "perp:btc-usdt".to_string(),
         kind: InstrumentKind::Perpetual,
+        base_asset: String::new(),
         quote_asset: "USDC".to_string(),
         margin_mode: Some(MarginMode::Isolated),
         max_leverage: Some(20),
@@ -397,6 +448,26 @@ fn benchmark_registry() -> Arc<dyn InstrumentRegistry> {
         lot_size: 1,
         price_band_bps: 1_000,
         risk_policy_id: "perpetual-v1".to_string(),
+        min_order_amount: 0,
+        max_notional: 0,
+        maker_fee_bps: 0,
+        taker_fee_bps: 0,
+        max_position_notional: 0,
+        maintenance_margin_bps: 0,
+        contract_multiplier: 1,
+        funding_interval_secs: 0,
+        status: InstrumentStatus::Active,
+        circuit_breaker: None,
+        mm_protection: None,
+        max_order_amount: 0,
+        order_type_rule: None,
+        margin_rule: None,
+        liquidation_rule: None,
+        fee_schedule: None,
+        margin_tiers: None,
+        expiry: None,
+        option_spec: None,
+        settlement_currency: None,
     });
     Arc::new(registry)
 }

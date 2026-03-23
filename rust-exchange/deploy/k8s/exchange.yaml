@@ -1,0 +1,217 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exchange
+  labels:
+    app.kubernetes.io/part-of: rust-exchange
+---
+# ── ConfigMap ─────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exchange-config
+  namespace: exchange
+data:
+  RUST_LOG: "info"
+  API_BIND_HOST: "0.0.0.0"
+  API_BIND_PORT: "3030"
+  WAL_DATA_DIR: "/app/data"
+  WS_MAX_CONNECTIONS: "1024"
+  EXCHANGE_QUEUE_CAPACITY: "4096"
+  EXCHANGE_PARTITION_COUNT: "8"
+---
+# ── Secret (template — fill before apply) ─────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: exchange-secrets
+  namespace: exchange
+type: Opaque
+stringData:
+  INTERNAL_AUTH_SHARED_SECRET: "CHANGE_ME"
+  ONCALL_WEBHOOK_URL: ""
+  ONCALL_PRIMARY_NAME: "unassigned"
+  ONCALL_PRIMARY_CONTACT: "unassigned"
+---
+# ── PersistentVolumeClaim ─────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: exchange-data
+  namespace: exchange
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: gp3
+---
+# ── Deployment ────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exchange
+  namespace: exchange
+  labels:
+    app: exchange
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: exchange
+  template:
+    metadata:
+      labels:
+        app: exchange
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3030"
+        prometheus.io/path: "/metrics/prometheus"
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: exchange
+          image: ghcr.io/OWNER/rust-exchange:latest
+          ports:
+            - name: http
+              containerPort: 3030
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: exchange-config
+            - secretRef:
+                name: exchange-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "4"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - "sleep 5"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: exchange-data
+---
+# ── Service ───────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: exchange
+  namespace: exchange
+  labels:
+    app: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3030
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: exchange
+---
+# ── HorizontalPodAutoscaler ──────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: exchange
+  namespace: exchange
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: exchange
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+---
+# ── PodDisruptionBudget ───────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: exchange
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: exchange
+---
+# ── ServiceMonitor (Prometheus Operator) ──────────────────────
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: exchange
+  namespace: exchange
+  labels:
+    app: exchange
+spec:
+  selector:
+    matchLabels:
+      app: exchange
+  endpoints:
+    - port: http
+      path: /metrics/prometheus
+      interval: 15s

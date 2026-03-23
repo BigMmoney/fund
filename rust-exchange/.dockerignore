@@ -1,0 +1,10 @@
+target/
+target-scale*/
+data/
+*.log
+*.md
+!README.md
+frontend/
+go-frontend/
+.git/
+.gitignore

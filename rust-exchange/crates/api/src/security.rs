@@ -1,6 +1,163 @@
 use super::*;
 use sha2::Digest;
+use std::sync::atomic::{AtomicU64, Ordering};
 use warp::hyper::body::Bytes;
+
+const AUTHENTICATED_WRITE_REPLAY_GUARD_MAX_KEYS: usize = 100_000;
+const AUTHENTICATED_WRITE_REPLAY_GUARD_CLEANUP_INTERVAL: u64 = 256;
+const REPLAY_GUARD_WAL_PATH: &str = "data/replay_guard.jsonl";
+
+static AUTHENTICATED_WRITE_REPLAY_GUARD: OnceLock<AuthenticatedWriteReplayGuard> = OnceLock::new();
+
+struct AuthenticatedWriteReplayGuard {
+    ttl: Duration,
+    max_keys: usize,
+    cleanup_interval: u64,
+    cleanup_counter: AtomicU64,
+    seen: DashMap<String, Instant>,
+    /// Persistent request_id set that survives restarts (H-7 fix)
+    persisted_request_ids: parking_lot::Mutex<std::collections::HashSet<String>>,
+}
+
+impl AuthenticatedWriteReplayGuard {
+    fn new(ttl: Duration, max_keys: usize, cleanup_interval: u64) -> Self {
+        let persisted = Self::load_persisted_request_ids();
+        Self {
+            ttl,
+            max_keys,
+            cleanup_interval,
+            cleanup_counter: AtomicU64::new(0),
+            seen: DashMap::new(),
+            persisted_request_ids: parking_lot::Mutex::new(persisted),
+        }
+    }
+
+    fn load_persisted_request_ids() -> std::collections::HashSet<String> {
+        let path = std::path::Path::new(REPLAY_GUARD_WAL_PATH);
+        let mut set = std::collections::HashSet::new();
+        if !path.exists() {
+            return set;
+        }
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return set;
+        };
+        let cutoff = Utc::now().timestamp() - 60; // keep last 60 seconds
+        for line in content.lines() {
+            if let Some((ts_str, request_id)) = line.split_once('\t') {
+                if let Ok(ts) = ts_str.parse::<i64>() {
+                    if ts >= cutoff {
+                        set.insert(request_id.to_string());
+                    }
+                }
+            }
+        }
+        tracing::info!(
+            recovered = set.len(),
+            "replay guard: loaded persisted request_ids"
+        );
+        set
+    }
+
+    fn persist_request_id(&self, request_id: &str) {
+        let ts = Utc::now().timestamp();
+        let mut persisted = self.persisted_request_ids.lock();
+        persisted.insert(request_id.to_string());
+        // Best-effort append to WAL file
+        let path = std::path::Path::new(REPLAY_GUARD_WAL_PATH);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut f| {
+                use std::io::Write;
+                writeln!(f, "{ts}\t{request_id}")
+            });
+    }
+
+    fn is_request_id_persisted(&self, request_id: &str) -> bool {
+        self.persisted_request_ids.lock().contains(request_id)
+    }
+
+    fn register(&self, key: String, request_id: &str) -> Result<(), Rejection> {
+        let now = Instant::now();
+        self.maybe_cleanup(now);
+        if self.seen.contains_key(&key) || self.is_request_id_persisted(request_id) {
+            return Err(reject_api(
+                StatusCode::CONFLICT,
+                "duplicate authenticated write request",
+            ));
+        }
+        if self.seen.len() >= self.max_keys {
+            self.cleanup_expired(now);
+            if self.seen.len() >= self.max_keys && !self.seen.contains_key(&key) {
+                return Err(reject_api(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "authenticated write replay guard saturated",
+                ));
+            }
+        }
+        self.seen.insert(key, now);
+        self.persist_request_id(request_id);
+        Ok(())
+    }
+
+    fn maybe_cleanup(&self, now: Instant) {
+        let attempt = self.cleanup_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        if attempt % self.cleanup_interval == 0 || self.seen.len() > self.max_keys {
+            self.cleanup_expired(now);
+        }
+    }
+
+    fn cleanup_expired(&self, now: Instant) {
+        self.seen
+            .retain(|_, seen_at| now.duration_since(*seen_at) <= self.ttl);
+    }
+
+    #[cfg(test)]
+    fn clear(&self) {
+        self.seen.clear();
+        self.persisted_request_ids.lock().clear();
+        self.cleanup_counter.store(0, Ordering::Relaxed);
+    }
+}
+
+fn authenticated_write_replay_guard() -> &'static AuthenticatedWriteReplayGuard {
+    AUTHENTICATED_WRITE_REPLAY_GUARD.get_or_init(|| {
+        AuthenticatedWriteReplayGuard::new(
+            Duration::from_secs((INTERNAL_AUTH_MAX_SKEW_SECONDS + 5) as u64),
+            AUTHENTICATED_WRITE_REPLAY_GUARD_MAX_KEYS,
+            AUTHENTICATED_WRITE_REPLAY_GUARD_CLEANUP_INTERVAL,
+        )
+    })
+}
+
+fn should_enforce_authenticated_write_replay_guard(method: &Method) -> bool {
+    !matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
+}
+
+fn authenticated_write_replay_key(
+    method: &Method,
+    path: &str,
+    query: &str,
+    subject: &str,
+    role: &str,
+    session_id: &str,
+    request_id: &str,
+) -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        method.as_str(),
+        path,
+        query,
+        subject,
+        role,
+        session_id,
+        request_id
+    )
+}
 
 pub(crate) fn parse_role(value: &str) -> Option<PrincipalRole> {
     match value.trim().to_ascii_lowercase().as_str() {
@@ -122,6 +279,20 @@ fn verify_internal_principal(
             "internal auth verification failed",
         )
     })?;
+    if should_enforce_authenticated_write_replay_guard(&method) {
+        authenticated_write_replay_guard().register(
+            authenticated_write_replay_key(
+                &method,
+                &path,
+                &query,
+                &subject,
+                &role_raw.to_ascii_lowercase(),
+                &session_id,
+                &request_id,
+            ),
+            &request_id,
+        )?;
+    }
     Ok(AuthenticatedPrincipal {
         subject,
         role,
@@ -306,6 +477,13 @@ pub(crate) fn ensure_subject_or_admin(
     user_id: &str,
 ) -> Result<(), Rejection> {
     if principal.role == PrincipalRole::Admin {
+        if principal.subject != user_id {
+            tracing::info!(
+                admin = %principal.subject,
+                target_user = %user_id,
+                "admin cross-account access"
+            );
+        }
         return Ok(());
     }
     ensure_subject_matches(principal, user_id)
@@ -330,6 +508,12 @@ pub(crate) fn ensure_subject_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn auth_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn sign_payload(payload: &str, secret: &str) -> String {
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("hmac init");
@@ -427,5 +611,93 @@ mod tests {
         let parsed =
             verify_json_body::<serde_json::Value>(Some(hash), body).expect("body verified");
         assert_eq!(parsed["hello"], "world");
+    }
+
+    #[test]
+    fn verify_internal_principal_rejects_replayed_authenticated_write() {
+        let _guard = auth_test_lock().lock().expect("auth test lock");
+        let _ = INTERNAL_AUTH_SHARED_SECRET.set("test-secret".to_string());
+        authenticated_write_replay_guard().clear();
+        let timestamp = Utc::now().timestamp();
+        let request_id = "req-replay-post";
+        let payload = internal_auth_payload(
+            &Method::POST,
+            "/admin/risk/prices/index",
+            "",
+            "admin-1",
+            "admin",
+            "session-1",
+            timestamp,
+            request_id,
+        );
+        let signature = sign_payload(&payload, "test-secret");
+        verify_internal_principal(
+            Method::POST,
+            "/admin/risk/prices/index".to_string(),
+            "".to_string(),
+            Some("admin-1".to_string()),
+            Some("admin".to_string()),
+            Some("session-1".to_string()),
+            Some(timestamp.to_string()),
+            Some(signature.clone()),
+            Some(request_id.to_string()),
+        )
+        .expect("first write accepted");
+        let replay = verify_internal_principal(
+            Method::POST,
+            "/admin/risk/prices/index".to_string(),
+            "".to_string(),
+            Some("admin-1".to_string()),
+            Some("admin".to_string()),
+            Some("session-1".to_string()),
+            Some(timestamp.to_string()),
+            Some(signature),
+            Some(request_id.to_string()),
+        );
+        assert!(replay.is_err());
+    }
+
+    #[test]
+    fn verify_internal_principal_allows_repeated_reads_with_same_request_id() {
+        let _guard = auth_test_lock().lock().expect("auth test lock");
+        let _ = INTERNAL_AUTH_SHARED_SECRET.set("test-secret".to_string());
+        authenticated_write_replay_guard().clear();
+        let timestamp = Utc::now().timestamp();
+        let request_id = "req-replay-get";
+        let payload = internal_auth_payload(
+            &Method::GET,
+            "/orders",
+            "market_id=btc-usdt",
+            "user-1",
+            "user",
+            "session-1",
+            timestamp,
+            request_id,
+        );
+        let signature = sign_payload(&payload, "test-secret");
+        verify_internal_principal(
+            Method::GET,
+            "/orders".to_string(),
+            "market_id=btc-usdt".to_string(),
+            Some("user-1".to_string()),
+            Some("user".to_string()),
+            Some("session-1".to_string()),
+            Some(timestamp.to_string()),
+            Some(signature.clone()),
+            Some(request_id.to_string()),
+        )
+        .expect("first read accepted");
+        verify_internal_principal(
+            Method::GET,
+            "/orders".to_string(),
+            "market_id=btc-usdt".to_string(),
+            Some("user-1".to_string()),
+            Some("user".to_string()),
+            Some("session-1".to_string()),
+            Some(timestamp.to_string()),
+            Some(signature),
+            Some(request_id.to_string()),
+        )
+        .expect("repeated read accepted");
     }
 }

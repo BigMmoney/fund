@@ -34,6 +34,14 @@ pub(crate) struct OrderRequest {
     pub(crate) reduce_only: Option<bool>,
     pub(crate) leverage: Option<u32>,
     pub(crate) expires_at: Option<DateTime<Utc>>,
+    pub(crate) stp_mode: Option<types::StpMode>,
+    pub(crate) trigger_price: Option<i64>,
+    pub(crate) trigger_type: Option<types::TriggerType>,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct BatchOrderRequest {
+    pub(crate) orders: Vec<OrderRequest>,
 }
 
 #[derive(serde::Deserialize)]
@@ -63,12 +71,26 @@ pub(crate) struct MassCancelByMarketRequest {
 }
 
 #[derive(serde::Deserialize)]
+pub(crate) struct LeverageAdjustRequest {
+    pub(crate) market_id: String,
+    pub(crate) leverage: u32,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct TradeExportQuery {
+    pub(crate) market_id: Option<String>,
+    pub(crate) from: Option<DateTime<Utc>>,
+    pub(crate) to: Option<DateTime<Utc>>,
+    pub(crate) format: Option<String>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct KillSwitchRequest {
     pub(crate) request_id: Option<String>,
     pub(crate) enabled: bool,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct SetMarketStateRequest {
     pub(crate) request_id: Option<String>,
     pub(crate) market_id: String,
@@ -76,7 +98,7 @@ pub(crate) struct SetMarketStateRequest {
     pub(crate) state: MarketState,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct ReferencePriceRequest {
     pub(crate) request_id: Option<String>,
     pub(crate) market_id: String,
@@ -101,7 +123,7 @@ pub(crate) struct ReplaceOrderRequest {
     pub(crate) new_expires_at: Option<DateTime<Utc>>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct LiquidationExecuteRequest {
     pub(crate) request_id: Option<String>,
     pub(crate) user_id: String,
@@ -129,6 +151,8 @@ pub(crate) struct FundingSettlementRequest {
 pub(crate) struct InsuranceFundDepositRequest {
     pub(crate) request_id: Option<String>,
     pub(crate) amount: i64,
+    /// If set, deposit into the per-instrument fund; otherwise deposit into the global fund.
+    pub(crate) market_id: Option<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -143,6 +167,10 @@ pub(crate) struct TradesQuery {
     pub(crate) user_id: Option<String>,
     pub(crate) outcome: Option<i32>,
     pub(crate) limit: Option<usize>,
+    /// Cursor-based pagination: only return trades recorded before this timestamp.
+    pub(crate) before: Option<DateTime<Utc>>,
+    /// Only return trades recorded after this timestamp.
+    pub(crate) after: Option<DateTime<Utc>>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -152,9 +180,18 @@ pub(crate) struct OrdersQuery {
 }
 
 #[derive(Default, serde::Deserialize)]
+pub(crate) struct FillsQuery {
+    pub(crate) market_id: Option<String>,
+    pub(crate) outcome: Option<i32>,
+    pub(crate) limit: Option<usize>,
+}
+
+#[derive(Default, serde::Deserialize)]
 pub(crate) struct HistoryQuery {
     pub(crate) outcome: Option<i32>,
     pub(crate) limit: Option<usize>,
+    pub(crate) before: Option<String>,
+    pub(crate) after: Option<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -227,6 +264,7 @@ pub(crate) struct LiquidationPolicyUpdateRequest {
     pub(crate) retry_backoff_secs: Option<Vec<i64>>,
     pub(crate) max_retry_tiers: Option<u32>,
     pub(crate) max_auction_rounds: Option<u32>,
+    pub(crate) auction_reserve_step_bps: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -237,8 +275,23 @@ pub(crate) struct IndexPriceUpsertRequest {
     pub(crate) source: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct IndexSourcePolicyUpdateRequest {
+    pub(crate) market_id: String,
+    pub(crate) outcome: Option<i32>,
+    pub(crate) source: String,
+    pub(crate) status: String,
+    pub(crate) weight_bps: Option<i64>,
+}
+
 #[derive(Default, serde::Deserialize)]
 pub(crate) struct FairPriceQuery {
+    pub(crate) market_id: String,
+    pub(crate) outcome: Option<i32>,
+}
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct IndexSourcePolicyQuery {
     pub(crate) market_id: String,
     pub(crate) outcome: Option<i32>,
 }
@@ -249,4 +302,74 @@ pub(crate) struct LiquidationQueueOverrideRequest {
     pub(crate) liquidator_user_id: Option<String>,
     pub(crate) retry_tier: Option<u32>,
     pub(crate) next_attempt_secs: Option<i64>,
+}
+
+// ── Order History ────────────────────────────────────────────
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct OrderHistoryQuery {
+    pub(crate) market_id: Option<String>,
+    pub(crate) outcome: Option<i32>,
+    pub(crate) side: Option<String>,
+    pub(crate) limit: Option<usize>,
+}
+
+// ── Ticker ───────────────────────────────────────────────────
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct TickerQuery {
+    pub(crate) outcome: Option<i32>,
+}
+
+// ── Funding History ──────────────────────────────────────────
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct FundingHistoryQuery {
+    pub(crate) market_id: Option<String>,
+    pub(crate) outcome: Option<i32>,
+    pub(crate) limit: Option<usize>,
+}
+
+// ── Klines ───────────────────────────────────────────────────
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct KlineQuery {
+    pub(crate) outcome: Option<i32>,
+    pub(crate) interval: Option<String>,
+    pub(crate) limit: Option<usize>,
+}
+
+// ── Withdrawals ──────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub(crate) struct WithdrawalRequest {
+    pub(crate) amount: i64,
+    pub(crate) destination_address: String,
+    pub(crate) asset: Option<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct WithdrawalQuery {
+    pub(crate) status: Option<String>,
+    pub(crate) limit: Option<usize>,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct WithdrawalApproveRequest {
+    pub(crate) withdrawal_id: String,
+}
+
+// ── Transfers ────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub(crate) struct TransferRequest {
+    pub(crate) to_user_id: String,
+    pub(crate) amount: i64,
+    pub(crate) asset: Option<String>,
+    pub(crate) memo: Option<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct TransferQuery {
+    pub(crate) limit: Option<usize>,
 }

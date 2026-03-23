@@ -1,0 +1,161 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Orders / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "rate(exchange_orders_received_total[1m])", "legendFormat": "received" },
+        { "expr": "rate(exchange_orders_filled_total[1m])", "legendFormat": "filled" },
+        { "expr": "rate(exchange_orders_rejected_total[1m])", "legendFormat": "rejected" },
+        { "expr": "rate(exchange_orders_cancelled_total[1m])", "legendFormat": "cancelled" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "Match Latency (μs)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "exchange_match_e2e_us_p50", "legendFormat": "p50" },
+        { "expr": "exchange_match_e2e_us_p95", "legendFormat": "p95" },
+        { "expr": "exchange_match_e2e_us_p99", "legendFormat": "p99" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "µs" }
+      }
+    },
+    {
+      "title": "WAL Operations / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "rate(exchange_wal_appends_total[1m])", "legendFormat": "appends" },
+        { "expr": "rate(exchange_wal_errors_total[1m])", "legendFormat": "errors" },
+        { "expr": "rate(exchange_snapshot_writes_total[1m])", "legendFormat": "snapshots" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "WAL Append Latency (μs)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "exchange_wal_append_us_p50", "legendFormat": "p50" },
+        { "expr": "exchange_wal_append_us_p95", "legendFormat": "p95" },
+        { "expr": "exchange_wal_append_us_p99", "legendFormat": "p99" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "µs" }
+      }
+    },
+    {
+      "title": "WebSocket Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "exchange_ws_connections_active", "legendFormat": "active" },
+        { "expr": "rate(exchange_ws_connections_total[5m])", "legendFormat": "new / sec" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      }
+    },
+    {
+      "title": "HTTP Requests / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "rate(exchange_http_requests_total[1m])", "legendFormat": "requests" },
+        { "expr": "rate(exchange_http_errors_total[1m])", "legendFormat": "errors" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "HTTP Request Latency (μs)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "exchange_http_request_us_p50", "legendFormat": "p50" },
+        { "expr": "exchange_http_request_us_p95", "legendFormat": "p95" },
+        { "expr": "exchange_http_request_us_p99", "legendFormat": "p99" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "µs" }
+      }
+    },
+    {
+      "title": "Settlements / sec",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "rate(exchange_settlements_committed_total[1m])", "legendFormat": "settlements" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "Bridge Alive",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 24 },
+      "targets": [
+        { "expr": "exchange_bridge_alive", "legendFormat": "alive" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "title": "Per-Partition Fills",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        { "expr": "rate(exchange_partition_fills{partition=~\".*\"}[1m])", "legendFormat": "P{{partition}}" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "Queue Wait Latency (μs)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        { "expr": "exchange_queue_wait_us_p50", "legendFormat": "p50" },
+        { "expr": "exchange_queue_wait_us_p95", "legendFormat": "p95" },
+        { "expr": "exchange_queue_wait_us_p99", "legendFormat": "p99" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "µs" }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["exchange", "rust", "trading"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Rust Exchange — Operations",
+  "uid": "rust-exchange-ops",
+  "version": 1
+}

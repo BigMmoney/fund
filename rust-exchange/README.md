@@ -6,6 +6,11 @@ If older notes, legacy prototypes, or compatibility-layer behavior conflict with
 current Rust implementation, the Rust code and the latest architecture / validation
 documents in this directory should be treated as the source of truth.
 
+## Current Docs
+
+- Current runtime-aligned Chinese architecture note: `ARCHITECTURE_ZH_RUNTIME_ALIGNMENT_2026-03-23.md`
+- Historical reports in this directory should be treated as archive material, not the current runtime contract.
+
 ## Project Position
 
 The repository is no longer in a dual-core state.
