@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,6 +84,61 @@ type necessityArtifact struct {
 	ScoreComponents []string                  `json:"score_components"`
 	Variants        []necessityVariantSummary `json:"variants"`
 	RankShifts      []necessityRankShift      `json:"rank_shifts"`
+}
+
+type sharedEvalObservation struct {
+	Spec        ActionSpec  `json:"spec"`
+	Observation Observation `json:"observation"`
+}
+
+type policyAgreementRow struct {
+	Split                string  `json:"split"`
+	ReferencePolicy      string  `json:"reference_policy"`
+	LeftPolicy           string  `json:"left_policy"`
+	RightPolicy          string  `json:"right_policy"`
+	Samples              int     `json:"samples"`
+	ExactActionAgreement float64 `json:"exact_action_agreement"`
+	LeftUniqueActions    int     `json:"left_unique_actions"`
+	RightUniqueActions   int     `json:"right_unique_actions"`
+	LeftActionEntropy    float64 `json:"left_action_entropy"`
+	RightActionEntropy   float64 `json:"right_action_entropy"`
+}
+
+type policyAgreementArtifact struct {
+	ReferencePolicy   string               `json:"reference_policy"`
+	ValidationRegimes []string             `json:"validation_regimes"`
+	HeldOutRegimes    []string             `json:"heldout_regimes"`
+	Rows              []policyAgreementRow `json:"rows"`
+}
+
+type datasetCoverageSummary struct {
+	Dataset             string  `json:"dataset"`
+	Source              string  `json:"source"`
+	Samples             int     `json:"samples"`
+	UniqueRoundedStates int     `json:"unique_rounded_states"`
+	UniqueActions       int     `json:"unique_actions"`
+	ActionEntropy       float64 `json:"action_entropy"`
+	DominantAction      string  `json:"dominant_action"`
+	DominantShare       float64 `json:"dominant_share"`
+}
+
+type datasetCoverageActionRow struct {
+	Dataset string  `json:"dataset"`
+	Source  string  `json:"source"`
+	Action  string  `json:"action"`
+	Samples int     `json:"samples"`
+	Share   float64 `json:"share"`
+}
+
+type datasetCoverageArtifact struct {
+	ObservationFeatureCount int                        `json:"observation_feature_count"`
+	ActionCount             int                        `json:"action_count"`
+	ActionNames             []string                   `json:"action_names"`
+	TrainSeeds              []int64                    `json:"train_seeds"`
+	HeldOutSeeds            []int64                    `json:"heldout_seeds"`
+	HeldOutRegimes          []string                   `json:"heldout_regimes"`
+	Summaries               []datasetCoverageSummary   `json:"summaries"`
+	ActionRows              []datasetCoverageActionRow `json:"action_rows"`
 }
 
 type welfareSuiteSummary struct {
@@ -329,6 +385,7 @@ func TestGenerateSimulatorLeaderboardArtifacts(t *testing.T) {
 	validationRegimes := calibratedValidationRegimes()
 	heldOutRegimes := calibratedHeldOutRegimes()
 
+	bcModel, bcSummary := trainProtocolBehaviorClone(base, cfg, validationRegimes)
 	ppoTrace, ppoModel := trainProtocolPPO(base, cfg, validationRegimes)
 	iqlModel, iqlSummary := trainProtocolIQL(base, cfg, validationRegimes)
 	fittedQ := cachedFittedQPolicy(base)
@@ -336,6 +393,9 @@ func TestGenerateSimulatorLeaderboardArtifacts(t *testing.T) {
 	bundles := []policyEvaluationBundle{
 		{Name: "burst_aware", Run: func(regimes []ScenarioConfig, seeds []int64) []BenchmarkResult {
 			return runChooserAcrossRegimes(regimes, seeds, cfg.RewardWeights, burstAwareChooser(), "burst_aware")
+		}},
+		{Name: "behavior_clone", Run: func(regimes []ScenarioConfig, seeds []int64) []BenchmarkResult {
+			return runChooserAcrossRegimes(regimes, seeds, cfg.RewardWeights, tinyChooser(bcModel), "behavior_clone")
 		}},
 		{Name: "fitted_q", Run: func(regimes []ScenarioConfig, seeds []int64) []BenchmarkResult {
 			return runChooserAcrossRegimes(regimes, seeds, cfg.RewardWeights, fittedQChooser(fittedQ), "fitted_q")
@@ -354,7 +414,7 @@ func TestGenerateSimulatorLeaderboardArtifacts(t *testing.T) {
 		entries = append(entries, leaderboardEntry{
 			Policy:                         bundle.Name,
 			Family:                         leaderboardFamily(bundle.Name),
-			TrainingBudget:                 leaderboardBudget(bundle.Name, fittedQ, cfg, len(ppoTrace), iqlSummary),
+			TrainingBudget:                 leaderboardBudget(bundle.Name, fittedQ, cfg, bcSummary, len(ppoTrace), iqlSummary),
 			MeanFillsPerSec:                meanBenchmarkMetric(runs, func(result BenchmarkResult) float64 { return result.FillsPerSec }),
 			MeanP99LatencyMs:               meanBenchmarkMetric(runs, func(result BenchmarkResult) float64 { return result.P99LatencyMs }),
 			MeanAveragePriceImpact:         meanBenchmarkMetric(runs, func(result BenchmarkResult) float64 { return result.AveragePriceImpact }),
@@ -390,6 +450,186 @@ func TestGenerateSimulatorLeaderboardArtifacts(t *testing.T) {
 	}
 	if err := writeSimulatorLeaderboardArtifacts(artifact); err != nil {
 		t.Fatalf("write leaderboard artifacts: %v", err)
+	}
+}
+
+func TestGenerateSimulatorPolicyAgreementArtifacts(t *testing.T) {
+	if os.Getenv("RUN_SIM_POLICY_AGREEMENT") != "1" {
+		t.Skip("set RUN_SIM_POLICY_AGREEMENT=1 to generate policy-agreement artifacts")
+	}
+
+	cfg := defaultCalibratedProtocolConfig()
+	base := calibratedAdaptiveProtocolBaseScenario()
+	validationRegimes := calibratedValidationRegimes()
+	heldOutRegimes := calibratedHeldOutRegimes()
+
+	bcModel, _ := trainProtocolBehaviorClone(base, cfg, validationRegimes)
+	_, ppoModel := trainProtocolPPO(base, cfg, validationRegimes)
+	iqlModel, _ := trainProtocolIQL(base, cfg, validationRegimes)
+
+	choosers := map[string]func(ActionSpec, Observation) ControlAction{
+		"burst_aware":    burstAwareChooser(),
+		"behavior_clone": tinyChooser(bcModel),
+		"ppo_clip":       tinyChooser(ppoModel),
+		"iql":            tinyChooser(iqlModel),
+	}
+	pairs := [][2]string{
+		{"behavior_clone", "iql"},
+		{"behavior_clone", "burst_aware"},
+		{"iql", "burst_aware"},
+		{"behavior_clone", "ppo_clip"},
+		{"iql", "ppo_clip"},
+	}
+
+	validationObs := collectSharedObservations(validationRegimes, cfg.ValidationSeeds, choosers["burst_aware"])
+	heldOutObs := collectSharedObservations(heldOutRegimes, cfg.HeldOutSeeds, choosers["burst_aware"])
+	rows := make([]policyAgreementRow, 0, len(pairs)*2)
+	rows = append(rows, buildPolicyAgreementRows("validation", "burst_aware", validationObs, choosers, pairs)...)
+	rows = append(rows, buildPolicyAgreementRows("heldout", "burst_aware", heldOutObs, choosers, pairs)...)
+
+	if err := writeSimulatorPolicyAgreementArtifacts(policyAgreementArtifact{
+		ReferencePolicy:   "burst_aware",
+		ValidationRegimes: scenarioNames(validationRegimes),
+		HeldOutRegimes:    scenarioNames(heldOutRegimes),
+		Rows:              rows,
+	}); err != nil {
+		t.Fatalf("write policy agreement artifacts: %v", err)
+	}
+}
+
+func TestGenerateSimulatorDataCoverageArtifacts(t *testing.T) {
+	if os.Getenv("RUN_SIM_DATA_COVERAGE") != "1" {
+		t.Skip("set RUN_SIM_DATA_COVERAGE=1 to generate data-coverage artifacts")
+	}
+
+	cfg := defaultCalibratedProtocolConfig()
+	base := calibratedAdaptiveProtocolBaseScenario()
+	heldOutRegimes := calibratedHeldOutRegimes()
+	spec := NewAdapterWithRewardWeights(base, cfg.RewardWeights).ActionSpec()
+	actions := candidateBanditActions(spec)
+	actionNames := make([]string, 0, len(actions))
+	for _, action := range actions {
+		actionNames = append(actionNames, action.Name)
+	}
+
+	linucb := cachedLinUCBPolicy(base)
+	tiny := cachedTinyMLPPolicy(base)
+	offline := cachedOfflineContextualPolicy(base)
+	rng := rand.New(rand.NewSource(trainingRandomSeed(base) + 9011))
+
+	summaries := make([]datasetCoverageSummary, 0, 12)
+	rows := make([]datasetCoverageActionRow, 0, len(actions)*12)
+
+	behaviorSources := []struct {
+		Name   string
+		Policy PolicyController
+	}{
+		{Name: "burst_aware", Policy: PolicyBurstAware},
+		{Name: "learned_linucb", Policy: PolicyLearnedLinUCB},
+		{Name: "learned_tiny_mlp", Policy: PolicyLearnedTinyMLP},
+		{Name: "learned_offline_contextual", Policy: PolicyLearnedOfflineContextual},
+	}
+	bcOverallCounts := make(map[int]int, len(actions))
+	bcOverallStates := make(map[string]struct{})
+	bcOverallSamples := 0
+	for _, source := range behaviorSources {
+		counts := make(map[int]int, len(actions))
+		states := make(map[string]struct{})
+		samples := 0
+		for _, seed := range cfg.TrainSeeds {
+			transitions := collectOfflineTransitionTrajectory(base, seed, source.Policy, actions, &linucb, &tiny, &offline, rng)
+			for _, transition := range transitions {
+				counts[transition.action]++
+				bcOverallCounts[transition.action]++
+				samples++
+				bcOverallSamples++
+				signature := roundedFeatureSignature(transition.features)
+				states[signature] = struct{}{}
+				bcOverallStates[signature] = struct{}{}
+			}
+		}
+		summaries = append(summaries, buildDatasetCoverageSummary("behavior_clone_train", source.Name, actionNames, counts, samples, states))
+		rows = append(rows, buildDatasetCoverageRows("behavior_clone_train", source.Name, actionNames, counts, samples)...)
+	}
+	summaries = append(summaries, buildDatasetCoverageSummary("behavior_clone_train", "all", actionNames, bcOverallCounts, bcOverallSamples, bcOverallStates))
+	rows = append(rows, buildDatasetCoverageRows("behavior_clone_train", "all", actionNames, bcOverallCounts, bcOverallSamples)...)
+
+	iqlOverallCounts := make(map[int]int, len(actions))
+	iqlOverallStates := make(map[string]struct{})
+	iqlOverallSamples := 0
+	for _, source := range behaviorSources {
+		counts := make(map[int]int, len(actions))
+		states := make(map[string]struct{})
+		samples := 0
+		for _, seed := range cfg.TrainSeeds {
+			transitions := collectOfflineTransitionTrajectoryWithRewardWeights(base, seed, cfg.RewardWeights, source.Policy, actions, &linucb, &tiny, &offline, rng)
+			for _, transition := range transitions {
+				counts[transition.action]++
+				iqlOverallCounts[transition.action]++
+				samples++
+				iqlOverallSamples++
+				signature := roundedFeatureSignature(transition.features)
+				states[signature] = struct{}{}
+				iqlOverallStates[signature] = struct{}{}
+			}
+		}
+		summaries = append(summaries, buildDatasetCoverageSummary("iql_train", source.Name, actionNames, counts, samples, states))
+		rows = append(rows, buildDatasetCoverageRows("iql_train", source.Name, actionNames, counts, samples)...)
+	}
+	randomCounts := make(map[int]int, len(actions))
+	randomStates := make(map[string]struct{})
+	randomSamples := 0
+	for _, seed := range cfg.TrainSeeds {
+		for rollout := 0; rollout < 2; rollout++ {
+			transitions := collectOfflineRandomTransitionTrajectoryWithRewardWeights(base, seed+int64(rollout), cfg.RewardWeights, actions, rng)
+			for _, transition := range transitions {
+				randomCounts[transition.action]++
+				iqlOverallCounts[transition.action]++
+				randomSamples++
+				iqlOverallSamples++
+				signature := roundedFeatureSignature(transition.features)
+				randomStates[signature] = struct{}{}
+				iqlOverallStates[signature] = struct{}{}
+			}
+		}
+	}
+	summaries = append(summaries, buildDatasetCoverageSummary("iql_train", "random_rollout", actionNames, randomCounts, randomSamples, randomStates))
+	rows = append(rows, buildDatasetCoverageRows("iql_train", "random_rollout", actionNames, randomCounts, randomSamples)...)
+	summaries = append(summaries, buildDatasetCoverageSummary("iql_train", "all", actionNames, iqlOverallCounts, iqlOverallSamples, iqlOverallStates))
+	rows = append(rows, buildDatasetCoverageRows("iql_train", "all", actionNames, iqlOverallCounts, iqlOverallSamples)...)
+
+	bcModel, _ := trainProtocolBehaviorClone(base, cfg, calibratedValidationRegimes())
+	_, ppoModel := trainProtocolPPO(base, cfg, calibratedValidationRegimes())
+	iqlModel, _ := trainProtocolIQL(base, cfg, calibratedValidationRegimes())
+	heldOutObs := collectSharedObservations(heldOutRegimes, cfg.HeldOutSeeds, burstAwareChooser())
+	heldOutPolicies := map[string]func(ActionSpec, Observation) ControlAction{
+		"burst_aware":    burstAwareChooser(),
+		"behavior_clone": tinyChooser(bcModel),
+		"ppo_clip":       tinyChooser(ppoModel),
+		"iql":            tinyChooser(iqlModel),
+	}
+	stateCoverage := make(map[string]struct{}, len(heldOutObs))
+	for _, item := range heldOutObs {
+		stateCoverage[roundedFeatureSignature(observationFeatures(item.Observation))] = struct{}{}
+	}
+	for name, chooser := range heldOutPolicies {
+		counts := histogramInts(chooserActionIndices(heldOutObs, chooser))
+		summaries = append(summaries, buildDatasetCoverageSummary("heldout_policy_actions", name, actionNames, counts, len(heldOutObs), stateCoverage))
+		rows = append(rows, buildDatasetCoverageRows("heldout_policy_actions", name, actionNames, counts, len(heldOutObs))...)
+	}
+
+	artifact := datasetCoverageArtifact{
+		ObservationFeatureCount: len(observationFeatures(Observation{})),
+		ActionCount:             len(actions),
+		ActionNames:             actionNames,
+		TrainSeeds:              append([]int64(nil), cfg.TrainSeeds...),
+		HeldOutSeeds:            append([]int64(nil), cfg.HeldOutSeeds...),
+		HeldOutRegimes:          scenarioNames(heldOutRegimes),
+		Summaries:               summaries,
+		ActionRows:              rows,
+	}
+	if err := writeSimulatorDataCoverageArtifacts(artifact); err != nil {
+		t.Fatalf("write data coverage artifacts: %v", err)
 	}
 }
 
@@ -556,15 +796,15 @@ func buildNecessityBundles(base ScenarioConfig, rewardWeights RewardWeights) []p
 	cfg := defaultCalibratedProtocolConfig()
 	cfg.RewardWeights = rewardWeights
 	validationRegimes := counterfactualValidationRegimes(base)
+	bcModel, _ := trainProtocolBehaviorClone(base, cfg, validationRegimes)
 	_, ppoModel := trainProtocolPPO(base, cfg, validationRegimes)
 	iqlModel, _ := trainProtocolIQL(base, cfg, validationRegimes)
-	fittedQ := cachedFittedQPolicy(base)
 	return []policyEvaluationBundle{
 		{Name: "burst_aware", Run: func(regimes []ScenarioConfig, seeds []int64) []BenchmarkResult {
 			return runChooserAcrossRegimes(regimes, seeds, rewardWeights, burstAwareChooser(), "burst_aware")
 		}},
-		{Name: "fitted_q", Run: func(regimes []ScenarioConfig, seeds []int64) []BenchmarkResult {
-			return runChooserAcrossRegimes(regimes, seeds, rewardWeights, fittedQChooser(fittedQ), "fitted_q")
+		{Name: "behavior_clone", Run: func(regimes []ScenarioConfig, seeds []int64) []BenchmarkResult {
+			return runChooserAcrossRegimes(regimes, seeds, rewardWeights, tinyChooser(bcModel), "behavior_clone")
 		}},
 		{Name: "ppo_clip", Run: func(regimes []ScenarioConfig, seeds []int64) []BenchmarkResult {
 			return runChooserAcrossRegimes(regimes, seeds, rewardWeights, tinyChooser(ppoModel), "ppo_clip")
@@ -610,8 +850,12 @@ func assignNecessityScoresAndRanks(rows []necessityPolicySummary) {
 		}
 		return rows[i].BenchmarkScore > rows[j].BenchmarkScore
 	})
+	currentRank := 0
 	for idx := range rows {
-		rows[idx].Rank = idx + 1
+		if idx == 0 || math.Abs(rows[idx].BenchmarkScore-rows[idx-1].BenchmarkScore) > 1e-9 {
+			currentRank = idx + 1
+		}
+		rows[idx].Rank = currentRank
 	}
 }
 
@@ -833,6 +1077,163 @@ func kendallTauFromRanks(policies []string, leftRanks, rightRanks map[string]int
 	return float64(concordant-discordant) / float64(total)
 }
 
+func collectSharedObservations(regimes []ScenarioConfig, seeds []int64, referenceChooser func(ActionSpec, Observation) ControlAction) []sharedEvalObservation {
+	observations := make([]sharedEvalObservation, 0, len(regimes)*len(seeds)*64)
+	for _, regime := range regimes {
+		for _, seed := range seeds {
+			cfg := regime
+			cfg.Seed = seed
+			adapter := NewAdapter(cfg)
+			timestep := adapter.Reset()
+			for !timestep.Done {
+				spec := adapter.ActionSpec()
+				observations = append(observations, sharedEvalObservation{
+					Spec:        spec,
+					Observation: timestep.Observation,
+				})
+				action := ControlAction{}
+				if referenceChooser != nil {
+					action = referenceChooser(spec, timestep.Observation)
+				}
+				timestep = adapter.Step(action)
+			}
+		}
+	}
+	return observations
+}
+
+func chooserActionIndices(observations []sharedEvalObservation, chooser func(ActionSpec, Observation) ControlAction) []int {
+	indices := make([]int, 0, len(observations))
+	for _, item := range observations {
+		actions := candidateBanditActions(item.Spec)
+		action := chooser(item.Spec, item.Observation)
+		indices = append(indices, nearestCandidateIndex(item.Spec, action, actions))
+	}
+	return indices
+}
+
+func actionEntropy(indices []int) (float64, int) {
+	if len(indices) == 0 {
+		return 0, 0
+	}
+	counts := make(map[int]int, 8)
+	for _, idx := range indices {
+		counts[idx]++
+	}
+	entropy := 0.0
+	for _, count := range counts {
+		p := float64(count) / float64(len(indices))
+		entropy -= p * math.Log2(p)
+	}
+	return entropy, len(counts)
+}
+
+func exactActionAgreement(left, right []int) float64 {
+	if len(left) == 0 || len(left) != len(right) {
+		return 0
+	}
+	matches := 0
+	for idx := range left {
+		if left[idx] == right[idx] {
+			matches++
+		}
+	}
+	return float64(matches) / float64(len(left))
+}
+
+func buildPolicyAgreementRows(split string, reference string, observations []sharedEvalObservation, choosers map[string]func(ActionSpec, Observation) ControlAction, pairs [][2]string) []policyAgreementRow {
+	cache := make(map[string][]int, len(choosers))
+	for name, chooser := range choosers {
+		cache[name] = chooserActionIndices(observations, chooser)
+	}
+	rows := make([]policyAgreementRow, 0, len(pairs))
+	for _, pair := range pairs {
+		leftEntropy, leftUnique := actionEntropy(cache[pair[0]])
+		rightEntropy, rightUnique := actionEntropy(cache[pair[1]])
+		rows = append(rows, policyAgreementRow{
+			Split:                split,
+			ReferencePolicy:      reference,
+			LeftPolicy:           pair[0],
+			RightPolicy:          pair[1],
+			Samples:              len(observations),
+			ExactActionAgreement: exactActionAgreement(cache[pair[0]], cache[pair[1]]),
+			LeftUniqueActions:    leftUnique,
+			RightUniqueActions:   rightUnique,
+			LeftActionEntropy:    leftEntropy,
+			RightActionEntropy:   rightEntropy,
+		})
+	}
+	return rows
+}
+
+func histogramInts(indices []int) map[int]int {
+	counts := make(map[int]int, 8)
+	for _, idx := range indices {
+		counts[idx]++
+	}
+	return counts
+}
+
+func roundedFeatureSignature(features []float64) string {
+	if len(features) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(features))
+	for _, value := range features {
+		parts = append(parts, fmt.Sprintf("%.3f", value))
+	}
+	return strings.Join(parts, "|")
+}
+
+func buildDatasetCoverageSummary(dataset, source string, actionNames []string, counts map[int]int, samples int, states map[string]struct{}) datasetCoverageSummary {
+	dominantAction := ""
+	dominantCount := 0
+	indices := make([]int, 0, samples)
+	for idx := range actionNames {
+		count := counts[idx]
+		if count > dominantCount {
+			dominantCount = count
+			dominantAction = actionNames[idx]
+		}
+		for repeat := 0; repeat < count; repeat++ {
+			indices = append(indices, idx)
+		}
+	}
+	entropy, uniqueActions := actionEntropy(indices)
+	dominantShare := 0.0
+	if samples > 0 {
+		dominantShare = float64(dominantCount) / float64(samples)
+	}
+	return datasetCoverageSummary{
+		Dataset:             dataset,
+		Source:              source,
+		Samples:             samples,
+		UniqueRoundedStates: len(states),
+		UniqueActions:       uniqueActions,
+		ActionEntropy:       entropy,
+		DominantAction:      dominantAction,
+		DominantShare:       dominantShare,
+	}
+}
+
+func buildDatasetCoverageRows(dataset, source string, actionNames []string, counts map[int]int, samples int) []datasetCoverageActionRow {
+	rows := make([]datasetCoverageActionRow, 0, len(actionNames))
+	for idx, name := range actionNames {
+		share := 0.0
+		if samples > 0 {
+			share = float64(counts[idx]) / float64(samples)
+		}
+		rows = append(rows, datasetCoverageActionRow{
+			Dataset: dataset,
+			Source:  source,
+			Action:  name,
+			Samples: counts[idx],
+			Share:   share,
+		})
+	}
+	return rows
+}
+
 func pearsonCorrelation(left, right []float64) float64 {
 	if len(left) == 0 || len(left) != len(right) {
 		return 0
@@ -893,6 +1294,8 @@ func leaderboardFamily(policy string) string {
 	switch policy {
 	case "burst_aware":
 		return "heuristic"
+	case "behavior_clone":
+		return "offline_imitation"
 	case "fitted_q", "iql":
 		return "offline_value"
 	case "ppo_clip":
@@ -902,10 +1305,12 @@ func leaderboardFamily(policy string) string {
 	}
 }
 
-func leaderboardBudget(policy string, fittedQ learnedFittedQPolicy, cfg calibratedProtocolConfig, ppoTraceLen int, iqlSummary iqlTrainingSummary) string {
+func leaderboardBudget(policy string, fittedQ learnedFittedQPolicy, cfg calibratedProtocolConfig, bcSummary behaviorCloneTrainingSummary, ppoTraceLen int, iqlSummary iqlTrainingSummary) string {
 	switch policy {
 	case "burst_aware":
 		return "no_training"
+	case "behavior_clone":
+		return fmt.Sprintf("%d epochs on %d logged samples", bcSummary.Epochs, bcSummary.TrainSamples)
 	case "fitted_q":
 		return fmt.Sprintf("%d fitted-q iterations", fittedQ.Iterations)
 	case "ppo_clip":
@@ -952,8 +1357,12 @@ func assignLeaderboardScores(entries []leaderboardEntry) {
 		}
 		return entries[i].BenchmarkScore > entries[j].BenchmarkScore
 	})
+	currentRank := 0
 	for idx := range entries {
-		entries[idx].Rank = idx + 1
+		if idx == 0 || math.Abs(entries[idx].BenchmarkScore-entries[idx-1].BenchmarkScore) > 1e-9 {
+			currentRank = idx + 1
+		}
+		entries[idx].Rank = currentRank
 	}
 }
 
@@ -1159,6 +1568,111 @@ func writeSimulatorWelfareRobustnessArtifacts(artifact welfareRobustnessArtifact
 	for _, row := range artifact.RankStability {
 		md.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %.4f |\n", row.LeftSuite, row.RightSuite, row.Metric, len(row.CommonPolicy), row.KendallTau))
 		csv.WriteString(fmt.Sprintf("rank_stability,%s,%s,0,0,0,0,0,0,0,0,,%s,0,0,%.6f\n", row.LeftSuite, row.RightSuite, row.Metric, row.KendallTau))
+	}
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorPolicyAgreementArtifacts(artifact policyAgreementArtifact) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+	jsonPath := filepath.Join(base, "simulator_policy_agreement.json")
+	mdPath := filepath.Join(base, "simulator_policy_agreement.md")
+	csvPath := filepath.Join(base, "simulator_policy_agreement.csv")
+	raw, err := json.MarshalIndent(artifact, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	var md strings.Builder
+	md.WriteString("# Simulator Policy Agreement\n\n")
+	md.WriteString(fmt.Sprintf("- Reference rollout policy: `%s`\n", artifact.ReferencePolicy))
+	md.WriteString(fmt.Sprintf("- Validation regimes: `%s`\n", strings.Join(artifact.ValidationRegimes, ", ")))
+	md.WriteString(fmt.Sprintf("- Held-out regimes: `%s`\n\n", strings.Join(artifact.HeldOutRegimes, ", ")))
+	md.WriteString("| Split | Left | Right | Samples | Exact Agreement | Left Unique | Right Unique | Left Entropy | Right Entropy |\n")
+	md.WriteString("|---|---|---|---:|---:|---:|---:|---:|---:|\n")
+
+	var csv strings.Builder
+	csv.WriteString("split,reference_policy,left_policy,right_policy,samples,exact_action_agreement,left_unique_actions,right_unique_actions,left_action_entropy,right_action_entropy\n")
+	for _, row := range artifact.Rows {
+		md.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %.4f | %d | %d | %.4f | %.4f |\n",
+			row.Split, row.LeftPolicy, row.RightPolicy, row.Samples, row.ExactActionAgreement, row.LeftUniqueActions, row.RightUniqueActions, row.LeftActionEntropy, row.RightActionEntropy))
+		csv.WriteString(fmt.Sprintf("%s,%s,%s,%s,%d,%.6f,%d,%d,%.6f,%.6f\n",
+			row.Split, row.ReferencePolicy, row.LeftPolicy, row.RightPolicy, row.Samples, row.ExactActionAgreement, row.LeftUniqueActions, row.RightUniqueActions, row.LeftActionEntropy, row.RightActionEntropy))
+	}
+	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(csvPath, []byte(csv.String()), 0o644)
+}
+
+func writeSimulatorDataCoverageArtifacts(artifact datasetCoverageArtifact) error {
+	base := filepath.Join("..", "docs", "benchmarks")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+	jsonPath := filepath.Join(base, "simulator_data_coverage.json")
+	mdPath := filepath.Join(base, "simulator_data_coverage.md")
+	csvPath := filepath.Join(base, "simulator_data_coverage.csv")
+	raw, err := json.MarshalIndent(artifact, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(jsonPath, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	summaries := append([]datasetCoverageSummary(nil), artifact.Summaries...)
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].Dataset == summaries[j].Dataset {
+			return summaries[i].Source < summaries[j].Source
+		}
+		return summaries[i].Dataset < summaries[j].Dataset
+	})
+	rows := append([]datasetCoverageActionRow(nil), artifact.ActionRows...)
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Dataset == rows[j].Dataset {
+			if rows[i].Source == rows[j].Source {
+				return rows[i].Action < rows[j].Action
+			}
+			return rows[i].Source < rows[j].Source
+		}
+		return rows[i].Dataset < rows[j].Dataset
+	})
+
+	var md strings.Builder
+	md.WriteString("# Simulator Data Coverage\n\n")
+	md.WriteString(fmt.Sprintf("- Observation features: `%d`\n", artifact.ObservationFeatureCount))
+	md.WriteString(fmt.Sprintf("- Discrete actions: `%d`\n", artifact.ActionCount))
+	md.WriteString(fmt.Sprintf("- Action names: `%s`\n", strings.Join(artifact.ActionNames, ", ")))
+	md.WriteString(fmt.Sprintf("- Train seeds: `%v`\n", artifact.TrainSeeds))
+	md.WriteString(fmt.Sprintf("- Held-out seeds: `%v`\n", artifact.HeldOutSeeds))
+	md.WriteString(fmt.Sprintf("- Held-out regimes: `%s`\n\n", strings.Join(artifact.HeldOutRegimes, ", ")))
+	md.WriteString("| Dataset | Source | Samples | Unique States | Unique Actions | Entropy | Dominant Action | Dominant Share |\n")
+	md.WriteString("|---|---|---:|---:|---:|---:|---|---:|\n")
+
+	var csv strings.Builder
+	csv.WriteString("section,dataset,source,action,samples,share,unique_rounded_states,unique_actions,action_entropy,dominant_action,dominant_share\n")
+	for _, summary := range summaries {
+		md.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %d | %.4f | %s | %.4f |\n",
+			summary.Dataset, summary.Source, summary.Samples, summary.UniqueRoundedStates, summary.UniqueActions, summary.ActionEntropy, summary.DominantAction, summary.DominantShare))
+		csv.WriteString(fmt.Sprintf("summary,%s,%s,,%d,0,%d,%d,%.6f,%s,%.6f\n",
+			summary.Dataset, summary.Source, summary.Samples, summary.UniqueRoundedStates, summary.UniqueActions, summary.ActionEntropy, summary.DominantAction, summary.DominantShare))
+	}
+
+	md.WriteString("\n## Action Distribution\n\n")
+	md.WriteString("| Dataset | Source | Action | Samples | Share |\n")
+	md.WriteString("|---|---|---|---:|---:|\n")
+	for _, row := range rows {
+		md.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %.4f |\n", row.Dataset, row.Source, row.Action, row.Samples, row.Share))
+		csv.WriteString(fmt.Sprintf("action,%s,%s,%s,%d,%.6f,,,,,\n", row.Dataset, row.Source, row.Action, row.Samples, row.Share))
 	}
 	if err := os.WriteFile(mdPath, []byte(md.String()), 0o644); err != nil {
 		return err

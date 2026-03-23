@@ -20,6 +20,7 @@ type calibratedProtocolConfig struct {
 	TrainSeeds      []int64       `json:"train_seeds"`
 	ValidationSeeds []int64       `json:"validation_seeds"`
 	HeldOutSeeds    []int64       `json:"heldout_seeds"`
+	BCEpochs        int           `json:"bc_epochs"`
 	PPOEpisodes     int           `json:"ppo_episodes"`
 	PPOClipEpsilon  float64       `json:"ppo_clip_epsilon"`
 	PPOPolicyEpochs int           `json:"ppo_policy_epochs"`
@@ -84,6 +85,13 @@ type iqlTrainingSummary struct {
 	ValidationScore float64 `json:"validation_score"`
 }
 
+type behaviorCloneTrainingSummary struct {
+	Epochs          int      `json:"epochs"`
+	TrainSamples    int      `json:"train_samples"`
+	BehaviorSources []string `json:"behavior_sources"`
+	ValidationScore float64  `json:"validation_score"`
+}
+
 type iqlValueModel struct {
 	Weights []float64
 }
@@ -138,23 +146,26 @@ func TestGenerateSimulatorCalibratedLearningProtocolArtifacts(t *testing.T) {
 	validationRegimes := calibratedValidationRegimes()
 	heldOutRegimes := calibratedHeldOutRegimes()
 
+	bcModel, bcSummary := trainProtocolBehaviorClone(base, cfg, validationRegimes)
 	ppoTrace, ppoModel := trainProtocolPPO(base, cfg, validationRegimes)
 	iqlModel, iqlSummary := trainProtocolIQL(base, cfg, validationRegimes)
 	fittedQ := cachedFittedQPolicy(base)
 
-	results := make([]calibratedProtocolResult, 0, 8)
+	results := make([]calibratedProtocolResult, 0, 10)
 	results = append(results,
 		summarizeProtocolRuns("burst_aware", "validation", validationRegimes, cfg.ValidationSeeds, cfg.RewardWeights, burstAwareChooser()),
+		summarizeProtocolRuns("behavior_clone", "validation", validationRegimes, cfg.ValidationSeeds, cfg.RewardWeights, tinyChooser(bcModel)),
 		summarizeProtocolRuns("fitted_q", "validation", validationRegimes, cfg.ValidationSeeds, cfg.RewardWeights, fittedQChooser(fittedQ)),
 		summarizeProtocolRuns("ppo_clip", "validation", validationRegimes, cfg.ValidationSeeds, cfg.RewardWeights, tinyChooser(ppoModel)),
 		summarizeProtocolRuns("iql", "validation", validationRegimes, cfg.ValidationSeeds, cfg.RewardWeights, tinyChooser(iqlModel)),
 		summarizeProtocolRuns("burst_aware", "heldout", heldOutRegimes, cfg.HeldOutSeeds, cfg.RewardWeights, burstAwareChooser()),
+		summarizeProtocolRuns("behavior_clone", "heldout", heldOutRegimes, cfg.HeldOutSeeds, cfg.RewardWeights, tinyChooser(bcModel)),
 		summarizeProtocolRuns("fitted_q", "heldout", heldOutRegimes, cfg.HeldOutSeeds, cfg.RewardWeights, fittedQChooser(fittedQ)),
 		summarizeProtocolRuns("ppo_clip", "heldout", heldOutRegimes, cfg.HeldOutSeeds, cfg.RewardWeights, tinyChooser(ppoModel)),
 		summarizeProtocolRuns("iql", "heldout", heldOutRegimes, cfg.HeldOutSeeds, cfg.RewardWeights, tinyChooser(iqlModel)),
 	)
 
-	if err := writeSimulatorCalibratedProtocolArtifacts(results, cfg, scenarioNames(validationRegimes), scenarioNames(heldOutRegimes), ppoTrace, iqlSummary); err != nil {
+	if err := writeSimulatorCalibratedProtocolArtifacts(results, cfg, scenarioNames(validationRegimes), scenarioNames(heldOutRegimes), bcSummary, ppoTrace, iqlSummary); err != nil {
 		t.Fatalf("write calibrated protocol artifacts: %v", err)
 	}
 }
@@ -177,14 +188,16 @@ func TestGenerateSimulatorCounterfactualControlArtifacts(t *testing.T) {
 		{Name: "no_welfare_reward", Base: calibratedAdaptiveProtocolBaseScenario(), HeldOut: calibratedHeldOutRegimes(), RewardWeights: noWelfareRewardWeights()},
 	}
 
-	results := make([]counterfactualControlResult, 0, len(variants)*3)
+	results := make([]counterfactualControlResult, 0, len(variants)*4)
 	for _, variant := range variants {
 		cfg := baseCfg
 		cfg.RewardWeights = variant.RewardWeights
+		bcModel, _ := trainProtocolBehaviorClone(variant.Base, cfg, counterfactualValidationRegimes(variant.Base))
 		_, ppoModel := trainProtocolPPO(variant.Base, cfg, counterfactualValidationRegimes(variant.Base))
 		iqlModel, _ := trainProtocolIQL(variant.Base, cfg, counterfactualValidationRegimes(variant.Base))
 		results = append(results,
 			summarizeCounterfactualRuns(variant.Name, "burst_aware", variant.HeldOut, cfg.HeldOutSeeds, variant.RewardWeights, burstAwareChooser()),
+			summarizeCounterfactualRuns(variant.Name, "behavior_clone", variant.HeldOut, cfg.HeldOutSeeds, variant.RewardWeights, tinyChooser(bcModel)),
 			summarizeCounterfactualRuns(variant.Name, "ppo_clip", variant.HeldOut, cfg.HeldOutSeeds, variant.RewardWeights, tinyChooser(ppoModel)),
 			summarizeCounterfactualRuns(variant.Name, "iql", variant.HeldOut, cfg.HeldOutSeeds, variant.RewardWeights, tinyChooser(iqlModel)),
 		)
@@ -216,6 +229,7 @@ func defaultCalibratedProtocolConfig() calibratedProtocolConfig {
 		TrainSeeds:      []int64{1103, 1109, 1117, 1123},
 		ValidationSeeds: []int64{1129, 1151},
 		HeldOutSeeds:    []int64{1153, 1163, 1171, 1181},
+		BCEpochs:        12,
 		PPOEpisodes:     80,
 		PPOClipEpsilon:  0.18,
 		PPOPolicyEpochs: 3,
@@ -403,6 +417,48 @@ func trainProtocolPPO(base ScenarioConfig, cfg calibratedProtocolConfig, validat
 		}
 	}
 	return trace, bestModel
+}
+
+func trainProtocolBehaviorClone(base ScenarioConfig, cfg calibratedProtocolConfig, validationRegimes []ScenarioConfig) (tinyMLPModel, behaviorCloneTrainingSummary) {
+	spec := NewAdapterWithRewardWeights(base, cfg.RewardWeights).ActionSpec()
+	actions := candidateBanditActions(spec)
+	rng := rand.New(rand.NewSource(trainingRandomSeed(base) + 2103))
+	model := initTinyMLPModel(actions, len(observationFeatures(Observation{})), 10, rng)
+	features, labels, sources := collectProtocolBehaviorCloneDataset(base, cfg.TrainSeeds, actions, rng)
+	trainTinyMLPSupervised(&model, features, labels, cfg.BCEpochs, 0.022, 1e-4)
+	summary := behaviorCloneTrainingSummary{
+		Epochs:          cfg.BCEpochs,
+		TrainSamples:    len(labels),
+		BehaviorSources: sources,
+		ValidationScore: evaluatePolicyScore(validationRegimes, cfg.ValidationSeeds, cfg.RewardWeights, tinyChooser(model)),
+	}
+	return model, summary
+}
+
+func collectProtocolBehaviorCloneDataset(base ScenarioConfig, seeds []int64, actions []learnedActionCandidate, rng *rand.Rand) ([][]float64, []int, []string) {
+	linucb := cachedLinUCBPolicy(base)
+	tiny := cachedTinyMLPPolicy(base)
+	offline := cachedOfflineContextualPolicy(base)
+	behaviors := []PolicyController{
+		PolicyBurstAware,
+		PolicyLearnedLinUCB,
+		PolicyLearnedTinyMLP,
+		PolicyLearnedOfflineContextual,
+	}
+	features := make([][]float64, 0, len(seeds)*base.TotalSteps*len(behaviors))
+	labels := make([]int, 0, len(seeds)*base.TotalSteps*len(behaviors))
+	sources := make([]string, 0, len(behaviors))
+	for _, behavior := range behaviors {
+		sources = append(sources, string(behavior))
+		for _, seed := range seeds {
+			transitions := collectOfflineTransitionTrajectory(base, seed, behavior, actions, &linucb, &tiny, &offline, rng)
+			for _, transition := range transitions {
+				features = append(features, append([]float64(nil), transition.features...))
+				labels = append(labels, transition.action)
+			}
+		}
+	}
+	return features, labels, sources
 }
 
 func trainProtocolIQL(base ScenarioConfig, cfg calibratedProtocolConfig, validationRegimes []ScenarioConfig) (tinyMLPModel, iqlTrainingSummary) {
@@ -736,7 +792,7 @@ func summarizeCounterfactualRuns(variant string, policy string, regimes []Scenar
 	}
 }
 
-func writeSimulatorCalibratedProtocolArtifacts(results []calibratedProtocolResult, cfg calibratedProtocolConfig, validationRegimes []string, heldOutRegimes []string, ppoTrace []ppoTrainingSnapshot, iqlSummary iqlTrainingSummary) error {
+func writeSimulatorCalibratedProtocolArtifacts(results []calibratedProtocolResult, cfg calibratedProtocolConfig, validationRegimes []string, heldOutRegimes []string, bcSummary behaviorCloneTrainingSummary, ppoTrace []ppoTrainingSnapshot, iqlSummary iqlTrainingSummary) error {
 	base := filepath.Join("..", "docs", "benchmarks")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		return err
@@ -746,6 +802,7 @@ func writeSimulatorCalibratedProtocolArtifacts(results []calibratedProtocolResul
 		"validation_regimes": validationRegimes,
 		"heldout_regimes":    heldOutRegimes,
 		"results":            results,
+		"bc_summary":         bcSummary,
 		"ppo_trace":          ppoTrace,
 		"iql_summary":        iqlSummary,
 	}
@@ -793,6 +850,11 @@ func writeSimulatorCalibratedProtocolArtifacts(results []calibratedProtocolResul
 			result.MeanSurplusTransferGap, result.CI95SurplusTransferGap,
 			result.NegativeBalanceViolationsTotal, result.ConservationBreachesTotal))
 	}
+	md.WriteString("\n## Behavior Cloning Summary\n\n")
+	md.WriteString(fmt.Sprintf("- Epochs: `%d`\n", bcSummary.Epochs))
+	md.WriteString(fmt.Sprintf("- Train samples: `%d`\n", bcSummary.TrainSamples))
+	md.WriteString(fmt.Sprintf("- Behavior sources: `%s`\n", strings.Join(bcSummary.BehaviorSources, ", ")))
+	md.WriteString(fmt.Sprintf("- Validation score: `%.4f`\n", bcSummary.ValidationScore))
 	md.WriteString("\n## PPO Validation Trace\n\n")
 	md.WriteString("| Episode | Mean Train Reward | Validation Score |\n|---:|---:|---:|\n")
 	for _, point := range ppoTrace {

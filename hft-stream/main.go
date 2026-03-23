@@ -7,6 +7,8 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -78,6 +80,38 @@ type PriceEngine struct {
 var engine = &PriceEngine{
 	cryptoPrices: make(map[string]*TickData),
 	stockPrices:  make(map[string]*TickData),
+}
+
+func getEnvDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func defaultAllowedOrigins() map[string]struct{} {
+	values := getEnvDefault("HFT_STREAM_ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
+	allowed := make(map[string]struct{})
+	for _, value := range strings.Split(values, ",") {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			allowed[value] = struct{}{}
+		}
+	}
+	return allowed
+}
+
+func setCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}) {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return
+	}
+	if _, ok := allowedOrigins[origin]; !ok {
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Vary", "Origin")
 }
 
 // 初始化价格
@@ -231,7 +265,7 @@ func (e *PriceEngine) startHFTUpdater() {
 // REST API 处理器
 func handleCryptoPrices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 	w.Header().Set("Cache-Control", "no-cache")
 
 	engine.mu.RLock()
@@ -246,7 +280,7 @@ func handleCryptoPrices(w http.ResponseWriter, r *http.Request) {
 
 func handleStockPrices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 	w.Header().Set("Cache-Control", "no-cache")
 
 	engine.mu.RLock()
@@ -261,7 +295,7 @@ func handleStockPrices(w http.ResponseWriter, r *http.Request) {
 
 func handleAllPrices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 	w.Header().Set("Cache-Control", "no-cache")
 
 	engine.mu.RLock()
@@ -290,7 +324,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -336,7 +370,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 
 	engine.mu.RLock()
 	updateCount := engine.updateCount
@@ -375,14 +409,21 @@ func main() {
 	http.HandleFunc("/api/prices/stream", handleStream)
 	http.HandleFunc("/api/prices/status", handleStatus)
 
-	port := ":8081"
-	fmt.Printf("✅ HFT Price Service running on http://localhost%s\n", port)
+	bindAddr := getEnvDefault("HFT_STREAM_BIND_ADDR", "127.0.0.1:8081")
+	fmt.Printf("✅ HFT Price Service running on http://%s\n", bindAddr)
 	fmt.Println("📡 Endpoints:")
 	fmt.Println("   SSE Stream: /api/prices/stream (100ms updates)")
 	fmt.Println("   REST API:   /api/prices/crypto, /api/prices/stocks, /api/prices/all")
 	fmt.Println("   Status:     /api/prices/status")
 
-	if err := http.ListenAndServe(port, nil); err != nil {
+	server := &http.Server{
+		Addr:              bindAddr,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("❌ Server error: %v", err)
 	}
 }

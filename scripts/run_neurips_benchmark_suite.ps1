@@ -25,8 +25,11 @@ $coreCommands = @(
     @{ Env = "RUN_SIM_STRATEGIC_AGENTS"; Test = "TestGenerateSimulatorStrategicAgentArtifacts" },
     @{ Env = "RUN_SIM_CALIBRATION_COMPARE"; Test = "TestGenerateSimulatorCalibrationArtifacts" },
     @{ Env = "RUN_SIM_CALIBRATED_BENCH"; Test = "TestGenerateSimulatorCalibratedBenchmarkArtifacts" },
-    @{ Env = "RUN_SIM_CALIBRATED_PROTOCOL"; Test = "TestGenerateSimulatorCalibratedLearningProtocolArtifacts" },
-    @{ Env = "RUN_SIM_COUNTERFACTUAL"; Test = "TestGenerateSimulatorCounterfactualControlArtifacts" }
+        @{ Env = "RUN_SIM_CALIBRATED_PROTOCOL"; Test = "TestGenerateSimulatorCalibratedLearningProtocolArtifacts" },
+    @{ Env = "RUN_SIM_COUNTERFACTUAL"; Test = "TestGenerateSimulatorCounterfactualControlArtifacts" },
+    @{ Env = "RUN_SIM_RICHER_PROTOCOL"; Test = "TestGenerateSimulatorRicherProtocolArtifacts" },
+    @{ Env = "RUN_SIM_PROTOCOL_TRANSFER"; Test = "TestGenerateSimulatorProtocolTransferArtifacts" },
+    @{ Env = "RUN_SIM_METRIC_MATRIX"; Test = "TestGenerateSimulatorMetricRobustnessMatrixArtifacts" }
 )
 
 $reviewerCommands = @(
@@ -34,6 +37,8 @@ $reviewerCommands = @(
     @{ Env = "RUN_SIM_STATS"; Test = "TestGenerateSimulatorStatisticalReviewArtifacts" },
     @{ Env = "RUN_SIM_NECESSITY"; Test = "TestGenerateSimulatorNecessityArtifacts" },
     @{ Env = "RUN_SIM_WELFARE_ROBUSTNESS"; Test = "TestGenerateSimulatorWelfareRobustnessArtifacts" },
+    @{ Env = "RUN_SIM_DATA_COVERAGE"; Test = "TestGenerateSimulatorDataCoverageArtifacts" },
+    @{ Env = "RUN_SIM_POLICY_AGREEMENT"; Test = "TestGenerateSimulatorPolicyAgreementArtifacts" },
     @{ Env = "RUN_SIM_LEADERBOARD"; Test = "TestGenerateSimulatorLeaderboardArtifacts" }
 )
 
@@ -84,3 +89,5 @@ if (-not $SkipArchive) {
         -RepoArchiveRoot "docs/benchmarks/archives" `
         -DeliverableArchiveRoot "deliverables/benchmark_archives"
 }
+
+

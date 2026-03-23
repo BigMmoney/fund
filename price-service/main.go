@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -59,6 +61,38 @@ type PriceService struct {
 }
 
 var priceService *PriceService
+
+func getEnvDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func defaultAllowedOrigins() map[string]struct{} {
+	values := getEnvDefault("PRICE_SERVICE_ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
+	allowed := make(map[string]struct{})
+	for _, value := range strings.Split(values, ",") {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			allowed[value] = struct{}{}
+		}
+	}
+	return allowed
+}
+
+func setCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}) {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return
+	}
+	if _, ok := allowedOrigins[origin]; !ok {
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Vary", "Origin")
+}
 
 func init() {
 	priceService = &PriceService{
@@ -578,7 +612,7 @@ func (ps *PriceService) StartPriceUpdater(interval time.Duration) {
 // HTTP Handlers
 func handleCryptoPrices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 
 	prices := priceService.GetCryptoPrices()
 	json.NewEncoder(w).Encode(prices)
@@ -586,7 +620,7 @@ func handleCryptoPrices(w http.ResponseWriter, r *http.Request) {
 
 func handleStockPrices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 
 	prices := priceService.GetStockPrices()
 	json.NewEncoder(w).Encode(prices)
@@ -594,7 +628,7 @@ func handleStockPrices(w http.ResponseWriter, r *http.Request) {
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setCORSHeaders(w, r, defaultAllowedOrigins())
 
 	status := priceService.GetServiceStatus()
 	json.NewEncoder(w).Encode(status)
@@ -615,13 +649,21 @@ func main() {
 	http.HandleFunc("/api/prices/stocks", handleStockPrices)
 	http.HandleFunc("/api/prices/status", handleStatus)
 
-	port := ":8081"
-	fmt.Printf("✅ Price service running on http://localhost%s\n", port)
+	bindAddr := getEnvDefault("PRICE_SERVICE_BIND_ADDR", "127.0.0.1:8081")
+	fmt.Printf("✅ Price service running on http://%s\n", bindAddr)
 	fmt.Println("   GET /api/prices/crypto - Get cryptocurrency prices")
 	fmt.Println("   GET /api/prices/stocks - Get stock prices")
 	fmt.Println("   GET /api/prices/status - Get API status")
 
-	if err := http.ListenAndServe(port, nil); err != nil {
+	server := &http.Server{
+		Addr:              bindAddr,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		fmt.Printf("❌ Server error: %v\n", err)
 	}
 }
