@@ -25,6 +25,18 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true
       },
+      '/admin': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true
+      },
+      '/deposit': {
+        target: 'http://127.0.0.1:3030',
+        changeOrigin: true
+      },
+      '/mass-cancel': {
+        target: 'http://127.0.0.1:3030',
+        changeOrigin: true
+      },
       '/ws': {
         target: 'ws://localhost:8080',
         ws: true

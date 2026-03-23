@@ -4,26 +4,26 @@ import { useEffect, useCallback, useRef } from 'react'
  * 键盘快捷键定义
  */
 export interface KeyboardShortcut {
-  key: string                    // 主键，如 'r', '1', 'Escape'
-  ctrlKey?: boolean              // 是否需要 Ctrl
-  shiftKey?: boolean             // 是否需要 Shift
-  altKey?: boolean               // 是否需要 Alt
-  metaKey?: boolean              // 是否需要 Meta (Cmd on Mac)
-  action: () => void             // 执行的动作
-  description?: string           // 快捷键描述
-  preventDefault?: boolean       // 是否阻止默认行为
-  disabled?: boolean             // 是否禁用
+  key: string // 主键，例如 'r', '1', 'Escape'
+  ctrlKey?: boolean // 是否需要 Ctrl
+  shiftKey?: boolean // 是否需要 Shift
+  altKey?: boolean // 是否需要 Alt
+  metaKey?: boolean // 是否需要 Meta (Mac 上的 Cmd)
+  action: () => void // 执行动作
+  description?: string // 描述
+  preventDefault?: boolean // 是否阻止默认行为
+  disabled?: boolean // 是否禁用
 }
 
 /**
- * 快捷键组合字符串转为对象
- * 例如: 'Ctrl+Shift+R' => { key: 'r', ctrlKey: true, shiftKey: true }
+ * 将快捷键组合字符串解析为对象
+ * 示例: 'Ctrl+Shift+R' => { key: 'r', ctrlKey: true, shiftKey: true }
  */
 export function parseShortcut(shortcut: string): Partial<KeyboardShortcut> {
   const parts = shortcut.toLowerCase().split('+')
   const result: Partial<KeyboardShortcut> = {}
-  
-  parts.forEach(part => {
+
+  parts.forEach((part) => {
     switch (part) {
       case 'ctrl':
         result.ctrlKey = true
@@ -42,7 +42,7 @@ export function parseShortcut(shortcut: string): Partial<KeyboardShortcut> {
         result.key = part
     }
   })
-  
+
   return result
 }
 
@@ -52,48 +52,48 @@ export function parseShortcut(shortcut: string): Partial<KeyboardShortcut> {
 function matchesShortcut(event: KeyboardEvent, shortcut: KeyboardShortcut): boolean {
   const key = event.key.toLowerCase()
   const expectedKey = shortcut.key.toLowerCase()
-  
+
   // 检查主键是否匹配
   if (key !== expectedKey) {
-    // 也检查数字键
+    // 也检查数字键（主键盘 / 小键盘）
     if (event.code === `Digit${shortcut.key}` || event.code === `Numpad${shortcut.key}`) {
       // 继续检查修饰键
     } else {
       return false
     }
   }
-  
+
   // 检查修饰键
   if (shortcut.ctrlKey && !event.ctrlKey) return false
   if (shortcut.shiftKey && !event.shiftKey) return false
   if (shortcut.altKey && !event.altKey) return false
   if (shortcut.metaKey && !event.metaKey) return false
-  
-  // 如果快捷键不需要修饰键，但用户按了修饰键，不匹配
+
+  // 如果快捷键不需要修饰键，但用户按下了修饰键，则不匹配（避免误触）
   if (!shortcut.ctrlKey && event.ctrlKey) return false
   if (!shortcut.shiftKey && event.shiftKey) return false
   if (!shortcut.altKey && event.altKey) return false
   if (!shortcut.metaKey && event.metaKey) return false
-  
+
   return true
 }
 
 /**
- * 检查是否在输入框中
+ * 当前是否处于输入态（避免快捷键打断输入）
  */
 function isInputFocused(): boolean {
   const activeElement = document.activeElement
   if (!activeElement) return false
-  
+
   const tagName = activeElement.tagName.toLowerCase()
   if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
     return true
   }
-  
+
   if (activeElement.getAttribute('contenteditable') === 'true') {
     return true
   }
-  
+
   return false
 }
 
@@ -102,22 +102,19 @@ function isInputFocused(): boolean {
  * @param shortcuts 快捷键列表
  * @param enabled 是否启用
  */
-export function useKeyboardShortcuts(
-  shortcuts: KeyboardShortcut[],
-  enabled: boolean = true
-): void {
+export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[], enabled: boolean = true): void {
   const shortcutsRef = useRef(shortcuts)
   shortcutsRef.current = shortcuts
-  
+
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    // 如果正在输入，不处理快捷键（除了 Escape）
+    // 输入时不处理快捷键（除 Escape）
     if (isInputFocused() && event.key !== 'Escape') {
       return
     }
-    
+
     for (const shortcut of shortcutsRef.current) {
       if (shortcut.disabled) continue
-      
+
       if (matchesShortcut(event, shortcut)) {
         if (shortcut.preventDefault !== false) {
           event.preventDefault()
@@ -127,10 +124,10 @@ export function useKeyboardShortcuts(
       }
     }
   }, [])
-  
+
   useEffect(() => {
     if (!enabled) return
-    
+
     document.addEventListener('keydown', handleKeyDown)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
@@ -139,7 +136,7 @@ export function useKeyboardShortcuts(
 }
 
 /**
- * 预定义的快捷键常量
+ * 预定义快捷键常量
  */
 export const SHORTCUT_KEYS = {
   REFRESH: 'r',
@@ -168,18 +165,18 @@ export const SHORTCUT_KEYS = {
 export function createTabShortcuts(
   tabs: string[],
   setActiveTab: (tab: string) => void,
-  currentTab: string
+  currentTab: string,
 ): KeyboardShortcut[] {
   return tabs.slice(0, 9).map((tab, index) => ({
     key: String(index + 1),
     action: () => setActiveTab(tab),
     description: `Switch to ${tab} tab`,
-    disabled: currentTab === tab
+    disabled: currentTab === tab,
   }))
 }
 
 /**
- * 快捷键帮助面板组件使用的数据
+ * 快捷键帮助面板数据
  */
 export interface ShortcutHelpItem {
   key: string
@@ -200,6 +197,8 @@ export const TRADING_TERMINAL_SHORTCUTS: ShortcutHelpItem[] = [
   { key: 'S', description: '卖出', category: '交易' },
   { key: 'R', description: '刷新数据', category: '操作' },
   { key: 'Esc', description: '取消操作', category: '操作' },
+  { key: 'Ctrl/Cmd + K', description: '打开指令面板', category: '操作' },
 ]
 
 export default useKeyboardShortcuts
+
