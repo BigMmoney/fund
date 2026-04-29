@@ -1,0 +1,17 @@
+{
+  "name": "Hotspot Skew (80/20)",
+  "orders": 8000,
+  "fills": 7984,
+  "cancels": 0,
+  "duration_ms": 533.52,
+  "orders_per_sec": 14994.65,
+  "fills_per_sec": 14964.66,
+  "latency": {
+    "p50_ms": 25.21,
+    "p95_ms": 32.18,
+    "p99_ms": 32.68,
+    "min_ms": 17.49,
+    "max_ms": 32.68
+  },
+  "notes": "80% on 2 markets, 20% on 18 markets"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Queue Saturation",
+  "orders": 40000,
+  "fills": 40000,
+  "cancels": 0,
+  "duration_ms": 557.68,
+  "orders_per_sec": 71725.21,
+  "fills_per_sec": 71725.21,
+  "latency": {
+    "p50_ms": 35.56,
+    "p95_ms": 42.46,
+    "p99_ms": 42.99,
+    "min_ms": 12.45,
+    "max_ms": 43.52
+  },
+  "notes": "submit phase 16.2ms, 100ms batch window"
+}

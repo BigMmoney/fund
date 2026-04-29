@@ -1,0 +1,17 @@
+{
+  "name": "Recovery Backpressure",
+  "orders": 20000,
+  "fills": 20000,
+  "cancels": 0,
+  "duration_ms": 713.19,
+  "orders_per_sec": 28042.99,
+  "fills_per_sec": 28042.99,
+  "latency": {
+    "p50_ms": 206.87,
+    "p95_ms": 209.03,
+    "p99_ms": 209.57,
+    "min_ms": 3.73,
+    "max_ms": 210.60
+  },
+  "notes": "saturation 6.8ms + recovery 505.8ms"
+}

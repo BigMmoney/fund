@@ -1,0 +1,17 @@
+{
+  "name": "Multi-Market Uniform",
+  "orders": 8000,
+  "fills": 8000,
+  "cancels": 0,
+  "duration_ms": 533.03,
+  "orders_per_sec": 15008.47,
+  "fills_per_sec": 15008.47,
+  "latency": {
+    "p50_ms": 26.26,
+    "p95_ms": 30.53,
+    "p99_ms": 31.35,
+    "min_ms": 19.69,
+    "max_ms": 31.35
+  },
+  "notes": "20 markets x 200 pairs each"
+}

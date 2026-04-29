@@ -1,0 +1,17 @@
+{
+  "name": "Long Soak",
+  "orders": 8000,
+  "fills": 8000,
+  "cancels": 0,
+  "duration_ms": 6970.23,
+  "orders_per_sec": 1147.74,
+  "fills_per_sec": 1147.74,
+  "latency": {
+    "p50_ms": 49.27,
+    "p95_ms": 50.51,
+    "p99_ms": 51.05,
+    "min_ms": 20.97,
+    "max_ms": 51.05
+  },
+  "notes": "20 batches x 200 pairs over 7.0s | p99 degradation: 0.8% (50.07ms -> 50.45ms)"
+}

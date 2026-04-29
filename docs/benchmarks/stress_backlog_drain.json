@@ -1,0 +1,17 @@
+{
+  "name": "Backlog Drain Strategy (P2)",
+  "orders": 20000,
+  "fills": 20000,
+  "cancels": 0,
+  "duration_ms": 531.06,
+  "orders_per_sec": 37660.66,
+  "fills_per_sec": 37660.66,
+  "latency": {
+    "p50_ms": 20.43,
+    "p95_ms": 24.60,
+    "p99_ms": 25.66,
+    "min_ms": 8.31,
+    "max_ms": 26.18
+  },
+  "notes": "saturation 9.5ms | drain 521.6ms | 38344.2 fills/s"
+}

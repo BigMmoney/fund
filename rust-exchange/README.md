@@ -386,6 +386,18 @@ Current API runtime includes:
 - request body size limit
 - structured rejection handling
 
+### Deployment Hardening
+
+Current deployment defaults now support a more production-oriented posture:
+
+- file-based auth secret loading via `INTERNAL_AUTH_SHARED_SECRET_FILE`
+- file-based role mapping override via `SERVER_ROLE_MAPPING_FILE`
+- readiness and health probes on `/ready` and `/health`
+- WAL data isolated onto a writable volume
+- container hardening with non-root runtime, dropped capabilities, and read-only root filesystem in Kubernetes / Compose manifests
+- benchmark guardrails in CI, including structured JSON + CSV artifacts for regression comparison
+- Kubernetes ingress/TLS scaffolding plus a WAL backup CronJob for object-storage export
+
 ## Risk Automation
 
 The system now contains basic automated execution, not only risk evaluation.

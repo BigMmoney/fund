@@ -1,0 +1,17 @@
+{
+  "name": "Burst Traffic",
+  "orders": 20200,
+  "fills": 20200,
+  "cancels": 0,
+  "duration_ms": 530.74,
+  "orders_per_sec": 38060.15,
+  "fills_per_sec": 38060.15,
+  "latency": {
+    "p50_ms": 16.46,
+    "p95_ms": 23.83,
+    "p99_ms": 24.40,
+    "min_ms": 8.68,
+    "max_ms": 59.51
+  },
+  "notes": "10000 pairs injected within single window"
+}

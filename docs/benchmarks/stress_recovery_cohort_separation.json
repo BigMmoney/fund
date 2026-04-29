@@ -1,0 +1,21 @@
+{
+  "name": "Recovery Cohort Separation",
+  "orders": 20000,
+  "fills": 20000,
+  "cancels": 0,
+  "duration_ms": 765.39,
+  "orders_per_sec": 26130.44,
+  "fills_per_sec": 26130.44,
+  "latency": {
+    "p50_ms": 258.72,
+    "p95_ms": 260.47,
+    "p99_ms": 261.00,
+    "min_ms": 6.05,
+    "max_ms": 261.00
+  },
+  "notes": "saturation 6.4ms + recovery 508.2ms | hist=16000 fills, rec=4000 fills",
+  "recovery_cohorts": [
+    {"name": "Historical Backlog (bp-sat-*)", "orders": 16000, "fills": 16000, "latency": {"p50": 258.87, "p95": 260.48, "p99": 261.00, "max": 261.00}},
+    {"name": "New Recovery (bp-rec-*)", "orders": 4000, "fills": 4000, "latency": {"p50": 6.66, "p95": 7.28, "p99": 7.28, "max": 7.28}}
+  ]
+}

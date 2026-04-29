@@ -1,0 +1,26 @@
+{
+  "name": "High-Cancel Lifecycle Breakdown",
+  "orders": 16000,
+  "fills": 0,
+  "cancels": 6000,
+  "duration_ms": 814.87,
+  "orders_per_sec": 19635.01,
+  "fills_per_sec": 0.00,
+  "latency": {
+    "p50_ms": 0.00,
+    "p95_ms": 0.00,
+    "p99_ms": 0.00,
+    "min_ms": 0.00,
+    "max_ms": 0.00
+  },
+  "notes": "cancel:order ratio 3:1 | 6000 attempted / 6000 successful cancels | 4000 tracked",
+  "cancel_metrics": {
+    "total": 4000,
+    "before_fill": 4000,
+    "after_fill": 0,
+    "batch_delayed": 0,
+    "queue_wait": {"p50": 0.00, "p95": 1.00, "p99": 1.23, "max": 1.23},
+    "match_exec": {"p50": 0.00, "p95": 0.00, "p99": 0.00, "max": 0.00},
+    "total_latency": {"p50": 0.00, "p95": 1.00, "p99": 1.23, "max": 1.23}
+  }
+}
