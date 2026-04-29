@@ -42,11 +42,11 @@ cd api && go run main.go
 ### 3. 测试 API
 
 ```powershell
-# 运行测试脚本
-.\test_api.ps1
+# 运行 E2E 交易测试脚本
+.\rust-exchange\scripts\e2e_trading_test.ps1
 
 # 或手动测试
-Invoke-RestMethod -Uri "http://localhost:8080/health"
+Invoke-RestMethod -Uri "http://127.0.0.1:3030/health"
 ```
 
 ## 服务端口
@@ -191,7 +191,6 @@ pre_trading/
 │   └── utils/             # 工具函数
 ├── config.yaml            # 配置文件
 ├── start.ps1              # 启动脚本
-├── test_api.ps1           # 测试脚本
 └── README.md              # 详细文档
 ```
 

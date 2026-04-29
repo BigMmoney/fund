@@ -402,8 +402,8 @@ sequenceDiagram
 - [Dockerfile](d:/pre_trading/rust-exchange/Dockerfile)
 - [docker-compose.yml](d:/pre_trading/rust-exchange/docker-compose.yml)
 - [exchange.toml](d:/pre_trading/rust-exchange/config/exchange.toml)
-- [start_complete_system.ps1](d:/pre_trading/start_complete_system.ps1)
-- [verify_system.ps1](d:/pre_trading/verify_system.ps1)
+- [P0 deployment runbook](d:/pre_trading/docs/P0_DEPLOYMENT_READINESS.md)
+- [WAL backup script](d:/pre_trading/rust-exchange/scripts/wal_backup.ps1)
 
 前端当前具备基础质量门：
 
