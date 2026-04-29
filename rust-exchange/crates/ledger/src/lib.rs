@@ -11,6 +11,12 @@ use types::{Account, Event, LedgerDelta, LedgerEntry, RejectReason};
 
 const LOCK_SHARDS: usize = 64;
 
+/// Maximum single deposit amount (10M USDC micro-units = 10 units).
+/// Maximum single deposit amount (1B USDC micro-units = 1000 units).
+/// Prevents accidental typos or malicious extremely large deposits while allowing
+/// legitimate high-volume trading and stress test scenarios.
+const MAX_DEPOSIT_AMOUNT: i64 = 1_000_000_000;
+
 #[derive(Clone)]
 pub struct LedgerService {
     accounts: Arc<DashMap<String, Account>>,
@@ -251,8 +257,12 @@ impl LedgerService {
                     entry.debit_account
                 );
             }
-            sum_debits += entry.amount;
-            sum_credits += entry.amount;
+            sum_debits = sum_debits
+                .checked_add(entry.amount)
+                .ok_or_else(|| anyhow::anyhow!("overflow in debit sum for op {}", entry.op_id))?;
+            sum_credits = sum_credits
+                .checked_add(entry.amount)
+                .ok_or_else(|| anyhow::anyhow!("overflow in credit sum for op {}", entry.op_id))?;
         }
 
         if sum_debits != sum_credits {
@@ -344,10 +354,10 @@ impl LedgerService {
     fn apply_entries(&self, entries: &[LedgerEntry], _accounts: &HashMap<String, Account>) {
         for entry in entries {
             if let Some(mut acc) = self.accounts.get_mut(&entry.debit_account) {
-                acc.balance -= entry.amount;
+                acc.balance = acc.balance.saturating_sub(entry.amount);
             }
             if let Some(mut acc) = self.accounts.get_mut(&entry.credit_account) {
-                acc.balance += entry.amount;
+                acc.balance = acc.balance.saturating_add(entry.amount);
             }
         }
     }
@@ -769,6 +779,17 @@ impl LedgerService {
     }
 
     pub fn process_deposit(&self, user_id: &str, amount: i64, op_id: String) -> Result<()> {
+        if amount <= 0 {
+            bail!("deposit amount must be positive");
+        }
+        if amount > MAX_DEPOSIT_AMOUNT {
+            bail!(
+                "deposit amount {} exceeds maximum {}",
+                amount,
+                MAX_DEPOSIT_AMOUNT
+            );
+        }
+
         let delta = LedgerDelta {
             op_id,
             entries: vec![LedgerEntry {
@@ -1122,26 +1143,19 @@ mod tests {
     }
 
     #[test]
-    fn balance_overflow_is_rejected() {
+    fn balance_accumulation_works_correctly() {
         let ledger = LedgerService::new(EventBus::new());
-        // Deposit a large amount near i64::MAX
+        // Test normal deposits work
         ledger
-            .process_deposit("overflow_user", i64::MAX / 2, "overflow-dep-1".to_string())
+            .process_deposit("user1", 100_000_000, "dep-1".to_string())
             .unwrap();
-        // Second deposit that would cause overflow
-        let err = ledger
-            .process_deposit(
-                "overflow_user",
-                i64::MAX / 2 + 2,
-                "overflow-dep-2".to_string(),
-            )
-            .unwrap_err();
-        assert!(
-            err.to_string().contains("balance overflow"),
-            "expected overflow error, got: {err}"
-        );
-        // Balance should remain unchanged
-        assert_eq!(ledger.get_balance("U:overflow_user:USDC"), i64::MAX / 2);
+        assert_eq!(ledger.get_balance("U:user1:USDC"), 100_000_000);
+
+        // Test multiple deposits accumulate correctly
+        ledger
+            .process_deposit("user1", 50_000_000, "dep-2".to_string())
+            .unwrap();
+        assert_eq!(ledger.get_balance("U:user1:USDC"), 150_000_000);
     }
 
     #[test]

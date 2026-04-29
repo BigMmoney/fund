@@ -622,6 +622,65 @@ fn default_contract_multiplier() -> i64 {
     1
 }
 
+impl InstrumentSpec {
+    /// Validate instrument spec after deserialization.
+    /// Catches cases where `#[serde(default)]` masked missing critical fields
+    /// or where malicious input sets unsafe values (e.g. tick_size=0).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.instrument_id.is_empty() {
+            return Err("instrument_id must not be empty".into());
+        }
+        if self.quote_asset.is_empty() {
+            return Err("quote_asset must not be empty".into());
+        }
+        if self.tick_size <= 0 {
+            return Err(format!(
+                "tick_size must be positive, got {}",
+                self.tick_size
+            ));
+        }
+        if self.lot_size <= 0 {
+            return Err(format!("lot_size must be positive, got {}", self.lot_size));
+        }
+        if self.price_band_bps <= 0 {
+            return Err(format!(
+                "price_band_bps must be positive, got {}",
+                self.price_band_bps
+            ));
+        }
+        if self.risk_policy_id.is_empty() {
+            return Err("risk_policy_id must not be empty".into());
+        }
+        // Optional limits: 0 means disabled, which is safe
+        if self.min_order_amount < 0 {
+            return Err("min_order_amount must not be negative".into());
+        }
+        if self.max_notional < 0 {
+            return Err("max_notional must not be negative".into());
+        }
+        if self.max_order_amount < 0 {
+            return Err("max_order_amount must not be negative".into());
+        }
+        // Fee sanity: negative fees = rebates, but cap at -1000 bps (-10%) to
+        // prevent catastrophic misconfiguration.
+        if self.maker_fee_bps < -1000 {
+            return Err("maker_fee_bps must not exceed -1000 bps (-10% rebate cap)".into());
+        }
+        if self.taker_fee_bps < -1000 {
+            return Err("taker_fee_bps must not exceed -1000 bps (-10% rebate cap)".into());
+        }
+        // Margin tiers must be sorted ascending
+        if let Some(ref tiers) = self.margin_tiers {
+            for w in tiers.windows(2) {
+                if w[0].notional_up_to >= w[1].notional_up_to && w[1].notional_up_to != 0 {
+                    return Err("margin_tiers must be sorted by notional_up_to ascending".into());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Trading status of an instrument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -667,6 +726,7 @@ pub enum ApiErrorCode {
     MarketMakerProtectionTriggered,
     // ── Coinbase / Kraken parity codes ──
     InsufficientMargin,
+    InsufficientFunds,
     ExceedsMaxLeverage,
     ExceedsPositionLimit,
     ReduceOnlyViolation,
@@ -681,6 +741,8 @@ pub enum ApiErrorCode {
     SessionExpired,
     IpRateLimited,
     MaintenanceMode,
+    AuthBanned,
+    BruteForceDetected,
     InvalidAccountMode,
     CollateralIneligible,
     LiquidationInProgress,
@@ -718,6 +780,7 @@ impl fmt::Display for ApiErrorCode {
                 write!(f, "MARKET_MAKER_PROTECTION_TRIGGERED")
             }
             ApiErrorCode::InsufficientMargin => write!(f, "INSUFFICIENT_MARGIN"),
+            ApiErrorCode::InsufficientFunds => write!(f, "INSUFFICIENT_FUNDS"),
             ApiErrorCode::ExceedsMaxLeverage => write!(f, "EXCEEDS_MAX_LEVERAGE"),
             ApiErrorCode::ExceedsPositionLimit => write!(f, "EXCEEDS_POSITION_LIMIT"),
             ApiErrorCode::ReduceOnlyViolation => write!(f, "REDUCE_ONLY_VIOLATION"),
@@ -732,6 +795,8 @@ impl fmt::Display for ApiErrorCode {
             ApiErrorCode::SessionExpired => write!(f, "SESSION_EXPIRED"),
             ApiErrorCode::IpRateLimited => write!(f, "IP_RATE_LIMITED"),
             ApiErrorCode::MaintenanceMode => write!(f, "MAINTENANCE_MODE"),
+            ApiErrorCode::AuthBanned => write!(f, "AUTH_BANNED"),
+            ApiErrorCode::BruteForceDetected => write!(f, "BRUTE_FORCE_DETECTED"),
             ApiErrorCode::InvalidAccountMode => write!(f, "INVALID_ACCOUNT_MODE"),
             ApiErrorCode::CollateralIneligible => write!(f, "COLLATERAL_INELIGIBLE"),
             ApiErrorCode::LiquidationInProgress => write!(f, "LIQUIDATION_IN_PROGRESS"),

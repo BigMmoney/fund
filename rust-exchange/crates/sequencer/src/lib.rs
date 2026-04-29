@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use dashmap::{mapref::entry::Entry, DashMap};
-use parking_lot::Mutex;
+use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use persistence::{InMemoryWal, WalStore};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -36,6 +36,8 @@ pub enum SequencerError {
     },
     #[error("unknown request_id: {0}")]
     UnknownRequestId(String),
+    #[error("unsupported command update for request_id: {0}")]
+    UnsupportedCommandUpdate(String),
     #[error("wal append failed: {0}")]
     WalAppendFailed(String),
     #[error("wal read failed: {0}")]
@@ -54,7 +56,6 @@ pub struct Sequencer {
     next_seq: AtomicU64,
     record_by_request: DashMap<String, SequencedCommandRecord>,
     wal_store: Arc<dyn WalStore<SequencedCommandRecord>>,
-    write_lock: Mutex<()>,
 }
 
 impl std::fmt::Debug for Sequencer {
@@ -76,7 +77,6 @@ impl Sequencer {
             next_seq: AtomicU64::new(start_seq),
             record_by_request: DashMap::new(),
             wal_store,
-            write_lock: Mutex::new(()),
         }
     }
 
@@ -88,7 +88,6 @@ impl Sequencer {
         &self,
         policy: SequencerRecoveryPolicy,
     ) -> Result<usize, SequencerError> {
-        let _guard = self.write_lock.lock();
         let records = self
             .wal_store
             .entries()
@@ -149,42 +148,55 @@ impl Sequencer {
     }
 
     pub fn sequence(&self, mut command: Command) -> Result<Command, SequencerError> {
-        let _guard = self.write_lock.lock();
-        self.sequence_internal(&mut command, false)?;
-        Ok(command)
-    }
-
-    pub fn sequence_and_append(&self, mut command: Command) -> Result<Command, SequencerError> {
-        let _guard = self.write_lock.lock();
-        self.sequence_internal(&mut command, true)?;
-        Ok(command)
-    }
-
-    fn sequence_internal(
-        &self,
-        command: &mut Command,
-        append_wal: bool,
-    ) -> Result<(), SequencerError> {
         let request_id = command.request_id().trim().to_string();
         if request_id.is_empty() {
             return Err(SequencerError::InvalidRequestId);
         }
 
+        // Atomic check-and-insert: claim the slot first, then assign sequence number
+        // under the same shard lock to prevent TOCTOU races.
         match self.record_by_request.entry(request_id.clone()) {
             Entry::Occupied(entry) => Err(SequencerError::DuplicateRequest {
                 request_id,
-                existing_seq: entry.get().command.metadata().command_seq,
+                existing_seq: Some(entry.get().command_seq),
             }),
             Entry::Vacant(entry) => {
                 let seq = self.next_seq.fetch_add(1, Ordering::SeqCst);
-                {
-                    let metadata = command.metadata_mut();
-                    metadata.command_seq = Some(seq);
-                    metadata.advance(CommandLifecycle::Sequenced);
-                    if append_wal {
-                        metadata.advance(CommandLifecycle::WalAppended);
-                    }
-                }
+                let metadata = command.metadata_mut();
+                metadata.command_seq = Some(seq);
+                metadata.advance(CommandLifecycle::Sequenced);
+
+                let record = SequencedCommandRecord {
+                    request_id: request_id.clone(),
+                    command_seq: seq,
+                    command: command.clone(),
+                    recorded_at: Utc::now(),
+                };
+                entry.insert(record);
+                Ok(command)
+            }
+        }
+    }
+
+    pub fn sequence_and_append(&self, mut command: Command) -> Result<Command, SequencerError> {
+        let request_id = command.request_id().trim().to_string();
+        if request_id.is_empty() {
+            return Err(SequencerError::InvalidRequestId);
+        }
+
+        // Atomic check-and-insert: claim the slot first, then assign sequence number
+        // and WAL-append under the same shard lock to prevent TOCTOU races.
+        match self.record_by_request.entry(request_id.clone()) {
+            Entry::Occupied(entry) => Err(SequencerError::DuplicateRequest {
+                request_id,
+                existing_seq: Some(entry.get().command_seq),
+            }),
+            Entry::Vacant(entry) => {
+                let seq = self.next_seq.fetch_add(1, Ordering::SeqCst);
+                let metadata = command.metadata_mut();
+                metadata.command_seq = Some(seq);
+                metadata.advance(CommandLifecycle::Sequenced);
+                metadata.advance(CommandLifecycle::WalAppended);
 
                 let record = SequencedCommandRecord {
                     request_id: request_id.clone(),
@@ -193,14 +205,14 @@ impl Sequencer {
                     recorded_at: Utc::now(),
                 };
 
-                if append_wal {
-                    self.wal_store
-                        .append(&record)
-                        .map_err(|error| SequencerError::WalAppendFailed(error.to_string()))?;
-                }
+                self.wal_store.append(&record).map_err(|e| {
+                    // Rollback sequence number on WAL failure
+                    self.next_seq.fetch_sub(1, Ordering::SeqCst);
+                    SequencerError::WalAppendFailed(e.to_string())
+                })?;
 
                 entry.insert(record);
-                Ok(())
+                Ok(command)
             }
         }
     }
@@ -272,12 +284,62 @@ impl Sequencer {
         self.advance_lifecycle(request_id, CommandLifecycle::Rejected)
     }
 
+    pub fn record_generated_replace_order_id(
+        &self,
+        request_id: &str,
+        generated_order_id: &str,
+    ) -> Result<CommandMetadata, SequencerError> {
+        let mut record = self
+            .record_by_request
+            .get_mut(request_id)
+            .ok_or_else(|| SequencerError::UnknownRequestId(request_id.to_string()))?;
+
+        let Command::ReplaceOrder(command) = record.command.clone() else {
+            return Err(SequencerError::UnsupportedCommandUpdate(
+                request_id.to_string(),
+            ));
+        };
+
+        if command.new_client_order_id.as_deref() == Some(generated_order_id) {
+            return Ok(command.metadata.clone());
+        }
+
+        match record.command.metadata().lifecycle {
+            CommandLifecycle::Completed
+            | CommandLifecycle::Cancelled
+            | CommandLifecycle::Rejected => {
+                return Err(SequencerError::InvalidLifecycleTransition {
+                    request_id: request_id.to_string(),
+                    from: record.command.metadata().lifecycle,
+                    to: record.command.metadata().lifecycle,
+                });
+            }
+            _ => {}
+        }
+
+        let Command::ReplaceOrder(command) = &mut record.command else {
+            return Err(SequencerError::UnsupportedCommandUpdate(
+                request_id.to_string(),
+            ));
+        };
+        command.new_client_order_id = Some(generated_order_id.to_string());
+        command.metadata.updated_at = Utc::now();
+        record.recorded_at = Utc::now();
+        let updated_record = record.clone();
+        drop(record);
+
+        self.wal_store
+            .append(&updated_record)
+            .map_err(|error| SequencerError::WalAppendFailed(error.to_string()))?;
+
+        Ok(updated_record.command.metadata().clone())
+    }
+
     pub fn advance_lifecycle(
         &self,
         request_id: &str,
         next: CommandLifecycle,
     ) -> Result<CommandMetadata, SequencerError> {
-        let _guard = self.write_lock.lock();
         let mut record = self
             .record_by_request
             .get_mut(request_id)
@@ -367,7 +429,7 @@ mod tests {
     use std::thread;
     use types::{
         CancelOrderCommand, CommandMetadata, MassCancelByUserCommand, NewOrderCommand, OrderType,
-        Side, TimeInForce,
+        ReplaceOrderCommand, Side, TimeInForce,
     };
 
     fn new_order_command(request_id: &str, client_order_id: &str) -> Command {
@@ -394,6 +456,28 @@ mod tests {
             min_fill_qty: None,
             stp_group_id: None,
             is_market_maker: false,
+        })
+    }
+
+    fn replace_order_command(request_id: &str, order_id: &str) -> Command {
+        Command::ReplaceOrder(ReplaceOrderCommand {
+            metadata: CommandMetadata::new(request_id),
+            user_id: "user-1".to_string(),
+            market_id: "btc-usdt".to_string(),
+            outcome: Some(0),
+            order_id: order_id.to_string(),
+            new_client_order_id: None,
+            new_price: Some(101),
+            new_amount: Some(9),
+            new_time_in_force: None,
+            post_only: None,
+            reduce_only: None,
+            new_leverage: None,
+            new_expires_at: None,
+            new_display_qty: None,
+            new_min_fill_qty: None,
+            new_trigger_price: None,
+            new_trigger_type: None,
         })
     }
 
@@ -613,5 +697,26 @@ mod tests {
         assert_eq!(count, 3);
         // next_seq should be max_seq + 1 = 5
         assert_eq!(seq_lenient.next_seq.load(Ordering::SeqCst), 5);
+    }
+
+    #[test]
+    fn generated_replace_order_id_is_persisted_for_replay() {
+        let wal = Arc::new(InMemoryWal::<SequencedCommandRecord>::new());
+        let sequencer = Sequencer::with_wal(1, wal.clone());
+        sequencer
+            .sequence_and_append(replace_order_command("replace-flow", "old-1"))
+            .unwrap();
+
+        sequencer
+            .record_generated_replace_order_id("replace-flow", "generated-1")
+            .unwrap();
+
+        let recovered = Sequencer::with_wal(1, wal);
+        recovered.recover_from_wal().unwrap();
+        let command = recovered.command("replace-flow").unwrap();
+        let Command::ReplaceOrder(command) = command else {
+            panic!("expected replace command");
+        };
+        assert_eq!(command.new_client_order_id.as_deref(), Some("generated-1"));
     }
 }

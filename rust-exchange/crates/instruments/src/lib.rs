@@ -24,6 +24,14 @@ impl InMemoryInstrumentRegistry {
     }
 
     pub fn register(&self, spec: InstrumentSpec) {
+        // Defense-in-depth: validate after deserialization to catch
+        // #[serde(default)] bypass or malformed input.
+        if let Err(e) = spec.validate() {
+            panic!(
+                "Invalid instrument spec for '{}': {}",
+                spec.instrument_id, e
+            );
+        }
         self.specs.insert(spec.instrument_id.clone(), spec);
     }
 
