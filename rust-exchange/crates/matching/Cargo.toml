@@ -23,7 +23,16 @@ serde_json.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+futures = "0.3"
+rand = "0.8"
+proptest = "1"
+tempfile = "3"
+sequencer = { path = "../sequencer" }
 
 [[bench]]
 name = "matching_benchmark"
+harness = false
+
+[[bench]]
+name = "comprehensive_latency"
 harness = false

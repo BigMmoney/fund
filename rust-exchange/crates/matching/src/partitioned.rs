@@ -48,7 +48,7 @@ impl Default for PartitionedEngineConfig {
         Self {
             partitions: 8,
             queue_capacity: 4096,
-            snapshot_interval_commands: 64,
+            snapshot_interval_commands: 256, // Increased from 64 to reduce snapshot flush overhead on P99
             max_open_orders_per_user: 200,
             cancel_window: Duration::from_secs(2),
             max_cancel_to_new_ratio: 3.0,
@@ -97,6 +97,9 @@ pub enum SubmissionError {
     },
     InsufficientLiquidityForFok,
     SelfTradePrevented(String),
+    InsufficientFunds {
+        detail: String,
+    },
     Ledger(String),
     TickSizeViolation {
         price: i64,
@@ -196,6 +199,7 @@ impl fmt::Display for SubmissionError {
             SubmissionError::SelfTradePrevented(order_id) => {
                 write!(f, "self-trade prevented for order: {order_id}")
             }
+            SubmissionError::InsufficientFunds { detail } => write!(f, "insufficient funds: {detail}"),
             SubmissionError::Ledger(error) => write!(f, "ledger error: {error}"),
             SubmissionError::TickSizeViolation { price, tick_size } => {
                 write!(f, "price {price} not aligned to tick size {tick_size}")
@@ -248,6 +252,22 @@ impl fmt::Display for SubmissionError {
 
 impl std::error::Error for SubmissionError {}
 
+/// Fine-grained timing breakdown of the critical path inside process_new_order.
+/// All values are in microseconds.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct TimingBreakdown {
+    /// Validation: validate_new_order, instrument lookup, fat-finger guard
+    pub validation_us: u64,
+    /// Risk: order reservation, risk-checked command construction
+    pub risk_us: u64,
+    /// Core matching: order book traversal, fill execution (excludes settlement/persist)
+    pub matching_us: u64,
+    /// Settlement + WAL persistence: trade journal, settlement records, fee collection
+    pub wal_us: u64,
+    /// Post-processing: state transitions, replay cursor, trigger evaluation
+    pub post_match_us: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct SubmitOrderResult {
     pub metadata: CommandMetadata,
@@ -263,6 +283,8 @@ pub struct SubmitOrderResult {
     pub match_execution_us: u64,
     /// Microseconds spent persisting the snapshot (WAL I/O). Filled by caller.
     pub persist_us: u64,
+    /// Fine-grained timing breakdown of the critical path.
+    pub timing: TimingBreakdown,
 }
 
 #[derive(Debug, Clone)]
@@ -449,8 +471,10 @@ pub struct MarketRuntimeSnapshot {
 pub struct TradeStatistics {
     pub total_trades: u64,
     pub total_volume: i64,
-    /// Sum of (price * amount) across all trades.
-    pub total_turnover: i64,
+    /// Sum of (price * amount) across all trades. Stored as i128 to prevent
+    /// saturation in high-volume markets. Serialized as decimal string for JSON compatibility.
+    #[serde(default)]
+    pub total_turnover: i128,
     pub high_price: Option<i64>,
     pub low_price: Option<i64>,
     pub open_price: Option<i64>,
@@ -462,9 +486,11 @@ impl TradeStatistics {
     fn record(&mut self, price: i64, amount: i64) {
         self.total_trades += 1;
         self.total_volume = self.total_volume.saturating_add(amount);
+        // Use i128 arithmetic without clamping — saturating_add on i128 won't
+        // overflow for any realistic trading volume (i128::MAX ≈ 1.7e38).
         self.total_turnover = self
             .total_turnover
-            .saturating_add((price as i128 * amount as i128).clamp(0, i64::MAX as i128) as i64);
+            .saturating_add(price as i128 * amount as i128);
         if self.open_price.is_none() {
             self.open_price = Some(price);
         }
@@ -477,7 +503,7 @@ impl TradeStatistics {
     /// Volume-weighted average price. Returns `None` if no trades.
     pub fn vwap(&self) -> Option<i64> {
         if self.total_volume > 0 {
-            Some(self.total_turnover / self.total_volume)
+            Some((self.total_turnover / self.total_volume as i128) as i64)
         } else {
             None
         }
@@ -568,6 +594,12 @@ pub struct RestingOrderSnapshot {
     /// Minimum individual fill size.
     #[serde(default)]
     pub min_fill_qty: Option<i64>,
+    /// STP group identifier for self-trade prevention.
+    #[serde(default)]
+    pub stp_group_id: Option<String>,
+    /// Whether this order belongs to a registered market maker.
+    #[serde(default)]
+    pub is_market_maker: bool,
 }
 
 /// Serialized representation of a conditional trigger order.
@@ -597,6 +629,15 @@ pub struct TriggerOrderSnapshot {
     pub display_qty: Option<i64>,
     #[serde(default)]
     pub min_fill_qty: Option<i64>,
+    /// Expiry timestamp for the trigger order.
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+    /// STP group identifier.
+    #[serde(default)]
+    pub stp_group_id: Option<String>,
+    /// Whether this trigger order belongs to a market maker.
+    #[serde(default)]
+    pub is_market_maker: bool,
 }
 
 const SNAPSHOT_VERSION: u32 = 1;
@@ -890,17 +931,6 @@ impl PartitionedMatchingEngine {
         Ok(snapshots)
     }
 
-    #[deprecated(
-        note = "max snapshot seq is not a safe replay boundary; use global_replay_floor_command_seq() or per-partition cursors"
-    )]
-    pub async fn latest_applied_command_seq(&self) -> Result<Option<u64>, SubmissionError> {
-        let snapshots = self.export_snapshots().await?;
-        Ok(snapshots
-            .into_iter()
-            .filter_map(|record| record.last_applied_command_seq)
-            .max())
-    }
-
     pub async fn global_replay_floor_command_seq(&self) -> Result<Option<u64>, SubmissionError> {
         let snapshots = self.export_snapshots().await?;
         Ok(snapshots
@@ -1086,9 +1116,10 @@ impl PartitionedMatchingEngine {
         for handle in self.partitions.iter() {
             handle.dirty_commands.fetch_add(1, Ordering::Relaxed);
         }
-        if let Err(error) = self.persist_all_partitions().await {
-            tracing::error!(error = %error, "post-commit snapshot persistence failed");
-        }
+        // Offload snapshot persistence to background to keep cancel latency low.
+        // Snapshots are flushed when dirty_commands reaches snapshot_interval_commands.
+        let all_partitions: Vec<usize> = (0..self.config.partitions).collect();
+        self.persist_partitions_background(&all_partitions);
         Ok(CancelResult {
             metadata: metadata.expect("cancel success must have metadata"),
             market_state,
@@ -1666,9 +1697,25 @@ async fn run_partition(
         seen_trade_ids,
         settlement_statuses,
     );
+    const BATCH_SIZE: usize = 32; // Conservative batch draining (was 128)
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
+
     while let Some(request) = rx.recv().await {
-        state.process(request);
-        inflight.fetch_sub(1, Ordering::Relaxed);
+        batch.push(request);
+
+        // Try to fill batch without blocking
+        while batch.len() < BATCH_SIZE {
+            match rx.try_recv() {
+                Ok(req) => batch.push(req),
+                Err(_) => break,
+            }
+        }
+
+        // Process entire batch
+        for request in batch.drain(..) {
+            state.process(request);
+            inflight.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 }
 struct PartitionState {
@@ -1915,6 +1962,7 @@ impl PartitionState {
                 queue_wait_us: 0,
                 match_execution_us: 0,
                 persist_us: 0,
+                timing: TimingBreakdown::default(),
             });
         }
 
@@ -1931,6 +1979,8 @@ impl PartitionState {
             });
         }
 
+        // Phase 1: Validation timing
+        let val_start = Instant::now();
         validate_order_acceptance(
             market,
             &self.config,
@@ -1939,10 +1989,10 @@ impl PartitionState {
             &command,
             None,
         )?;
-
         command
             .metadata
             .advance(CommandLifecycle::PartitionAccepted);
+        let validation_us = val_start.elapsed().as_micros() as u64;
 
         let mut incoming = RestingOrder::from_new_order(command.clone());
         if incoming.order_type == OrderType::Market
@@ -1951,6 +2001,9 @@ impl PartitionState {
             incoming.reserved_cash =
                 market_buy_budget(market, &self.risk, &instrument, &command, None)?;
         }
+
+        // Phase 2: Risk timing
+        let risk_start = Instant::now();
         let reserve_ids =
             reserve_order_reservation(&self.risk, &instrument, &mut incoming, "new_order")?;
         command.metadata.advance(CommandLifecycle::RiskReserved);
@@ -1963,6 +2016,9 @@ impl PartitionState {
             Command::NewOrder(command.clone()),
             reserve_ids,
         );
+        let risk_us = risk_start.elapsed().as_micros() as u64;
+        // Phase 3: Matching timing (includes WAL writes inside match_incoming)
+        let match_start = Instant::now();
         let match_outcome = match_incoming(
             market,
             &mut incoming,
@@ -1977,6 +2033,7 @@ impl PartitionState {
             &mut self.settlement_statuses,
             self.partition_id,
         )?;
+        let matching_us = match_start.elapsed().as_micros() as u64;
         let fills = match_outcome.fills;
         if !fills.is_empty() {
             command.metadata.advance(CommandLifecycle::Executed);
@@ -1988,6 +2045,7 @@ impl PartitionState {
             let market_state = market.state;
             record_recent_event(market, &self.config, RecentMarketEventKind::NewOrder, 1);
             self.advance_replay_cursor(command.metadata.command_seq);
+            let settlement_persist_us = match_outcome.settlement_persist_us;
             return if fills.is_empty() {
                 Err(error)
             } else {
@@ -2001,7 +2059,14 @@ impl PartitionState {
                     partition: self.partition_id,
                     queue_wait_us: 0,
                     match_execution_us: 0,
-                    persist_us: 0,
+                    persist_us: settlement_persist_us,
+                    timing: TimingBreakdown {
+                        validation_us,
+                        risk_us,
+                        matching_us,
+                        wal_us: settlement_persist_us,
+                        post_match_us: 0,
+                    },
                 })
             };
         }
@@ -2015,6 +2080,11 @@ impl PartitionState {
         {
             command.metadata.advance(CommandLifecycle::Completed);
             release_order_reservation(&self.risk, &instrument, &incoming, "non_resting")?;
+            // Non-resting orders (Market/IOC/FOK) that are cancelled without filling
+            // should still track client_order_id to prevent immediate reuse
+            if incoming.remaining_amount < incoming.original_amount {
+                // Partially filled — was already tracked during resting insert or match
+            }
             if incoming.remaining_amount < incoming.original_amount {
                 OrderState::PartiallyFilled
             } else {
@@ -2028,6 +2098,8 @@ impl PartitionState {
         let market_state = market.state;
         let command_seq = command.metadata.command_seq;
 
+        // Phase 5: Post-match timing (state transitions, replay cursor, triggers)
+        let post_match_start = Instant::now();
         record_recent_event(market, &self.config, RecentMarketEventKind::NewOrder, 1);
 
         // ── Auto-recovery from CancelOnly ──
@@ -2057,9 +2129,18 @@ impl PartitionState {
             .unwrap_or_default();
 
         for cmd in triggered_commands {
-            let _ = self.process_new_order(cmd);
+            let client_order_id = cmd.client_order_id.clone();
+            if let Err(err) = self.process_new_order(cmd) {
+                tracing::warn!(
+                    client_order_id = %client_order_id,
+                    error = %err,
+                    "triggered order activation failed"
+                );
+            }
         }
+        let post_match_us = post_match_start.elapsed().as_micros() as u64;
 
+        let settlement_persist_us = match_outcome.settlement_persist_us;
         Ok(SubmitOrderResult {
             metadata: command.metadata,
             order_id: incoming.order_id,
@@ -2070,7 +2151,14 @@ impl PartitionState {
             partition: self.partition_id,
             queue_wait_us: 0,
             match_execution_us: 0,
-            persist_us: 0,
+            persist_us: settlement_persist_us,
+            timing: TimingBreakdown {
+                validation_us,
+                risk_us,
+                matching_us,
+                wal_us: settlement_persist_us,
+                post_match_us,
+            },
         })
     }
 
@@ -2164,6 +2252,7 @@ impl PartitionState {
                 .get_mut(&market_key)
                 .ok_or_else(|| SubmissionError::OrderNotFound(command.order_id.clone()))?;
             market.orders.remove(&existing.order_id);
+            market.client_order_ids.remove(&existing.order_id);
             market.remove_from_book(&existing);
             market.remove_order_indexes(
                 &existing.order_id,
@@ -2523,6 +2612,7 @@ impl PartitionState {
             let Some(order) = market.orders.remove(&order_id) else {
                 continue;
             };
+            market.client_order_ids.remove(&order_id);
             market.remove_from_book(&order);
             market.remove_order_indexes(
                 &order.order_id,
@@ -2578,7 +2668,16 @@ struct MarketRuntime {
     mm_fill_trackers: HashMap<String, MmFillTracker>,
     /// Per-user trailing 30-day notional volume for fee tier resolution.
     user_volume_30d: HashMap<String, i64>,
+    /// Track client_order_ids for regular resting orders to detect duplicates.
+    client_order_ids: HashSet<String>,
 }
+
+/// Maximum number of user volume entries before triggering eviction.
+const MAX_VOLUME_ENTRIES: usize = 100_000;
+/// Maximum number of MM tracker entries before triggering eviction.
+const MAX_MM_TRACKERS: usize = 10_000;
+/// Maximum number of rate-limit timestamp entries before triggering eviction.
+const MAX_RATE_LIMIT_ENTRIES: usize = 100_000;
 
 /// Tracks rolling fills for a market maker within a window.
 #[derive(Debug, Clone)]
@@ -2607,6 +2706,13 @@ impl MmFillTracker {
     fn evict_old(&mut self, window: Duration) {
         let cutoff = Instant::now() - window;
         while self.fills.front().is_some_and(|(t, _, _)| *t < cutoff) {
+            self.fills.pop_front();
+        }
+    }
+
+    /// Cap the fills deque to prevent unbounded growth.
+    fn cap_fills(&mut self, max_entries: usize) {
+        while self.fills.len() > max_entries {
             self.fills.pop_front();
         }
     }
@@ -2643,6 +2749,7 @@ impl MarketRuntime {
             circuit_breaker_triggered_at: None,
             mm_fill_trackers: HashMap::new(),
             user_volume_30d: HashMap::new(),
+            client_order_ids: HashSet::new(),
         }
     }
 
@@ -2688,14 +2795,14 @@ impl MarketRuntime {
                             post_only: snap.post_only,
                             reduce_only: snap.reduce_only,
                             leverage: snap.leverage,
-                            expires_at: None,
+                            expires_at: snap.expires_at,
                             stp_mode: snap.stp_mode,
                             trigger_price: Some(snap.trigger_price),
                             trigger_type: Some(snap.trigger_type),
                             display_qty: snap.display_qty,
                             min_fill_qty: snap.min_fill_qty,
-                            stp_group_id: None,
-                            is_market_maker: false,
+                            stp_group_id: snap.stp_group_id,
+                            is_market_maker: snap.is_market_maker,
                         },
                         trigger_price: snap.trigger_price,
                         trigger_type: snap.trigger_type,
@@ -2708,9 +2815,11 @@ impl MarketRuntime {
             circuit_breaker_triggered_at: None,
             mm_fill_trackers: HashMap::new(),
             user_volume_30d: HashMap::new(),
+            client_order_ids: HashSet::new(),
         };
 
         for order in snapshot.orders {
+            market.client_order_ids.insert(order.order_id.clone());
             insert_resting_order(&mut market, RestingOrder::from_snapshot(order, instrument));
         }
 
@@ -2765,6 +2874,9 @@ impl MarketRuntime {
                     stp_mode: t.command.stp_mode,
                     display_qty: t.command.display_qty,
                     min_fill_qty: t.command.min_fill_qty,
+                    expires_at: t.command.expires_at,
+                    stp_group_id: t.command.stp_group_id.clone(),
+                    is_market_maker: t.command.is_market_maker,
                 })
                 .collect(),
         }
@@ -2895,6 +3007,13 @@ impl MarketRuntime {
     fn check_rate_limit(&mut self, user_id: &str, config: &PartitionedEngineConfig) -> bool {
         if config.max_orders_per_window_per_user == 0 {
             return false; // rate limiting disabled
+        }
+        // Evict stale user entries when the map grows too large.
+        if self.user_order_timestamps.len() >= MAX_RATE_LIMIT_ENTRIES {
+            self.user_order_timestamps.retain(|_, ts| {
+                ts.back()
+                    .is_some_and(|t| t.elapsed() <= config.order_rate_window)
+            });
         }
         let now = Instant::now();
         let timestamps = self
@@ -3066,6 +3185,8 @@ struct RestingOrder {
 struct MatchOutcome {
     fills: Vec<Fill>,
     aborted: Option<SubmissionError>,
+    /// Cumulative microseconds spent in settlement + WAL persistence within the match loop.
+    settlement_persist_us: u64,
 }
 
 impl RestingOrder {
@@ -3152,8 +3273,8 @@ impl RestingOrder {
                     d.min(snapshot.remaining_amount)
                 }),
             min_fill_qty: snapshot.min_fill_qty.filter(|&q| q > 0),
-            stp_group_id: None,
-            is_market_maker: false,
+            stp_group_id: snapshot.stp_group_id,
+            is_market_maker: snapshot.is_market_maker,
         }
     }
 
@@ -3179,6 +3300,8 @@ impl RestingOrder {
             stp_mode: self.stp_mode,
             display_qty: self.display_qty,
             min_fill_qty: self.min_fill_qty,
+            stp_group_id: self.stp_group_id.clone(),
+            is_market_maker: self.is_market_maker,
         }
     }
 
@@ -3204,6 +3327,8 @@ struct RecentMarketEvent {
 }
 
 fn insert_resting_order(market: &mut MarketRuntime, order: RestingOrder) {
+    // Track client_order_id only for resting orders to prevent duplicate submissions
+    market.client_order_ids.insert(order.order_id.clone());
     market.index_order(&order);
     market.orders.insert(order.order_id.clone(), order.clone());
     let queue = if order.side == Side::Buy {
@@ -3262,6 +3387,7 @@ fn skipped_new_order_result(
         queue_wait_us: 0,
         match_execution_us: 0,
         persist_us: 0,
+        timing: TimingBreakdown::default(),
     }
 }
 
@@ -3284,6 +3410,7 @@ fn skipped_replace_order_result(
         queue_wait_us: 0,
         match_execution_us: 0,
         persist_us: 0,
+        timing: TimingBreakdown::default(),
     }
 }
 
@@ -3506,9 +3633,9 @@ fn validate_order_acceptance(
             && estimate.executable_amount == 0
             && market.best_ask().is_some()
         {
-            return Err(SubmissionError::Ledger(
-                "insufficient available cash".to_string(),
-            ));
+            return Err(SubmissionError::InsufficientFunds {
+                detail: "insufficient available cash".to_string(),
+            });
         }
         if command.time_in_force == TimeInForce::Fok && estimate.executable_amount < command.amount
         {
@@ -3518,9 +3645,9 @@ fn validate_order_acceptance(
             let leverage = normalized_command_leverage(instrument, command)?.unwrap_or(1);
             let required = estimate.required_reserve;
             if required > available_cash {
-                return Err(SubmissionError::Ledger(
-                    "insufficient available margin".to_string(),
-                ));
+                return Err(SubmissionError::InsufficientFunds {
+                    detail: "insufficient available margin".to_string(),
+                });
             }
             if estimate.executable_amount > 0 && leverage == 0 {
                 return Err(SubmissionError::InvalidOrder(
@@ -3570,6 +3697,7 @@ fn validate_order_acceptance(
                 // Remove conflicting resting orders from the book.
                 for order_id in &self_trade_ids {
                     if let Some(resting) = market.orders.remove(order_id) {
+                        market.client_order_ids.remove(order_id);
                         market.remove_from_book(&resting);
                         market.remove_order_indexes(
                             &resting.order_id,
@@ -3613,9 +3741,9 @@ fn preflight_order_reservation_capacity(
                 .available_cash(&command.user_id)
                 .saturating_add(released_cash);
             if notional > available_cash {
-                return Err(SubmissionError::Ledger(
-                    "insufficient available cash".to_string(),
-                ));
+                return Err(SubmissionError::InsufficientFunds {
+                    detail: "insufficient available cash".to_string(),
+                });
             }
         }
         (InstrumentKind::Spot, Side::Sell, _) => {
@@ -3627,9 +3755,9 @@ fn preflight_order_reservation_capacity(
                 .available_position(&command.user_id, &command.market_id, command.outcome)
                 .saturating_add(released_position);
             if command.amount > available_position {
-                return Err(SubmissionError::Ledger(
-                    "insufficient available position".to_string(),
-                ));
+                return Err(SubmissionError::InsufficientFunds {
+                    detail: "insufficient available position".to_string(),
+                });
             }
         }
         (kind, _, OrderType::Limit) if kind.is_derivative() => {
@@ -3704,7 +3832,7 @@ fn can_fully_fill(market: &MarketRuntime, command: &NewOrderCommand) -> bool {
                 }
                 for order_id in queue {
                     if let Some(order) = market.orders.get(order_id) {
-                        remaining -= order.remaining_amount;
+                        remaining = remaining.saturating_sub(order.remaining_amount);
                         if remaining <= 0 {
                             return true;
                         }
@@ -3721,7 +3849,7 @@ fn can_fully_fill(market: &MarketRuntime, command: &NewOrderCommand) -> bool {
                 }
                 for order_id in queue {
                     if let Some(order) = market.orders.get(order_id) {
-                        remaining -= order.remaining_amount;
+                        remaining = remaining.saturating_sub(order.remaining_amount);
                         if remaining <= 0 {
                             return true;
                         }
@@ -4073,6 +4201,8 @@ fn match_incoming(
             .map_err(risk_error_to_submission)?;
         let settle_op = trade_settle_op_id(&trade_id);
         let rollback_settle_op = rollback_settle_op_id(&trade_id);
+        // ── Settlement + persistence timing ──
+        let settlement_start = Instant::now();
         // ── Fee calculation ──
         let notional = best_price.saturating_mul(executed_amount);
         let taker_is_incoming = true; // incoming order is always the taker
@@ -4309,17 +4439,50 @@ fn match_incoming(
         market.last_trade_price = Some(best_price);
         market.trade_stats.record(best_price, executed_amount);
         // Increment per-user trailing volume (used for fee tier resolution).
+        // Bounded map size to prevent memory exhaustion — evict oldest when capacity reached.
         let fill_notional = best_price.saturating_mul(executed_amount);
-        *market
+        if market.user_volume_30d.len() >= MAX_VOLUME_ENTRIES {
+            // Evict 10% of oldest entries when capacity is reached.
+            let to_remove = MAX_VOLUME_ENTRIES / 10;
+            let mut keys: Vec<String> = market.user_volume_30d.keys().cloned().collect();
+            keys.sort();
+            for key in keys.into_iter().take(to_remove) {
+                market.user_volume_30d.remove(&key);
+            }
+        }
+        // Credit trading volume to both counterparties, avoiding double-count
+        // when self-trades are permitted (same user as maker and taker).
+        let vol_in = market
             .user_volume_30d
             .entry(incoming.user_id.clone())
-            .or_insert(0) += fill_notional;
-        *market
-            .user_volume_30d
-            .entry(resting_user_id_for_mm.clone())
-            .or_insert(0) += fill_notional;
+            .or_insert(0);
+        *vol_in = vol_in.saturating_add(fill_notional);
+        if resting_user_id_for_mm != incoming.user_id {
+            let vol_resting = market
+                .user_volume_30d
+                .entry(resting_user_id_for_mm.clone())
+                .or_insert(0);
+            *vol_resting = vol_resting.saturating_add(fill_notional);
+        }
+        // Evict old fills from MM trackers to prevent unbounded growth.
+        if let Some(mm_config) = &instrument.mm_protection {
+            if let Some(tracker) = market.mm_fill_trackers.get_mut(&resting_user_id_for_mm) {
+                tracker.evict_old(Duration::from_secs(mm_config.window_secs));
+                tracker.cap_fills(10_000);
+            }
+        }
+        // Cap total MM tracker count.
+        if market.mm_fill_trackers.len() > MAX_MM_TRACKERS {
+            let to_remove = MAX_MM_TRACKERS / 10;
+            let mut keys: Vec<String> = market.mm_fill_trackers.keys().cloned().collect();
+            keys.sort();
+            for key in keys.into_iter().take(to_remove) {
+                market.mm_fill_trackers.remove(&key);
+            }
+        }
         market.remove_from_book(&resting);
         let _ = market.orders.remove(&resting.order_id);
+        market.client_order_ids.remove(&resting.order_id);
         let buy_fill = Fill {
             id: trade_id.clone(),
             intent_id: buy_intent_id,
@@ -4418,6 +4581,9 @@ fn match_incoming(
         }
 
         apply_trade_price_guard(market, config, best_price);
+
+        // Accumulate settlement + persistence timing for this fill iteration.
+        outcome.settlement_persist_us += settlement_start.elapsed().as_micros() as u64;
 
         // Market-maker protection: track fills and break if limits exceeded.
         if let Some(ref mmp) = instrument.mm_protection {
@@ -4618,9 +4784,7 @@ fn reserve_order_reservation(
                             &reserve_position_op_id(order, reason),
                         )
                         .map_err(|error| SubmissionError::Ledger(error.to_string()))?;
-                    order.reserved_position = order
-                        .reserved_position
-                        .saturating_add(order.remaining_amount);
+                    order.reserved_position = order.remaining_amount;
                     return Ok(reserve_ids);
                 }
             }
@@ -4736,6 +4900,7 @@ fn cancel_orders(
             let Some(order) = market.orders.remove(&order_id) else {
                 continue;
             };
+            market.client_order_ids.remove(&order_id);
             if user_id.is_some_and(|expected| expected != order.user_id) {
                 market.orders.insert(order.order_id.clone(), order);
                 continue;
@@ -5190,8 +5355,11 @@ fn limit_price(command: &NewOrderCommand) -> Option<i64> {
 }
 
 fn deviation_bps(reference_price: i64, attempted_price: i64) -> i64 {
+    if reference_price <= 0 {
+        return i64::MAX; // treat zero/negative reference as maximal deviation
+    }
     let diff = (attempted_price as i128 - reference_price as i128).abs();
-    (diff * 10_000 / (reference_price.max(1) as i128)).min(i64::MAX as i128) as i64
+    (diff * 10_000 / (reference_price as i128)).min(i64::MAX as i128) as i64
 }
 
 /// Determine if a trigger condition is met.
@@ -6268,7 +6436,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(error, SubmissionError::Ledger(_)));
+        assert!(matches!(error, SubmissionError::InsufficientFunds { .. }));
         assert_eq!(ledger.cash_hold_balance("maker-1"), initial_hold);
         let snapshot = engine
             .snapshot_market("btc-usdt", 0)
@@ -6900,7 +7068,7 @@ mod tests {
         market_buy.price = None;
 
         let error = engine.submit_new_order(market_buy).await.unwrap_err();
-        assert!(matches!(error, SubmissionError::Ledger(_)));
+        assert!(matches!(error, SubmissionError::InsufficientFunds { .. }));
 
         let snapshot = engine
             .snapshot_market("btc-usdt", 0)
