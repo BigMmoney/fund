@@ -46,13 +46,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /build/target/release/api /app/exchange
 COPY config/ /app/config/
-RUN mkdir -p /app/data && chown -R exchange:exchange /app
+RUN mkdir -p /app/data /tmp && chown -R exchange:exchange /app /tmp
 
 USER exchange
 
 ENV RUST_LOG=info
 ENV API_BIND_HOST=0.0.0.0
 ENV API_BIND_PORT=3030
+ENV EXCHANGE_CONFIG_PATH=/app/config/exchange.toml
 
 EXPOSE 3030
 

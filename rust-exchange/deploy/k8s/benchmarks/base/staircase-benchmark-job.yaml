@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: exchange-staircase-benchmark
+  namespace: exchange
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        app: exchange-staircase-benchmark
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: benchmark
+          image: ghcr.io/OWNER/exchange-http-bench:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ARTIFACT_ROOT
+              value: /artifacts
+            - name: BENCH_BASE_URL
+              value: http://exchange.exchange.svc.cluster.local:3030
+            - name: BENCH_MARKET
+              value: btc-usdt
+            - name: BENCH_ADMIN_SUBJECT
+              value: bench-admin
+            - name: BENCH_TOTAL_REQUEST_STEPS
+              value: 10000,50000,100000
+            - name: BENCH_BUYER_COUNT
+              value: "12"
+            - name: BENCH_SELLER_COUNT
+              value: "12"
+            - name: BENCH_BUYER_PREFIX
+              value: job-buyer
+            - name: BENCH_SELLER_PREFIX
+              value: job-seller
+            - name: BENCH_PAIR_CONCURRENCY
+              value: "5"
+            - name: BENCH_RATE_LIMIT_PER_SECOND
+              value: "60"
+            - name: BENCH_REQUEST_STAGGER_MS
+              value: "5"
+            - name: BENCH_RATE_LIMIT_RETRY_MAX
+              value: "2"
+            - name: BENCH_RATE_LIMIT_BACKOFF_MS
+              value: "150"
+            - name: BENCH_DISABLE_KEEP_ALIVES
+              value: "false"
+            - name: BENCH_SEED_USERS
+              value: "true"
+            - name: BENCH_SEED_CASH_AMOUNT
+              value: "500000000"
+            - name: BENCH_SEED_POSITION_AMOUNT
+              value: "200000"
+            - name: BENCH_SEED_RETRY_MAX
+              value: "6"
+            - name: BENCH_SEED_RETRY_BACKOFF_MS
+              value: "200"
+            - name: BENCH_SEED_REQUEST_DELAY_MS
+              value: "25"
+            - name: BENCH_SECRET_FILE
+              value: /var/run/secrets/exchange/internal_auth.secret
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+            - name: auth-secret
+              mountPath: /var/run/secrets/exchange
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: exchange-benchmark-artifacts
+        - name: auth-secret
+          secret:
+            secretName: exchange-secrets
+            items:
+              - key: internal_auth.secret
+                path: internal_auth.secret
+        - name: tmp
+          emptyDir: {}

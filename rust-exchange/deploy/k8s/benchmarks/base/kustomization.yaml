@@ -1,0 +1,3 @@
+resources:
+  - artifacts-pvc.yaml
+  - staircase-benchmark-job.yaml

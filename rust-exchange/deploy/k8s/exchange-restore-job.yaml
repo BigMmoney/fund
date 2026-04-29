@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: exchange-wal-restore
+  namespace: exchange
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: exchange-wal-restore
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: wal-restore
+          image: public.ecr.aws/aws-cli/aws-cli:2.17.57
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              test -n "$RESTORE_S3_URI"
+              archive="/tmp/restore.tgz"
+              rm -f "$archive"
+              rm -rf /restore/*
+              aws s3 cp "$RESTORE_S3_URI" "$archive"
+              tar -C /restore -xzf "$archive"
+              find /restore -maxdepth 2 -type f | sort
+          env:
+            - name: RESTORE_S3_URI
+              valueFrom:
+                secretKeyRef:
+                  name: exchange-secrets
+                  key: RESTORE_S3_URI
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: exchange-secrets
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: exchange-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: exchange-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+          volumeMounts:
+            - name: restore-target
+              mountPath: /restore
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: restore-target
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

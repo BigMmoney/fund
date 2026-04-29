@@ -5,6 +5,13 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rust-exchange
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: exchange
+  namespace: exchange
+automountServiceAccountToken: false
+---
 # ── ConfigMap ─────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
@@ -15,10 +22,13 @@ data:
   RUST_LOG: "info"
   API_BIND_HOST: "0.0.0.0"
   API_BIND_PORT: "3030"
+  EXCHANGE_CONFIG_PATH: "/app/config/exchange.toml"
   WAL_DATA_DIR: "/app/data"
   WS_MAX_CONNECTIONS: "1024"
   EXCHANGE_QUEUE_CAPACITY: "4096"
   EXCHANGE_PARTITION_COUNT: "8"
+  INTERNAL_AUTH_SHARED_SECRET_FILE: "/var/run/secrets/exchange/internal_auth.secret"
+  SERVER_ROLE_MAPPING_FILE: "/var/run/secrets/exchange/role_mapping.json"
 ---
 # ── Secret (template — fill before apply) ─────────────────────
 apiVersion: v1
@@ -28,10 +38,19 @@ metadata:
   namespace: exchange
 type: Opaque
 stringData:
-  INTERNAL_AUTH_SHARED_SECRET: "CHANGE_ME"
+  internal_auth.secret: "CHANGE_ME"
+  role_mapping.json: |
+    {
+      "bench-admin": "admin"
+    }
   ONCALL_WEBHOOK_URL: ""
   ONCALL_PRIMARY_NAME: "unassigned"
   ONCALL_PRIMARY_CONTACT: "unassigned"
+  BACKUP_S3_BUCKET: "s3://replace-me/exchange"
+  RESTORE_S3_URI: "s3://replace-me/exchange/wal/REPLACE_ME.tgz"
+  AWS_REGION: "ap-southeast-1"
+  AWS_ACCESS_KEY_ID: ""
+  AWS_SECRET_ACCESS_KEY: ""
 ---
 # ── PersistentVolumeClaim ─────────────────────────────────────
 apiVersion: v1
@@ -73,15 +92,20 @@ spec:
         prometheus.io/port: "3030"
         prometheus.io/path: "/metrics/prometheus"
     spec:
+      automountServiceAccountToken: false
+      serviceAccountName: exchange
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: exchange
           image: ghcr.io/OWNER/rust-exchange:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3030
@@ -89,11 +113,36 @@ spec:
           envFrom:
             - configMapRef:
                 name: exchange-config
-            - secretRef:
-                name: exchange-secrets
+          env:
+            - name: ONCALL_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: exchange-secrets
+                  key: ONCALL_WEBHOOK_URL
+            - name: ONCALL_PRIMARY_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: exchange-secrets
+                  key: ONCALL_PRIMARY_NAME
+            - name: ONCALL_PRIMARY_CONTACT
+              valueFrom:
+                secretKeyRef:
+                  name: exchange-secrets
+                  key: ONCALL_PRIMARY_CONTACT
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: data
               mountPath: /app/data
+            - name: auth-secret
+              mountPath: /var/run/secrets/exchange
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: "500m"
@@ -101,6 +150,13 @@ spec:
             limits:
               cpu: "4"
               memory: "4Gi"
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
           livenessProbe:
             httpGet:
               path: /health
@@ -128,6 +184,16 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: exchange-data
+        - name: auth-secret
+          secret:
+            secretName: exchange-secrets
+            items:
+              - key: internal_auth.secret
+                path: internal_auth.secret
+              - key: role_mapping.json
+                path: role_mapping.json
+        - name: tmp
+          emptyDir: {}
 ---
 # ── Service ───────────────────────────────────────────────────
 apiVersion: v1
@@ -146,6 +212,71 @@ spec:
       protocol: TCP
   selector:
     app: exchange
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: exchange
+  namespace: exchange
+spec:
+  podSelector:
+    matchLabels:
+      app: exchange
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3030
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 3030
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: exchange
+  namespace: exchange
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    external-dns.alpha.kubernetes.io/hostname: exchange.example.com
+    nginx.ingress.kubernetes.io/proxy-body-size: "64k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+spec:
+  tls:
+    - hosts:
+        - exchange.example.com
+      secretName: exchange-tls
+  rules:
+    - host: exchange.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: exchange
+                port:
+                  name: http
 ---
 # ── HorizontalPodAutoscaler ──────────────────────────────────
 apiVersion: autoscaling/v2
@@ -215,3 +346,81 @@ spec:
     - port: http
       path: /metrics/prometheus
       interval: 15s
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exchange-wal-backup
+  namespace: exchange
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: exchange-wal-backup
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: wal-backup
+              image: public.ecr.aws/aws-cli/aws-cli:2.17.57
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                  archive="/tmp/exchange-wal-${ts}.tgz"
+                  tar -C /data -czf "$archive" .
+                  aws s3 cp "$archive" "${BACKUP_S3_BUCKET%/}/wal/${ts}.tgz"
+              env:
+                - name: BACKUP_S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: exchange-secrets
+                      key: BACKUP_S3_BUCKET
+                - name: AWS_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: exchange-secrets
+                      key: AWS_REGION
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: exchange-secrets
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: exchange-secrets
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: exchange-data
+            - name: tmp
+              emptyDir: {}

@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: exchange
+  namespace: exchange
+  labels:
+    app: exchange
+spec:
+  selector:
+    matchLabels:
+      app: exchange
+  endpoints:
+    - port: http
+      path: /metrics/prometheus
+      interval: 15s

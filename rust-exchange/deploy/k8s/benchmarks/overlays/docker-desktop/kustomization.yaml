@@ -1,0 +1,7 @@
+resources:
+  - ../../base
+
+images:
+  - name: ghcr.io/OWNER/exchange-http-bench
+    newName: exchange-http-bench-local
+    newTag: dev

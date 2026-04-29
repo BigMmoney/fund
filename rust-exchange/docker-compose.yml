@@ -5,16 +5,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    init: true
     ports:
       - "3030:3030"
     volumes:
       - exchange-data:/app/data
       - ./config:/app/config:ro
+      - ./secrets:/run/secrets/exchange:ro
     environment:
       RUST_LOG: "info"
       API_BIND_HOST: "0.0.0.0"
       API_BIND_PORT: "3030"
-      INTERNAL_AUTH_SHARED_SECRET: "${INTERNAL_AUTH_SHARED_SECRET:?Set INTERNAL_AUTH_SHARED_SECRET env var}"
+      EXCHANGE_CONFIG_PATH: "/app/config/exchange.toml"
+      INTERNAL_AUTH_SHARED_SECRET_FILE: "${INTERNAL_AUTH_SHARED_SECRET_FILE:-}"
+      INTERNAL_AUTH_SHARED_SECRET: "${INTERNAL_AUTH_SHARED_SECRET:-}"
+      SERVER_ROLE_MAPPING_FILE: "${SERVER_ROLE_MAPPING_FILE:-}"
       LEDGER_WAL_PATH: "/app/data/ledger.wal.jsonl"
       SEQUENCER_WAL_PATH: "/app/data/sequencer.wal.jsonl"
       MATCHING_SNAPSHOT_WAL_PATH: "/app/data/matching.snapshot.jsonl"
@@ -33,8 +38,15 @@ services:
       POSITION_COST_EVENT_WAL_PATH: "/app/data/position.cost.events.jsonl"
       GOVERNANCE_ACTION_WAL_PATH: "/app/data/governance.actions.jsonl"
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
-      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/3030' || exit 1"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:3030/ready"]
       interval: 10s
       timeout: 3s
       start_period: 5s

@@ -1,0 +1,12 @@
+resources:
+  - ../../base
+  - secret.yaml
+
+patches:
+  - path: patch-service-nodeport.yaml
+  - path: patch-pvc-storageclass.yaml
+
+images:
+  - name: ghcr.io/OWNER/rust-exchange
+    newName: rust-exchange-local
+    newTag: dev
