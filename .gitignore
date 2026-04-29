@@ -55,11 +55,52 @@ bin/
 dist/
 build/
 rust-exchange/target/
+rust-exchange/target2/
 rust-exchange/target-scale/
 rust-exchange/target-scale2/
 rust-exchange/target-scale3/
 rust-exchange/target-scale4/
 rust-exchange/target-scale5/
+
+# Build/check/test/bench scratch logs (rust-exchange root)
+rust-exchange/build_*.txt
+rust-exchange/build_*.log
+rust-exchange/check_*.txt
+rust-exchange/check_release.txt
+rust-exchange/test_*.txt
+rust-exchange/test_sec_*.txt
+rust-exchange/bench_results.txt
+rust-exchange/benchmark_*_results.txt
+rust-exchange/benchmark_v4_quick.txt
+rust-exchange/e2e_bench_report.txt
+rust-exchange/final_build.txt
+rust-exchange/final_release_build.txt
+rust-exchange/*.pdb
+
+# Top-level build scratch
+/build_log.txt
+/build_output.txt
+
+# Per-run P0 artifacts (keep the schema, not the per-run output)
+rust-exchange/artifacts/
+
+# Codex agent local logs
+rust-exchange/.codex-logs/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Pre-audit recovery snapshots (one-off, keep on disk)
+/pre_audit_full_diff_*.patch
+/pre_audit_full_diff_*.stderr.txt
+/pre_audit_untracked_*.tar.gz
+/pre_audit_untracked_*.tar.stderr.txt
+/pre_audit_untracked_list_*.txt
+/pre_audit_untracked_filtered_*.txt
 
 # OS-specific
 Thumbs.db
@@ -71,6 +112,10 @@ tmp/
 temp/
 *.tmp
 .codex_tmp/
+.gocache/
+rust-exchange/scripts/__pycache__/
+rust-exchange/live_metrics*.json
+rust-exchange/live_submit_cancel_ab*.json
 
 # Local deliverables and mutable archive aliases
 deliverables/
