@@ -1,0 +1,14 @@
+FROM debian:bookworm-slim AS runtime
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY benchmark/bin/exchange_http_bench_linux_amd64 /usr/local/bin/exchange_http_bench
+COPY benchmark/scripts/run_staircase_bench.py /app/run_staircase_bench.py
+
+RUN chmod +x /usr/local/bin/exchange_http_bench
+
+ENV ARTIFACT_ROOT=/artifacts
+ENTRYPOINT ["python3", "/app/run_staircase_bench.py"]

@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -28,26 +30,28 @@ import (
 
 // APIGateway handles HTTP and WebSocket requests
 type APIGateway struct {
-	router          *mux.Router
-	eventBus        *eventbus.EventBus
-	upgrader        websocket.Upgrader
-	wsClients       map[*websocket.Conn]*wsClient
-	wsClientsMu     sync.RWMutex
-	httpClient      *http.Client
-	rustCoreURL     string
-	allowOrigins    map[string]struct{}
-	globalLimiter   *fixedWindowRateLimiter
-	userLimiter     *fixedWindowRateLimiter
-	adminLimiter    *fixedWindowRateLimiter
-	authTokens      map[string]AuthenticatedPrincipal
-	internalSecret  []byte
-	wsConnLimit     int
-	demoWithdrawals bool
-	demoAdminWrites bool
-	demoHFTExecute  bool
-	demoWebSocket   bool
-	demoHFTStream   bool
-	demoAdminUsers  bool
+	router              *mux.Router
+	eventBus            *eventbus.EventBus
+	upgrader            websocket.Upgrader
+	wsClients           map[*websocket.Conn]*wsClient
+	wsClientsMu         sync.RWMutex
+	httpClient          *http.Client
+	rustCoreURL         string
+	allowOrigins        map[string]struct{}
+	globalLimiter       *fixedWindowRateLimiter
+	userLimiter         *fixedWindowRateLimiter
+	adminLimiter        *fixedWindowRateLimiter
+	authTokens          map[string]AuthenticatedPrincipal
+	internalSecret      []byte
+	wsConnLimit         int
+	demoWithdrawals     bool
+	demoAdminWrites     bool
+	demoHFTExecute      bool
+	demoWebSocket       bool
+	demoHFTStream       bool
+	demoAdminUsers      bool
+	compatProxyRequests atomic.Uint64
+	compatProxyByPath   sync.Map
 	// References to other services (in production, use gRPC/HTTP clients)
 	markets    map[string]*types.Market
 	marketsMu  sync.RWMutex
@@ -446,6 +450,7 @@ func (gw *APIGateway) attachInternalAuth(req *http.Request, method, path, reques
 }
 
 func (gw *APIGateway) proxyJSON(w http.ResponseWriter, r *http.Request, path string, payload interface{}, principal *AuthenticatedPrincipal) bool {
+	gw.recordCompatProxy(path)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to encode proxy payload")
@@ -482,6 +487,7 @@ func (gw *APIGateway) proxyJSON(w http.ResponseWriter, r *http.Request, path str
 }
 
 func (gw *APIGateway) proxyGET(w http.ResponseWriter, r *http.Request, path string, principal *AuthenticatedPrincipal) bool {
+	gw.recordCompatProxy(path)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, gw.rustCoreURL+path, nil)
 	if err != nil {
 		writeJSONError(w, http.StatusBadGateway, "failed to construct proxy request")
@@ -538,6 +544,7 @@ func NewAPIGateway(eventBus *eventbus.EventBus) *APIGateway {
 		trades:          make([]Trade, 0),
 		stats:           &PlatformStats{},
 	}
+	log.Printf("Go API gateway is running in compatibility-shell mode only; Rust core at %s remains the canonical trading entrypoint and source of truth stays in Rust ledger/WAL", gw.rustCoreURL)
 	if len(gw.authTokens) == 0 {
 		log.Printf("WARNING: GO_API_AUTH_TOKENS is empty; authenticated Go routes will reject all callers")
 	}
@@ -559,11 +566,69 @@ func NewAPIGateway(eventBus *eventbus.EventBus) *APIGateway {
 	return gw
 }
 
+func (gw *APIGateway) recordCompatProxy(path string) {
+	gw.compatProxyRequests.Add(1)
+	value, _ := gw.compatProxyByPath.LoadOrStore(path, &atomic.Uint64{})
+	value.(*atomic.Uint64).Add(1)
+}
+
+func (gw *APIGateway) compatProxySnapshot(limit int) []map[string]interface{} {
+	type compatPathStat struct {
+		Path  string
+		Count uint64
+	}
+	stats := make([]compatPathStat, 0)
+	gw.compatProxyByPath.Range(func(key, value interface{}) bool {
+		path, ok := key.(string)
+		if !ok {
+			return true
+		}
+		counter, ok := value.(*atomic.Uint64)
+		if !ok {
+			return true
+		}
+		stats = append(stats, compatPathStat{
+			Path:  path,
+			Count: counter.Load(),
+		})
+		return true
+	})
+	sort.Slice(stats, func(i, j int) bool {
+		if stats[i].Count == stats[j].Count {
+			return stats[i].Path < stats[j].Path
+		}
+		return stats[i].Count > stats[j].Count
+	})
+	if limit > 0 && len(stats) > limit {
+		stats = stats[:limit]
+	}
+	result := make([]map[string]interface{}, 0, len(stats))
+	for _, stat := range stats {
+		result = append(result, map[string]interface{}{
+			"path":  stat.Path,
+			"count": stat.Count,
+		})
+	}
+	return result
+}
+
+func (gw *APIGateway) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":                      "healthy",
+		"mode":                        "compatibility_shell",
+		"compat_enabled":              true,
+		"canonical_entrypoint":        "rust",
+		"source_of_truth":             "rust_ledger_wal",
+		"rust_core_url":               gw.rustCoreURL,
+		"compat_proxy_requests_total": gw.compatProxyRequests.Load(),
+		"compat_proxy_top_paths":      gw.compatProxySnapshot(10),
+	})
+}
+
 func (gw *APIGateway) setupRoutes() {
 	// Health check (must be before PathPrefix)
-	gw.router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
-	}).Methods("GET")
+	gw.router.HandleFunc("/health", gw.handleHealth).Methods("GET")
 
 	// WebSocket route
 	gw.router.Handle("/ws", gw.withUserAuth(http.HandlerFunc(gw.handleWebSocket)))
@@ -709,7 +774,6 @@ type IntentResponse struct {
 	Status    string `json:"status"`
 	CreatedAt string `json:"created_at"`
 }
-
 
 type OtcQuoteCreateRequest struct {
 	UserID   string `json:"user_id"`
@@ -1946,7 +2010,11 @@ func (gw *APIGateway) handleAdminGetTrades(w http.ResponseWriter, r *http.Reques
 }
 
 func main() {
-	log.Println("API Gateway starting...")
+	if !strings.EqualFold(getEnvDefault("ENABLE_GO_COMPAT_GATEWAY", "false"), "true") {
+		log.Fatal("Go API gateway is disabled by default. Set ENABLE_GO_COMPAT_GATEWAY=true only when you intentionally need the compatibility shell; Rust API is the canonical entrypoint.")
+	}
+
+	log.Println("API Gateway starting in explicit compatibility mode...")
 
 	// Initialize event bus
 	log.Println("Creating event bus...")

@@ -96,3 +96,53 @@ func TestProcessBatch_RespectsMarketOutcomeIsolation(t *testing.T) {
 		t.Fatalf("intents across different outcomes must not match")
 	}
 }
+
+func TestProcessBatch_PartialFillKeepsRemainingIntentActive(t *testing.T) {
+	engine := newTestEngine()
+	now := time.Now()
+
+	engine.AddIntent(&types.Intent{
+		ID: "buy-large", UserID: "u1", MarketID: "m1", Side: "buy", Price: 60, Amount: 10,
+		Outcome: 1, CreatedAt: now, ExpiresAt: now.Add(time.Minute), Status: "pending",
+	})
+	engine.AddIntent(&types.Intent{
+		ID: "sell-small", UserID: "u2", MarketID: "m1", Side: "sell", Price: 50, Amount: 4,
+		Outcome: 1, CreatedAt: now, ExpiresAt: now.Add(time.Minute), Status: "pending",
+	})
+
+	engine.processBatch()
+
+	buyIntent, ok := engine.intents["buy-large"]
+	if !ok {
+		t.Fatalf("partially filled buy intent should remain active")
+	}
+	if buyIntent.Status != "pending" {
+		t.Fatalf("expected partially filled intent to stay pending, got %s", buyIntent.Status)
+	}
+	if buyIntent.Amount != 6 {
+		t.Fatalf("expected remaining buy amount 6, got %d", buyIntent.Amount)
+	}
+	if _, ok := engine.intents["sell-small"]; ok {
+		t.Fatalf("fully filled sell intent should be pruned from active intents")
+	}
+}
+
+func TestProcessBatch_PrunesCancelledAndExpiredIntents(t *testing.T) {
+	engine := newTestEngine()
+	now := time.Now()
+
+	engine.AddIntent(&types.Intent{
+		ID: "expired", UserID: "u1", MarketID: "m1", Side: "buy", Price: 60, Amount: 10,
+		Outcome: 1, CreatedAt: now.Add(-2 * time.Minute), ExpiresAt: now.Add(-time.Minute), Status: "pending",
+	})
+	engine.AddIntent(&types.Intent{
+		ID: "cancelled", UserID: "u2", MarketID: "m1", Side: "sell", Price: 50, Amount: 10,
+		Outcome: 1, CreatedAt: now, ExpiresAt: now.Add(time.Minute), Status: "cancelled",
+	})
+
+	engine.processBatch()
+
+	if len(engine.intents) != 0 {
+		t.Fatalf("expected inactive intents to be pruned, still have %d intents", len(engine.intents))
+	}
+}
