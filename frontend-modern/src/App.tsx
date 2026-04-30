@@ -1,72 +1,73 @@
-﻿import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { AuthProvider, useAuth } from '@/contexts/AuthContext'
-import { ProtectedRoute } from '@/components/ProtectedRoute'
-import { LoginPage } from '@/pages/LoginPage'
-import { HomePage } from '@/pages/HomePage'
-import { TradingTerminal } from '@/pages/TradingTerminal'
-import { NewsIntelligence } from '@/pages/NewsIntelligence'
-import { SystemStatus } from '@/pages/SystemStatus'
-import { AdminControlPage } from '@/pages/AdminControlPage'
+import { useEffect, useMemo, useState } from 'react'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AppShell } from '@/components/AppShell'
+import { BusinessPage } from '@/pages/BusinessPage'
+import { ControlPage } from '@/pages/ControlPage'
+import { SystemPage } from '@/pages/SystemPage'
+import type { AuthConfig } from '@/services/exchangeApi'
 
-function RootRoute() {
-  const { isAuthenticated } = useAuth()
-  return <Navigate replace to={isAuthenticated ? '/home' : '/login'} />
+const STORAGE_KEY = 'pretrading.frontend.workspace.auth'
+
+const defaultAuth: AuthConfig = {
+  baseUrl: '',
+  secret: 'dev-secret-change-me-to-32-chars-min!',
+  subject: 'trader-001',
+  role: 'user',
+  sessionId: '',
 }
 
-function App() {
+function loadInitialAuth(): AuthConfig {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return defaultAuth
+    const parsed = JSON.parse(raw) as Partial<AuthConfig>
+    return {
+      baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : defaultAuth.baseUrl,
+      secret: typeof parsed.secret === 'string' ? parsed.secret : defaultAuth.secret,
+      subject: typeof parsed.subject === 'string' ? parsed.subject : defaultAuth.subject,
+      role: parsed.role === 'admin' ? 'admin' : 'user',
+      sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : defaultAuth.sessionId,
+    }
+  } catch {
+    return defaultAuth
+  }
+}
+
+function Workspace() {
+  const [auth, setAuth] = useState<AuthConfig>(loadInitialAuth)
+  const [notice, setNotice] = useState('A clean frontend has been rebuilt for the current exchange backend.')
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(auth))
+  }, [auth])
+
+  const shellProps = useMemo(
+    () => ({
+      auth,
+      onChangeAuth: setAuth,
+      notice,
+      onNotice: setNotice,
+    }),
+    [auth, notice],
+  )
+
   return (
-    <AuthProvider>
-      <HashRouter>
-        <div className="min-h-screen bg-neutral-50 text-black">
-          <Routes>
-            <Route element={<RootRoute />} path="/" />
-            <Route element={<LoginPage />} path="/login" />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <HomePage />
-                </ProtectedRoute>
-              }
-              path="/home"
-            />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <TradingTerminal />
-                </ProtectedRoute>
-              }
-              path="/trading"
-            />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <NewsIntelligence />
-                </ProtectedRoute>
-              }
-              path="/intel"
-            />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <SystemStatus />
-                </ProtectedRoute>
-              }
-              path="/system"
-            />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <AdminControlPage />
-                </ProtectedRoute>
-              }
-              path="/admin"
-            />
-            <Route element={<Navigate replace to="/" />} path="*" />
-          </Routes>
-        </div>
-      </HashRouter>
-    </AuthProvider>
+    <AppShell {...shellProps}>
+      <Routes>
+        <Route path="/" element={<Navigate replace to="/business" />} />
+        <Route path="/business" element={<BusinessPage auth={auth} onNotice={setNotice} />} />
+        <Route path="/control" element={<ControlPage auth={auth} onNotice={setNotice} />} />
+        <Route path="/system" element={<SystemPage auth={auth} onNotice={setNotice} />} />
+        <Route path="*" element={<Navigate replace to="/business" />} />
+      </Routes>
+    </AppShell>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <HashRouter>
+      <Workspace />
+    </HashRouter>
+  )
+}
