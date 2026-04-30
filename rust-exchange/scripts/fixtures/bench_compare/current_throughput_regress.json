@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "scenarios": {
+    "wal_append": {
+      "metrics": {
+        "throughput_appends_per_sec": 240000,
+        "p99_append_ns": 5200
+      }
+    },
+    "replay_scaling_100k": {
+      "metrics": {
+        "throughput_cmds_per_sec": 280000,
+        "elapsed_ms": 260
+      }
+    },
+    "rto_rpo": {
+      "metrics": {
+        "rto_seconds_p99": 0.85,
+        "rpo_loss_count": 0
+      }
+    }
+  }
+}
