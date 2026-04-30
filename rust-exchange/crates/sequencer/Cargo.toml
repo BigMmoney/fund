@@ -12,3 +12,11 @@ serde.workspace = true
 chrono.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3"
+
+[[bench]]
+name = "replay_scaling"
+harness = false

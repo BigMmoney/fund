@@ -10,3 +10,11 @@ anyhow.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 crc32fast = "1.4"
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3"
+
+[[bench]]
+name = "wal_append"
+harness = false

@@ -1177,9 +1177,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crc32fast",
+ "criterion",
  "parking_lot",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
 ]
 
@@ -1541,10 +1543,12 @@ name = "sequencer"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "criterion",
  "dashmap",
  "parking_lot",
  "persistence",
  "serde",
+ "tempfile",
  "thiserror 2.0.18",
  "tracing",
  "types",
