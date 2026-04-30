@@ -389,9 +389,17 @@ async fn replay_commands_after_snapshot(
 }
 
 fn should_skip_replay_record(record: &SequencedCommandRecord) -> bool {
+    // Skip lifecycles whose effects are already reflected in the ledger WAL
+    // (recovered via `LedgerService::recover_from_wal` before replay starts).
+    // Re-running these through `submit_new_order` would either double-debit
+    // the ledger or fail preflight reservation because available cash already
+    // reflects the post-settlement state.
     matches!(
         record.command.metadata().lifecycle,
-        types::CommandLifecycle::Rejected | types::CommandLifecycle::Cancelled
+        types::CommandLifecycle::Rejected
+            | types::CommandLifecycle::Cancelled
+            | types::CommandLifecycle::Settled
+            | types::CommandLifecycle::Completed
     )
 }
 
@@ -441,18 +449,31 @@ mod tests {
     }
 
     #[test]
-    fn replay_skips_rejected_and_cancelled_records() {
-        assert!(should_skip_replay_record(&sequenced_record(
-            CommandLifecycle::Rejected
-        )));
-        assert!(should_skip_replay_record(&sequenced_record(
-            CommandLifecycle::Cancelled
-        )));
-        assert!(!should_skip_replay_record(&sequenced_record(
-            CommandLifecycle::Completed
-        )));
-        assert!(!should_skip_replay_record(&sequenced_record(
-            CommandLifecycle::WalAppended
-        )));
+    fn replay_skips_terminal_settled_records() {
+        for lifecycle in [
+            CommandLifecycle::Rejected,
+            CommandLifecycle::Cancelled,
+            CommandLifecycle::Settled,
+            CommandLifecycle::Completed,
+        ] {
+            assert!(
+                should_skip_replay_record(&sequenced_record(lifecycle)),
+                "expected {lifecycle:?} to be skipped during replay"
+            );
+        }
+        for lifecycle in [
+            CommandLifecycle::Received,
+            CommandLifecycle::Sequenced,
+            CommandLifecycle::WalAppended,
+            CommandLifecycle::Routed,
+            CommandLifecycle::PartitionAccepted,
+            CommandLifecycle::RiskReserved,
+            CommandLifecycle::Executed,
+        ] {
+            assert!(
+                !should_skip_replay_record(&sequenced_record(lifecycle)),
+                "expected {lifecycle:?} to be replayed"
+            );
+        }
     }
 }
