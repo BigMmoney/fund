@@ -1,185 +1,159 @@
-# Phase 4/5: WAL Consistency & Replay Recovery Test
-# Tests what happens when server restarts with polluted WAL data
-
-$ErrorActionPreference = "Stop"
-$serverDir = "d:\pre_trading\rust-exchange"
-$dataDir = "$serverDir\data"
-$apiExe = if ($env:EXCHANGE_API_EXE) {
-    $env:EXCHANGE_API_EXE
-} elseif (Test-Path "$serverDir\target\release\api.exe") {
-    "$serverDir\target\release\api.exe"
-} else {
-    "$serverDir\target\x86_64-pc-windows-gnu\release\api.exe"
-}
-
-Write-Host "`n=== Phase 4/5: WAL Consistency & Replay Recovery Test ===" -ForegroundColor Cyan
-
-# Step 1: Stop any running server
-Write-Host "`n[Step 1] Stopping existing servers..." -ForegroundColor Yellow
-Get-Process | Where-Object { $_.ProcessName -eq "api" } | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-
-# Step 2: Backup current WAL files
-Write-Host "`n[Step 2] Backing up current WAL files..." -ForegroundColor Yellow
-$backupDir = "$dataDir\wal_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-Get-ChildItem "$dataDir\*.jsonl" -ErrorAction SilentlyContinue | Copy-Item -Destination $backupDir -Force
-Write-Host "  Backup saved to: $backupDir"
-
-# Step 3: Analyze current WAL state
-Write-Host "`n[Step 3] Analyzing current WAL state..." -ForegroundColor Yellow
-
-$walFiles = @(
-    "sequencer.wal.jsonl",
-    "ledger.wal.jsonl", 
-    "trade_journal.wal.jsonl",
-    "trade_settlement.wal.jsonl",
-    "matching_snapshots.wal.jsonl"
+param(
+    [string]$Output = ""
 )
 
-foreach ($wf in $walFiles) {
-    $path = Join-Path $dataDir $wf
-    if (Test-Path $path) {
-        $size = (Get-Item $path).Length
-        $lines = (Get-Content $path -ErrorAction SilentlyContinue).Count
-        Write-Host "  $wf : ${size} bytes, ${lines} lines" -ForegroundColor Green
-    } else {
-        Write-Host "  $wf : NOT FOUND" -ForegroundColor Red
+# Phase 4: WAL Replay Recovery Test (real, no wipe)
+#
+# Validates that on restart, the api binary deterministically reconstructs
+# in-memory matching engine state from the on-disk sequencer/ledger WAL.
+# The previous version of this script wiped the WAL before restart — that
+# does NOT exercise replay. This version preserves the WAL and asserts
+# pre-stop and post-restart state are identical.
+#
+# Phases:
+#   A. Generate WAL state (clean start, submit a small mixed batch).
+#   B. Stop, then restart against the same data/. Assert seq/frontiers
+#      identical to Phase A pre-stop.
+#   C. Stop, restart again. Validates idempotency and that the post-2e
+#      Settled-skip behaviour holds across multiple bootstrap cycles.
+
+$ErrorActionPreference = "Stop"
+. "$PSScriptRoot\test_lib.ps1"
+
+Write-Host "=========================================" -ForegroundColor Cyan
+Write-Host "Phase 4: WAL Replay Recovery Test" -ForegroundColor Cyan
+Write-Host "=========================================" -ForegroundColor Cyan
+
+$rustRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$dataDir  = Join-Path $rustRoot "data"
+$seqWal   = Join-Path $dataDir "sequencer.wal.jsonl"
+$ledgerWal = Join-Path $dataDir "ledger.wal.jsonl"
+
+function Get-WalLineCount {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return 0 }
+    return (Get-Content $Path -ErrorAction SilentlyContinue | Measure-Object).Count
+}
+
+function New-Snapshot {
+    param([string]$Stage)
+    $h = Wait-ExchangeReady -TimeoutSeconds 5
+    if (-not $h) { throw "Service not ready when capturing snapshot at stage '$Stage'" }
+    $r = Get-ExchangeReadiness
+    return [pscustomobject]@{
+        stage                = $Stage
+        seq                  = $h.frontiers.sequencer_command_seq
+        ledger_seq           = $h.frontiers.ledger_command_seq
+        order_proj_seq       = $h.frontiers.order_projection_command_seq
+        accounts             = $h.accounts
+        seen_op_ids          = $h.seen_op_ids
+        consistent           = $h.frontiers.consistent
+        balance_invariant    = if ($r) { $r.balance_invariant } else { $null }
+        frontier_consistency = if ($r) { $r.frontier_consistency } else { $null }
+        wal_seq_lines        = (Get-WalLineCount $seqWal)
+        wal_ledger_lines     = (Get-WalLineCount $ledgerWal)
     }
 }
 
-# Step 4: Show sequencer WAL lifecycle distribution
-Write-Host "`n[Step 4] Sequencer WAL lifecycle distribution:" -ForegroundColor Yellow
-$seqPath = Join-Path $dataDir "sequencer.wal.jsonl"
-if (Test-Path $seqPath) {
-    $lifecycleCounts = @{}
-    Get-Content $seqPath | ForEach-Object {
-        $parts = $_ -split "`t", 2
-        if ($parts[1]) {
-            try {
-                $obj = $parts[1] | ConvertFrom-Json
-                $lc = $obj.command.NewOrder.metadata.lifecycle
-                $lifecycleCounts[$lc] = ($lifecycleCounts[$lc], 0 | Where-Object { $_ -ne $null } | Measure-Object -Maximum).Maximum + 1
-            } catch {}
-        }
-    }
-    foreach ($lc in $lifecycleCounts.Keys) {
-        Write-Host "  $lc : $($lifecycleCounts[$lc])" -ForegroundColor $(if ($lc -eq "rejected") { "Red" } else { "Green" })
-    }
+# ── Phase A: clean start, generate WAL ─────────────────────────
+Write-Host "`n[Phase A] Clean start, generating WAL state..." -ForegroundColor Yellow
+Stop-ExchangeService
+if (-not (Start-ExchangeService -WaitTimeoutSeconds 30)) {
+    Write-Host "Phase A: failed to start service" -ForegroundColor Red
+    exit 1
 }
+$snapA0 = New-Snapshot -Stage "phase_a_initial"
+Assert-FrontiersConsistent -Health (Wait-ExchangeReady -TimeoutSeconds 5) -Stage "phase_a_initial"
 
-# Step 5: Clear ALL WAL data for clean restart test
-Write-Host "`n[Step 5] Clearing ALL WAL data for clean restart test..." -ForegroundColor Yellow
-Get-ChildItem "$dataDir\*.jsonl" -ErrorAction SilentlyContinue | Remove-Item -Force
-Write-Host "  All WAL files cleared."
+# Submit a deterministic mixed batch. Sized to use a small fraction of the
+# seeded test-trader-01 cash so neither order hits insufficient-funds during
+# replay even after settlement debits.
+$Script:Subject = "test-trader-01"
+$Script:Role = "user"
+$ordersSubmitted = 0
+$buy1 = New-OrderJson -Side "buy"  -Price 50000 -Amount 10 -ClientOrderId "wal-recov-buy-1"
+$bad  = '{"market_id":"NONEXISTENT-MKT","side":"buy","order_type":"limit","price":50000,"amount":10,"outcome":0,"time_in_force":"gtc","client_order_id":"wal-recov-bad-mkt"}'
+$miss = '{"market_id":"btc-usdt","side":"buy","order_type":"limit","client_order_id":"wal-recov-missing"}'
+$buy2 = New-OrderJson -Side "buy"  -Price 49000 -Amount 5  -ClientOrderId "wal-recov-buy-2"
 
-# Step 6: Start server with clean state
-Write-Host "`n[Step 6] Starting server with CLEAN state..." -ForegroundColor Yellow
-$proc = Start-Process -FilePath $apiExe -WorkingDirectory $serverDir -PassThru -WindowStyle Hidden
-Write-Host "  Server PID: $($proc.Id)"
+$r1 = Invoke-ExchangeRequest -Method "POST" -Path "/submit-order" -BodyJson $buy1 -Silent
+$r2 = Invoke-ExchangeRequest -Method "POST" -Path "/submit-order" -BodyJson $bad  -Silent
+$r3 = Invoke-ExchangeRequest -Method "POST" -Path "/submit-order" -BodyJson $miss -Silent
+$r4 = Invoke-ExchangeRequest -Method "POST" -Path "/submit-order" -BodyJson $buy2 -Silent
+Write-Host "  Phase A submits: r1=$($r1.StatusCode) r2=$($r2.StatusCode) r3=$($r3.StatusCode) r4=$($r4.StatusCode)"
+if ($r1.StatusCode -eq 200) { $ordersSubmitted++ }
+if ($r4.StatusCode -eq 200) { $ordersSubmitted++ }
 
-# Wait for server to start
-Write-Host "`n[Step 7] Waiting for server startup (10s)..." -ForegroundColor Yellow
-Start-Sleep -Seconds 10
+$snapA1 = New-Snapshot -Stage "phase_a_after_orders"
+Assert-FrontiersConsistent -Health (Wait-ExchangeReady -TimeoutSeconds 5) -Stage "phase_a_after_orders"
+Write-Host "  Phase A end: seq=$($snapA1.seq) ledger_seq=$($snapA1.ledger_seq) wal_seq_lines=$($snapA1.wal_seq_lines)"
+Stop-ExchangeService
 
-# Check health endpoint
+# ── Phase B: restart on same data/, assert exact replay ────────
+Write-Host "`n[Phase B] Restart on same data/, asserting exact replay..." -ForegroundColor Yellow
+if (-not (Start-ExchangeService -NoClearWal -WaitTimeoutSeconds 30)) {
+    Write-Host "Phase B: replay BOOTSTRAP FAILED — service did not become ready (api.exe likely panicked)" -ForegroundColor Red
+    exit 1
+}
+$snapB = New-Snapshot -Stage "phase_b_after_replay"
+
 try {
-    $health = Invoke-RestMethod -Uri "http://localhost:3030/internal/health" -UseBasicParsing -TimeoutSec 5
-    Write-Host "`n  Health check:" -ForegroundColor Green
-    Write-Host "    status: $($health.status)" -ForegroundColor Green
-    Write-Host "    ledger_wal_entries: $($health.ledger_wal_entries)" -ForegroundColor Green
-    Write-Host "    sequencer_records: $($health.sequencer_records)" -ForegroundColor Green
+    Assert-Eq $snapA1.seq            $snapB.seq            "phase_b sequencer_command_seq matches phase_a"
+    Assert-Eq $snapA1.ledger_seq     $snapB.ledger_seq     "phase_b ledger_command_seq matches phase_a"
+    Assert-Eq $snapA1.order_proj_seq $snapB.order_proj_seq "phase_b order_projection_command_seq matches phase_a"
+    Assert-Eq $snapA1.accounts       $snapB.accounts       "phase_b accounts count matches phase_a"
+    Assert-Eq $true                  $snapB.consistent     "phase_b frontiers.consistent"
+    Assert-Eq $true                  $snapB.balance_invariant "phase_b balance_invariant"
+    Assert-Eq $true                  $snapB.frontier_consistency "phase_b frontier_consistency"
 } catch {
-    Write-Host "`n  Health check FAILED: $_" -ForegroundColor Red
+    Write-Host "Phase B FAILED: $_" -ForegroundColor Red
+    Stop-ExchangeService
+    exit 1
+}
+Write-Host "  Phase B replay OK: seq matches ($($snapB.seq))" -ForegroundColor Green
+Stop-ExchangeService
+
+# ── Phase C: second restart for idempotency ────────────────────
+Write-Host "`n[Phase C] Second restart on same data/..." -ForegroundColor Yellow
+if (-not (Start-ExchangeService -NoClearWal -WaitTimeoutSeconds 30)) {
+    Write-Host "Phase C: SECOND replay BOOTSTRAP FAILED" -ForegroundColor Red
+    exit 1
+}
+$snapC = New-Snapshot -Stage "phase_c_after_2nd_replay"
+
+try {
+    Assert-Eq $snapA1.seq        $snapC.seq        "phase_c sequencer_command_seq matches phase_a"
+    Assert-Eq $snapA1.ledger_seq $snapC.ledger_seq "phase_c ledger_command_seq matches phase_a"
+    Assert-Eq $true              $snapC.consistent "phase_c frontiers.consistent"
+} catch {
+    Write-Host "Phase C FAILED: $_" -ForegroundColor Red
+    Stop-ExchangeService
+    exit 1
+}
+Write-Host "  Phase C replay OK: seq matches ($($snapC.seq))" -ForegroundColor Green
+Stop-ExchangeService
+
+# ── Result ─────────────────────────────────────────────────────
+$report = [ordered]@{
+    generated_at_epoch       = [int][double]::Parse((Get-Date -UFormat %s))
+    phase_a_initial          = $snapA0
+    phase_a_after_orders     = $snapA1
+    phase_b_after_replay     = $snapB
+    phase_c_after_2nd_replay = $snapC
+    orders_submitted         = $ordersSubmitted
+    passed                   = $true
+}
+$rendered = $report | ConvertTo-Json -Depth 6
+
+if ($Output) {
+    $outPath = if ([System.IO.Path]::IsPathRooted($Output)) { $Output } else { Join-Path $rustRoot $Output }
+    $outDir = Split-Path -Parent $outPath
+    if ($outDir) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
+    Set-Content -Path $outPath -Value $rendered -Encoding UTF8
+    Write-Host "Report written to $outPath" -ForegroundColor Green
 }
 
-# Step 8: Run benchmark against clean server
-Write-Host "`n[Step 8] Running 50-order benchmark against CLEAN server..." -ForegroundColor Yellow
-$successCount = 0
-$errorCount = 0
-$statusCodes = @{}
-$firstError = $null
-
-for ($i = 1; $i -le 50; $i++) {
-    $secret = "dev-secret-change-me-to-32-chars-min!"
-    $price = 47000 + $i
-    $order = @{
-        client_order_id = [Guid]::NewGuid().ToString("N")
-        market_id = "btc-usdt"
-        side = "buy"
-        order_type = "limit"
-        price = $price
-        amount = 1
-        outcome = 1
-        time_in_force = "gtc"
-    }
-    $bodyJson = $order | ConvertTo-Json -Compress
-    $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($bodyJson)
-    $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
-    $rid = "clean-test-$i"
-    $payload = "POST`n/submit-order`n`nadmin`nadmin`n`n$ts`n$rid"
-    $hmac = [System.Security.Cryptography.HMACSHA256]::new([System.Text.Encoding]::UTF8.GetBytes($secret))
-    $sig = [BitConverter]::ToString($hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($payload))).Replace("-","").ToLower()
-    $hmac.Dispose()
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    $bh = [BitConverter]::ToString($sha.ComputeHash($bodyBytes)).Replace("-","").ToLowerInvariant()
-    $sha.Dispose()
-    
-    try {
-        $resp = Invoke-WebRequest -Uri "http://localhost:3030/submit-order" -Method POST -Headers @{
-            "Content-Type"="application/json"
-            "x-internal-auth-subject"="admin"
-            "x-internal-auth-role"="admin"
-            "x-internal-auth-session-id"=""
-            "x-internal-auth-timestamp"=$ts
-            "x-internal-auth-signature"=$sig
-            "x-internal-auth-body-sha256"=$bh
-            "x-request-id"=$rid
-        } -Body $bodyBytes -UseBasicParsing
-        $sc = $resp.StatusCode
-        $successCount++
-    } catch {
-        $sc = $_.Exception.Response.StatusCode.value__
-        $errorCount++
-        if (-not $firstError) {
-            $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-            $firstError = $reader.ReadToEnd()
-            $reader.Close()
-        }
-    }
-    $statusCodes[$sc] = ($statusCodes[$sc], 0 | Where-Object { $_ -ne $null } | Measure-Object -Maximum).Maximum + 1
-    
-    if ($i % 10 -eq 0) {
-        $scSummary = ($statusCodes.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ", "
-        Write-Host "  [$i/50] Status codes: $scSummary" -ForegroundColor Yellow
-    }
-}
-
-Write-Host "`n=== CLEAN SERVER RESULTS ===" -ForegroundColor Cyan
-Write-Host "Success: $successCount, Errors: $errorCount" -ForegroundColor $(if ($errorCount -eq 0) { "Green" } else { "Red" })
-$scSummary = ($statusCodes.GetEnumerator() | ForEach-Object { "HTTP $($_.Key): $($_.Value)" }) -join ", "
-Write-Host "Status distribution: $scSummary"
-if ($firstError) {
-    Write-Host "First error: $firstError" -ForegroundColor Red
-}
-
-# Step 9: Check WAL state after clean run
-Write-Host "`n[Step 9] WAL state after clean run:" -ForegroundColor Yellow
-foreach ($wf in $walFiles) {
-    $path = Join-Path $dataDir $wf
-    if (Test-Path $path) {
-        $size = (Get-Item $path).Length
-        $lines = (Get-Content $path -ErrorAction SilentlyContinue).Count
-        Write-Host "  $wf : ${size} bytes, ${lines} lines" -ForegroundColor Green
-    } else {
-        Write-Host "  $wf : NOT FOUND" -ForegroundColor Red
-    }
-}
-
-# Step 10: Stop server
-Write-Host "`n[Step 10] Stopping server..." -ForegroundColor Yellow
-Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
-
-Write-Host "`n=== Phase 4 Complete ===" -ForegroundColor Cyan
-Write-Host "Next: Phase 5 - Fix WAL consistency / recovery pipeline" -ForegroundColor Magenta
+Write-Host "`n=========================================" -ForegroundColor Green
+Write-Host "Phase 4 PASSED: WAL replay recovery clean across 2 restarts" -ForegroundColor Green
+Write-Host "=========================================" -ForegroundColor Green
+exit 0

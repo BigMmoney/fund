@@ -336,53 +336,127 @@ function Test-PositionDeposit {
 # ============================================================
 
 function Start-ExchangeService {
-    param([switch]$NoClearWal)
-    
+    param(
+        [switch]$NoClearWal,
+        [int]$WaitTimeoutSeconds = 30,
+        [string]$StdoutLog = $null,
+        [string]$StderrLog = $null
+    )
+
+    $rustRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    $apiPath = if ($env:EXCHANGE_API_EXE) {
+        $env:EXCHANGE_API_EXE
+    } elseif (Test-Path (Join-Path $rustRoot "target/release/api.exe")) {
+        Join-Path $rustRoot "target/release/api.exe"
+    } else {
+        Join-Path $rustRoot "target/x86_64-pc-windows-gnu/release/api.exe"
+    }
+    if (-not (Test-Path $apiPath)) {
+        Write-Host "API binary not found at $apiPath — run 'cargo build -p api --release' first" -ForegroundColor Red
+        return $false
+    }
+
     if (-not $NoClearWal) {
-        $walDir = Join-Path $PSScriptRoot "..\data"
+        $walDir = Join-Path $rustRoot "data"
         if (Test-Path $walDir) {
             Get-ChildItem $walDir -Filter "*.wal*" | Remove-Item -Force -ErrorAction SilentlyContinue
             Get-ChildItem $walDir -Filter "*.jsonl" | Remove-Item -Force -ErrorAction SilentlyContinue
         }
     }
-    
-    Write-Host "Starting exchange service..." -ForegroundColor Cyan
-    $process = Start-Process -FilePath "cargo" -ArgumentList "run", "--release" -WorkingDirectory (Join-Path $PSScriptRoot "..") -PassThru -WindowStyle Hidden
-    $Script:ExchangeProcess = $process
-    
-    # Wait for service to be ready
-    $maxWait = 30
-    $waited = 0
-    while ($waited -lt $maxWait) {
-        try {
-            $resp = Invoke-WebRequest -Uri "$Script:ExchangeBaseUrl/health" -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
-            if ($resp.StatusCode -eq 200) {
-                Write-Host "Service ready after ${waited}s" -ForegroundColor Green
-                return $true
-            }
-        } catch {}
-        Start-Sleep -Milliseconds 500
-        $waited += 0.5
+
+    Write-Host "Starting exchange service ($apiPath)..." -ForegroundColor Cyan
+    $startProcessArgs = @{
+        FilePath         = $apiPath
+        WorkingDirectory = $rustRoot
+        PassThru         = $true
+        WindowStyle      = 'Hidden'
     }
-    Write-Host "Service startup timeout after ${maxWait}s" -ForegroundColor Red
-    return $false
+    if ($StdoutLog) { $startProcessArgs.RedirectStandardOutput = $StdoutLog }
+    if ($StderrLog) { $startProcessArgs.RedirectStandardError = $StderrLog }
+    $process = Start-Process @startProcessArgs
+    $Script:ApiProcess = $process
+    $Script:ExchangeProcess = $process   # back-compat alias for legacy callers
+
+    $health = Wait-ExchangeReady -TimeoutSeconds $WaitTimeoutSeconds
+    if ($null -eq $health) {
+        Write-Host "Service startup timeout after ${WaitTimeoutSeconds}s (PID=$($process.Id))" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "Service ready (PID=$($process.Id), seq=$($health.frontiers.sequencer_command_seq))" -ForegroundColor Green
+    return $true
 }
 
 function Stop-ExchangeService {
-    if ($Script:ExchangeProcess -and -not $Script:ExchangeProcess.HasExited) {
-        $Script:ExchangeProcess.Kill()
-        $Script:ExchangeProcess.WaitForExit(5000)
-        Write-Host "Service stopped" -ForegroundColor Yellow
+    param([int]$WaitSeconds = 5)
+
+    if ($Script:ApiProcess -and -not $Script:ApiProcess.HasExited) {
+        try { $Script:ApiProcess.Kill() } catch {}
+        $Script:ApiProcess.WaitForExit($WaitSeconds * 1000) | Out-Null
+    }
+    # Belt-and-suspenders: also kill any orphan api.exe (catches cargo-wrapper orphans
+    # from older harness versions and any process started outside this session).
+    Get-Process -Name "api" -ErrorAction SilentlyContinue | ForEach-Object {
+        try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
     }
     Get-Process -Name "rust-exchange" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
+    # Wait for port 3030 to be released by the OS.
+    $deadline = (Get-Date).AddSeconds($WaitSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $listening = Get-NetTCPConnection -LocalPort 3030 -State Listen -ErrorAction SilentlyContinue
+        if (-not $listening) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    $Script:ApiProcess = $null
+    $Script:ExchangeProcess = $null
+    Write-Host "Service stopped" -ForegroundColor Yellow
 }
 
 function Restart-ExchangeService {
-    param([switch]$NoClearWal)
+    param([switch]$ClearWal)
     Stop-ExchangeService
-    Start-Sleep -Milliseconds 1000
-    return Start-ExchangeService -NoClearWal:$NoClearWal
+    Start-Sleep -Milliseconds 500
+    if ($ClearWal) {
+        return Start-ExchangeService
+    } else {
+        return Start-ExchangeService -NoClearWal
+    }
+}
+
+function Wait-ExchangeReady {
+    param([int]$TimeoutSeconds = 30)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $h = Invoke-RestMethod -Uri "$Script:ExchangeBaseUrl/health" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+            if ($h.status -eq "ok") { return $h }
+        } catch {}
+        Start-Sleep -Milliseconds 500
+    }
+    return $null
+}
+
+function Get-ExchangeReadiness {
+    try {
+        return Invoke-RestMethod -Uri "$Script:ExchangeBaseUrl/ready" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+    } catch { return $null }
+}
+
+function Assert-FrontiersConsistent {
+    param($Health, [string]$Stage = "")
+    if (-not $Health -or -not $Health.frontiers -or -not $Health.frontiers.consistent) {
+        $detail = if ($Health -and $Health.frontiers) { ($Health.frontiers | ConvertTo-Json -Compress) } else { "<none>" }
+        throw "Frontiers inconsistent at stage '$Stage' (got: $detail)"
+    }
+}
+
+function Assert-Eq {
+    param($Expected, $Actual, [string]$Label)
+    if ($Expected -ne $Actual) { throw "Assertion failed [$Label]: expected $Expected, got $Actual" }
+}
+
+function Assert-Gt {
+    param($Lo, $Hi, [string]$Label)
+    if (-not ($Hi -gt $Lo)) { throw "Assertion failed [$Label]: expected $Hi > $Lo" }
 }
 
 # ============================================================
