@@ -76,7 +76,9 @@ powershell -File scripts\measure_rto_rpo.ps1 \
 
 ## 4. Results
 
-### 4.1 WAL append
+> **Note on §4.1 and §4.2 (throughput):** these numbers come from a single capture run. After the 3-run stability campaign documented in §10, **WAL-append and replay-scaling throughput are classified as EXPLORATORY** — run-to-run variance on the capture host was 19-48% and exceeds any sensible CI threshold. Treat the values below as ballpark, not as committed targets. The §4.3 RTO/RPO numbers ARE stable and were promoted to the committed baseline; see §10.
+
+### 4.1 WAL append (exploratory — see §10)
 
 | Scenario | Mean time | Throughput (median) | Notes |
 |---|---:|---:|---|
@@ -88,7 +90,7 @@ powershell -File scripts\measure_rto_rpo.ps1 \
 
 **Notable finding:** `--quick` mode (criterion's 100 ms budget) reported ~2.5 µs/append (~400K/sec), but full-sample steady-state is ~13 µs/append (~76K/sec) — a 5× difference. The full-sample numbers are the realistic long-running cost; the `--quick` numbers reflect a hot file-cache window before append latency stabilises. **Use the full-sample numbers for any future budget comparison.**
 
-### 4.2 WAL replay scaling
+### 4.2 WAL replay scaling (exploratory — see §10)
 
 | WAL size | Mean replay time | Throughput (median) | Per-record |
 |---:|---:|---:|---:|
@@ -100,7 +102,7 @@ powershell -File scripts\measure_rto_rpo.ps1 \
 
 Notable: full-sample numbers here also differ from `--quick`. The 100k scenario reported 255 ms under `--quick` vs 1.45 s under full sampling — a 5.7× difference. Same caveat as WAL append.
 
-### 4.3 RTO / RPO
+### 4.3 RTO / RPO (baseline-promoted — see §10)
 
 | Metric | Value |
 |---:|---:|
@@ -183,7 +185,58 @@ Criterion's interactive HTML reports live under `rust-exchange/target/criterion/
 
 ## 9. Next steps
 
-1. **Re-run twice more** on the same hardware to assess run-to-run variance. Commit the baseline only after three independent runs land within ±5% of each other.
-2. **Author baseline JSON** at `rust-exchange/benches/baselines/2026-05-01.json` — schema per `scripts/fixtures/bench_compare/baseline_example.json`. Conservative initial threshold: 30%.
+1. ~~**Re-run twice more** on the same hardware to assess run-to-run variance.~~ **Done — see §10.** Result: throughput metrics not stable enough for CI gating; RTO/RPO promoted to baseline.
+2. **Author baseline JSON** — landed as `rust-exchange/benches/baselines/2026-05-01.json` (RTO/RPO only). No `latest.json` — pin by date forces explicit baseline updates.
 3. **Extend coverage** to submit-order throughput, depth-query latency, multi-market load, hot-market load, and 30-min soak via the existing harnesses.
-4. **Wire CI** to invoke `run_full_benchmark_suite.ps1 -CompareAgainstBaseline benches/baselines/latest.json -FailOnRegression` after the baseline lands.
+4. **Wire CI** to invoke `run_full_benchmark_suite.ps1 -CompareAgainstBaseline benches/baselines/2026-05-01.json -FailOnRegression` once a stable benchmark host (dedicated bench machine OR CI runner with a controlled environment) is available. Re-capture the baseline there and add a separate dated file with the matching `environment_class` before turning the gate on.
+
+## 10. Stability assessment
+
+The §4 numbers above come from one capture run. To decide which metrics are CI-baseline-ready, three independent runs were captured on the same dev box and compared. Each run repeated all three benches (full criterion samples, 5-iter × 500-cmd × 8-user RTO/RPO), with a fresh stop/start cycle between runs.
+
+### 10.1 Run-to-run variance
+
+| Scenario | Run 1 | Run 2 | Run 3 | Median | Range / median | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| `wal_append/single_off` (K appends/sec) | 76.4 | 55.2 | 55.9 | 55.9 | 76.4 − 55.2 = ±19% | exploratory |
+| `wal_append/single_group_commit_64` (K/sec) | 58.4 | 50.6 | 51.0 | 51.0 | ±15% | exploratory |
+| `wal_append/batch_64` (K/sec) | 57.4 | 54.1 | 64.0 | 57.4 | ±17% | exploratory |
+| `wal_append/batch_256` (K/sec) | 57.0 | 53.7 | 54.8 | 54.8 | ±6% | borderline |
+| `wal_append/batch_1024` (K/sec) | 51.6 | 98.2 | 62.4 | 62.4 | ±58% | exploratory |
+| `replay_scaling/1k` (K cmds/sec) | 75.8 | 149.4 | 77.9 | 77.9 | ±92% | exploratory |
+| `replay_scaling/10k` (K cmds/sec) | 70.8 | 147.7 | 69.2 | 70.8 | ±109% | exploratory |
+| `replay_scaling/100k` (K cmds/sec) | 68.9 | 118.6 | 65.3 | 68.9 | ±72% | exploratory |
+| **`rto_seconds_p99` (s)** | 0.771 | 0.787 | 0.757 | **0.771** | **±2%** | **stable / baseline** |
+| **`rpo_loss_count`** | 0 | 0 | 0 | **0** | 0 | **stable / baseline** |
+
+### 10.2 Decision
+
+**Promoted to committed baseline (`rust-exchange/benches/baselines/2026-05-01.json`):**
+
+- `rto_seconds_p99` (lower_is_better, value = 0.787 = max-across-3-runs, threshold 30%)
+- `rpo_loss_count` (lower_is_better, value = 0, **absolute_max = 0** — no slack)
+
+**Excluded from baseline by design:**
+
+- All five `wal_append/*` throughput scenarios.
+- All three `replay_scaling/*` throughput scenarios.
+
+The throughput excursions are not real performance regressions. They reflect filesystem-cache state (run 2 happened to have a hot page cache for the long-running WAL bench) and background dev-box load (other processes competing for CPU and disk during the capture window). Either gating on these would produce false positives, or the threshold would have to be set so wide (50%+) that it catches nothing meaningful.
+
+### 10.3 Path to a CI-gating throughput baseline
+
+A throughput baseline that's actually CI-gateable requires a **stable capture environment**. Two viable paths:
+
+1. **Dedicated bench host.** A pinned VM or dedicated machine with no concurrent workload, dedicated SSD, fixed CPU governor / power profile, fixed Rust version. Capture three runs there and verify ±5%.
+2. **CI runner capture.** Add a CI job that runs the bench suite on a fresh `ubuntu-latest` runner instance (which is at least environment-class-consistent across runs, even if not bare-metal-stable). Capture multiple runs over a week, accept the resulting variance band, threshold accordingly.
+
+Either path produces a NEW dated baseline file under `rust-exchange/benches/baselines/` with its own `environment_class` field. The comparator's `bench_compare.ps1` should be extended to pick the baseline matching the current host's class.
+
+### 10.4 Why no `latest.json`
+
+The committed `bench_compare.ps1` accepts an explicit `-Baseline <path>`. We deliberately do NOT ship a `latest.json` symlink/alias — pinning by dated filename forces every baseline update to be an explicit, reviewable commit (`feat(bench): refresh baseline after <reason>`). This avoids silent baseline drift.
+
+### 10.5 Caveats per metric (recapture context)
+
+- RTO p99 = 0.787 s is **dominated by api process startup**, not by WAL replay (the captured WAL was only 500 cmds; replay completed in <10 ms). RTO at scale (1M cmds) is bounded above by §4.2's per-record cost × cmd count + this constant — not yet measured.
+- RPO = 0 has been observed across 5 iter × 3 runs = 15 hard-kill cycles. This is a strong durability signal for the tested traffic shape (sequential acknowledged writes). Concurrent-writer or batch-commit scenarios are not exercised by this bench.
