@@ -83,6 +83,13 @@ rust-exchange/*.pdb
 
 # Per-run P0 artifacts (keep the schema, not the per-run output)
 rust-exchange/artifacts/
+/artifacts/
+
+# WAL state backups created by recovery drills (forensic only, never committed)
+data.bak.*/
+
+# IDE solution files
+*.sln
 
 # Codex agent local logs
 rust-exchange/.codex-logs/
