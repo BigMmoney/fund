@@ -192,6 +192,7 @@ pub(crate) fn build_withdrawal_routes(
     let request_route = warp::path!("withdraw")
         .and(warp::post())
         .and(with_principal())
+        .and(super::body_limit())
         .and(warp::body::json::<WithdrawalRequest>())
         .and(remote_ip())
         .and_then(
@@ -389,9 +390,7 @@ pub(crate) fn build_withdrawal_routes(
                     let hold_op_id = format!("withdrawal-hold-{withdrawal_id}");
                     ledger
                         .create_cash_hold(&principal.subject, req.amount, hold_op_id.clone())
-                        .map_err(|e| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                        })?;
+                        .map_err(reject_internal_error)?;
 
                     let record = WithdrawalRecord {
                         withdrawal_id: withdrawal_id.clone(),
@@ -411,9 +410,7 @@ pub(crate) fn build_withdrawal_routes(
                         approvers: Vec::new(),
                     };
 
-                    store.append(record.clone()).map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    store.append(record.clone()).map_err(reject_internal_error)?;
 
                     audit.record(
                         custody::CustodyEventType::WithdrawalRequested,
@@ -696,9 +693,9 @@ pub(crate) fn build_withdrawal_routes(
                             approvers: approvers.clone(),
                             ..current
                         };
-                        store.append(updated.clone()).map_err(|e| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                        })?;
+                        store
+                            .append(updated.clone())
+                            .map_err(reject_internal_error)?;
                         return Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                             "withdrawal_id": updated.withdrawal_id,
                             "status": "pending",
@@ -716,9 +713,7 @@ pub(crate) fn build_withdrawal_routes(
                             current.amount,
                             op_id,
                         )
-                        .map_err(|e| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                        })?;
+                        .map_err(reject_internal_error)?;
                     usage.record(&current.user_id, current.amount);
                     addr_usage.record(&current.destination_address, current.amount);
                     if let Some(vault_tier) = current.vault_tier {
@@ -735,9 +730,9 @@ pub(crate) fn build_withdrawal_routes(
                         approvers,
                         ..current
                     };
-                    store.append(approved.clone()).map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    store
+                        .append(approved.clone())
+                        .map_err(reject_internal_error)?;
 
                     audit.record(
                         custody::CustodyEventType::WithdrawalApproved,
@@ -800,9 +795,7 @@ pub(crate) fn build_withdrawal_routes(
                     let op_id = format!("withdrawal-reject-{}", current.withdrawal_id);
                     ledger
                         .release_cash_hold(&current.user_id, current.amount, op_id)
-                        .map_err(|e| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                        })?;
+                        .map_err(reject_internal_error)?;
 
                     let rejected = WithdrawalRecord {
                         status: "rejected".into(),
@@ -810,9 +803,9 @@ pub(crate) fn build_withdrawal_routes(
                         decided_by: Some(principal.subject.clone()),
                         ..current
                     };
-                    store.append(rejected.clone()).map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    store
+                        .append(rejected.clone())
+                        .map_err(reject_internal_error)?;
 
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "withdrawal_id": rejected.withdrawal_id,

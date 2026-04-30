@@ -1588,7 +1588,8 @@ pub(crate) fn build_custody_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
 
     // DELETE /whitelist/address — admin removes an address
     let ws2 = whitelist_store.clone();
@@ -1615,9 +1616,7 @@ pub(crate) fn build_custody_routes(
                     admin_rl.check(&format!("admin:{}", principal.subject), 30)?;
 
                     ws.remove_address(&req.user_id, &req.address, &principal.subject)
-                        .map_err(|e| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                        })?;
+                        .map_err(reject_internal_error)?;
 
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "removed": true,
@@ -1626,7 +1625,8 @@ pub(crate) fn build_custody_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
 
     // GET /whitelist/addresses/{user_id}
     let ws3 = whitelist_store.clone();
@@ -1667,7 +1667,8 @@ pub(crate) fn build_custody_routes(
                     Ok::<_, warp::Rejection>(warp::reply::json(&resp))
                 }
             },
-        );
+        )
+        .boxed();
 
     // GET /custody/status — vault balances + sweep suggestions
     let cc = custody_config.clone();
@@ -1713,7 +1714,8 @@ pub(crate) fn build_custody_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
 
     // GET /custody/policy — show current withdrawal policy
     let pol2 = policy.clone();
@@ -1743,7 +1745,8 @@ pub(crate) fn build_custody_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
 
     // POST /withdraw/dry-run — simulate a withdrawal through all gates
     let pol_dr = policy.clone();
@@ -1813,7 +1816,8 @@ pub(crate) fn build_custody_routes(
                     Ok::<_, warp::Rejection>(warp::reply::json(&result))
                 }
             },
-        );
+        )
+        .boxed();
 
     // POST /withdraw/{id}/cancel — user cancels a pending withdrawal in cancel window
     let ws_cancel = withdrawal_store.clone();
@@ -1880,9 +1884,7 @@ pub(crate) fn build_custody_routes(
                     let op_id = format!("withdrawal-cancel-{withdrawal_id}");
                     ledger
                         .release_cash_hold(&current.user_id, current.amount, op_id)
-                        .map_err(|e| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                        })?;
+                        .map_err(reject_internal_error)?;
 
                     let cancelled = super::WithdrawalRecord {
                         status: "cancelled".into(),
@@ -1890,9 +1892,7 @@ pub(crate) fn build_custody_routes(
                         decided_by: Some(principal.subject.clone()),
                         ..current
                     };
-                    store.append(cancelled).map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    store.append(cancelled).map_err(reject_internal_error)?;
 
                     audit.record(
                         CustodyEventType::WithdrawalCancelled,
@@ -1906,7 +1906,8 @@ pub(crate) fn build_custody_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
 
     // GET /admin/custody/audit — treasury snapshot
     let cc_snap = custody_config.clone();
@@ -1948,7 +1949,8 @@ pub(crate) fn build_custody_routes(
                     Ok::<_, warp::Rejection>(warp::reply::json(&snap))
                 }
             },
-        );
+        )
+        .boxed();
 
     // GET /admin/custody/audit/events — recent audit events
     let audit_ev = audit_log.clone();
@@ -1975,7 +1977,8 @@ pub(crate) fn build_custody_routes(
                     Ok::<_, warp::Rejection>(warp::reply::json(&events))
                 }
             },
-        );
+        )
+        .boxed();
 
     // GET /admin/custody/breaker — circuit breaker status
     let brk_status = breaker.clone();
@@ -2001,7 +2004,8 @@ pub(crate) fn build_custody_routes(
                     Ok::<_, warp::Rejection>(warp::reply::json(&brk.status()))
                 }
             },
-        );
+        )
+        .boxed();
 
     // POST /admin/custody/breaker/reset — admin resets circuit breaker
     let brk_reset = breaker.clone();
@@ -2038,7 +2042,8 @@ pub(crate) fn build_custody_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
 
     add_address
         .or(remove_address)
@@ -2279,7 +2284,7 @@ mod tests {
             to_address: "0xABC".into(),
             amount: 1000,
             asset: "USDC".into(),
-            chain_id: 56, // wrong chain
+            chain_id: 56, // mismatches expected chain_id=1
             calldata_hash: String::new(),
         };
         let result = verify_transaction_matches_withdrawal(&decoded, "0xABC", 1000, "USDC", 1);

@@ -1,8 +1,18 @@
 use super::*;
+use serde::Deserialize;
 
 #[derive(serde::Deserialize)]
 pub(crate) struct DepositRequest {
     pub(crate) user_id: String,
+    pub(crate) amount: i64,
+    pub(crate) op_id: String,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct PositionDepositRequest {
+    pub(crate) user_id: String,
+    pub(crate) market_id: String,
+    pub(crate) outcome: i32,
     pub(crate) amount: i64,
     pub(crate) op_id: String,
 }
@@ -41,7 +51,24 @@ pub(crate) struct OrderRequest {
 
 #[derive(serde::Deserialize)]
 pub(crate) struct BatchOrderRequest {
+    #[serde(deserialize_with = "deserialize_batch_orders")]
     pub(crate) orders: Vec<OrderRequest>,
+}
+
+fn deserialize_batch_orders<'de, D>(deserializer: D) -> Result<Vec<OrderRequest>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let orders = Vec::<OrderRequest>::deserialize(deserializer)?;
+    const MAX_BATCH_SIZE: usize = 100;
+    if orders.len() > MAX_BATCH_SIZE {
+        return Err(serde::de::Error::custom(format!(
+            "batch size {} exceeds maximum of {}",
+            orders.len(),
+            MAX_BATCH_SIZE
+        )));
+    }
+    Ok(orders)
 }
 
 #[derive(serde::Deserialize)]
@@ -163,7 +190,6 @@ pub(crate) struct BookQuery {
 
 #[derive(Default, serde::Deserialize)]
 pub(crate) struct TradesQuery {
-    pub(crate) market_id: Option<String>,
     pub(crate) user_id: Option<String>,
     pub(crate) outcome: Option<i32>,
     pub(crate) limit: Option<usize>,
@@ -177,6 +203,17 @@ pub(crate) struct TradesQuery {
 pub(crate) struct OrdersQuery {
     pub(crate) market_id: Option<String>,
     pub(crate) outcome: Option<i32>,
+}
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct OrderLookupQuery {
+    pub(crate) market_id: Option<String>,
+    pub(crate) outcome: Option<i32>,
+}
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct LedgerViewQuery {
+    pub(crate) include_zero: Option<bool>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -216,6 +253,32 @@ pub(crate) struct FundingRateUpsertRequest {
     pub(crate) market_id: String,
     pub(crate) outcome: Option<i32>,
     pub(crate) funding_rate_ppm: i64,
+}
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct AdminActionAuditQuery {
+    pub(crate) limit: Option<usize>,
+    pub(crate) action: Option<String>,
+    pub(crate) subject: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct AdminBetaControlPlaneUpdateRequest {
+    pub(crate) enabled: Option<bool>,
+    pub(crate) require_whitelist: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct AdminBetaUserControlUpdateRequest {
+    pub(crate) whitelisted: Option<bool>,
+    pub(crate) max_cash_balance: Option<i64>,
+    pub(crate) max_open_orders: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct AdminBetaMarketControlUpdateRequest {
+    pub(crate) max_order_notional: Option<i64>,
+    pub(crate) max_leverage: Option<u32>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -287,6 +350,11 @@ pub(crate) struct IndexSourcePolicyUpdateRequest {
 #[derive(Default, serde::Deserialize)]
 pub(crate) struct FairPriceQuery {
     pub(crate) market_id: String,
+    pub(crate) outcome: Option<i32>,
+}
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct MarketStateQuery {
     pub(crate) outcome: Option<i32>,
 }
 

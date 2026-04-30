@@ -1,14 +1,47 @@
 use super::*;
 
+const MAX_ID_LEN: usize = 256;
+
+fn all_market_states() -> [MarketState; 8] {
+    [
+        MarketState::PreOpen,
+        MarketState::Normal,
+        MarketState::Stress,
+        MarketState::AuctionCall,
+        MarketState::CancelOnly,
+        MarketState::Halted,
+        MarketState::Maintenance,
+        MarketState::Closed,
+    ]
+}
+
+fn validate_deposit_fields(user_id: &str, op_id: &str) -> Result<(), Rejection> {
+    if user_id.is_empty() || user_id.len() > MAX_ID_LEN {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "user_id must be between 1 and 256 characters",
+        ));
+    }
+    if op_id.is_empty() || op_id.len() > MAX_ID_LEN {
+        return Err(reject_api(
+            StatusCode::BAD_REQUEST,
+            "op_id must be between 1 and 256 characters",
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn build_control_routes(
     partitioned_engine: Arc<PartitionedMatchingEngine>,
     ledger: Arc<LedgerService>,
     sequencer: Arc<Sequencer>,
     governance_actions: Arc<PendingGovernanceActionStore>,
+    beta_controls: Arc<BetaControlStore>,
     ip_rate_limiter: Arc<FixedWindowRateLimiter>,
     admin_rate_limiter: Arc<FixedWindowRateLimiter>,
 ) -> JsonRoute {
     let ledger_clone = ledger.clone();
+    let beta_controls_for_deposit = beta_controls.clone();
     let ip_rate_limiter_for_deposit = ip_rate_limiter.clone();
     let admin_rate_limiter_for_deposit = admin_rate_limiter.clone();
     let deposit_route = warp::path("deposit")
@@ -22,6 +55,7 @@ pub(crate) fn build_control_routes(
                   remote: Option<SocketAddr>,
                   req: DepositRequest| {
                 let ledger = ledger_clone.clone();
+                let beta_controls = beta_controls_for_deposit.clone();
                 let admin_rate_limiter = admin_rate_limiter_for_deposit.clone();
                 let ip_rate_limiter = ip_rate_limiter_for_deposit.clone();
                 async move {
@@ -31,6 +65,7 @@ pub(crate) fn build_control_routes(
                         .unwrap_or_else(|| "unknown".to_string());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    validate_deposit_fields(&req.user_id, &req.op_id)?;
                     if req.amount <= 0 {
                         return Err(reject_api(
                             StatusCode::BAD_REQUEST,
@@ -44,13 +79,91 @@ pub(crate) fn build_control_routes(
                             "deposit amount exceeds single-operation cap",
                         ));
                     }
+                    if let Some(max_cash_balance) = beta_controls
+                        .user(&req.user_id)
+                        .and_then(|control| control.max_cash_balance)
+                    {
+                        let current_cash = ledger
+                            .cash_available_balance(&req.user_id)
+                            .saturating_add(ledger.cash_hold_balance(&req.user_id));
+                        let next_cash = current_cash.saturating_add(req.amount);
+                        if next_cash > max_cash_balance {
+                            return Err(reject_api(
+                                StatusCode::BAD_REQUEST,
+                                format!(
+                                    "beta cash cap exceeded: next_cash_balance={} > max_cash_balance={}",
+                                    next_cash, max_cash_balance
+                                ),
+                            ));
+                        }
+                    }
                     audit("deposit", &req.op_id, &principal);
-                    let resp =
-                        match ledger.process_deposit(&req.user_id, req.amount, req.op_id.clone()) {
-                            Ok(_) => serde_json::json!({"status":"ok"}),
-                            Err(e) => serde_json::json!({"status":"error","error":e.to_string()}),
-                        };
-                    Ok::<_, warp::Rejection>(warp::reply::json(&resp))
+                    match ledger.process_deposit(&req.user_id, req.amount, req.op_id.clone()) {
+                        Ok(_) => Ok::<_, warp::Rejection>(warp::reply::json(
+                            &serde_json::json!({"status":"ok"}),
+                        )),
+                        Err(e) => Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            sanitize_internal_error(&e.to_string()),
+                        )),
+                    }
+                }
+            },
+        );
+
+    let ledger_for_position_deposit = ledger.clone();
+    let ip_rate_limiter_for_position_deposit = ip_rate_limiter.clone();
+    let admin_rate_limiter_for_position_deposit = admin_rate_limiter.clone();
+    let position_deposit_route = warp::path("position-deposit")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(verified_json_body())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: PositionDepositRequest| {
+                let ledger = ledger_for_position_deposit.clone();
+                let admin_rate_limiter = admin_rate_limiter_for_position_deposit.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_position_deposit.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    validate_deposit_fields(&req.user_id, &req.op_id)?;
+                    if req.amount <= 0 {
+                        return Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            "deposit amount must be positive",
+                        ));
+                    }
+                    const MAX_SINGLE_DEPOSIT: i64 = 10_000_000_000; // 10B subunits
+                    if req.amount > MAX_SINGLE_DEPOSIT {
+                        return Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            "deposit amount exceeds single-operation cap",
+                        ));
+                    }
+                    audit("position_deposit", &req.op_id, &principal);
+                    match ledger.process_position_deposit(
+                        &req.user_id,
+                        &req.market_id,
+                        req.outcome,
+                        req.amount,
+                        req.op_id.clone(),
+                    ) {
+                        Ok(_) => Ok::<_, warp::Rejection>(warp::reply::json(
+                            &serde_json::json!({"status":"ok"}),
+                        )),
+                        Err(e) => Err(reject_api(
+                            StatusCode::BAD_REQUEST,
+                            sanitize_internal_error(&e.to_string()),
+                        )),
+                    }
                 }
             },
         );
@@ -151,9 +264,7 @@ pub(crate) fn build_control_routes(
                         &principal.subject,
                         Some(request_id),
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
                         "approval": pending,
@@ -201,12 +312,78 @@ pub(crate) fn build_control_routes(
                         &principal.subject,
                         Some(request_id),
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
                         "approval": pending,
+                    })))
+                }
+            },
+        );
+    let partitioned_engine_for_market_state_get = partitioned_engine.clone();
+    let governance_actions_for_market_state_get = governance_actions.clone();
+    let ip_rate_limiter_for_market_state_get = ip_rate_limiter.clone();
+    let admin_rate_limiter_for_market_state_get = admin_rate_limiter.clone();
+    let market_state_route = warp::path!("admin" / "market-state" / String)
+        .and(warp::path::end())
+        .and(warp::get())
+        .and(with_principal())
+        .and(optional_query::<MarketStateQuery>())
+        .and(remote_ip())
+        .and_then(
+            move |market_id: String,
+                  principal: AuthenticatedPrincipal,
+                  query: MarketStateQuery,
+                  remote: Option<SocketAddr>| {
+                let engine = partitioned_engine_for_market_state_get.clone();
+                let governance_actions = governance_actions_for_market_state_get.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_market_state_get.clone();
+                let admin_rate_limiter = admin_rate_limiter_for_market_state_get.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|value| value.ip().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
+                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
+                    let outcome = query.outcome.unwrap_or(0);
+                    let records = engine
+                        .export_snapshots()
+                        .await
+                        .map_err(reject_internal_error)?;
+                    let snapshots = flatten_market_snapshots(&records);
+                    let snapshot = snapshots
+                        .into_iter()
+                        .find(|snapshot| {
+                            snapshot.market_id == market_id && snapshot.outcome == outcome
+                        })
+                        .ok_or_else(|| reject_api(StatusCode::NOT_FOUND, "market not found"))?;
+                    let allowed_transitions: Vec<_> = all_market_states()
+                        .into_iter()
+                        .filter(|state| snapshot.state.can_transition_to(*state))
+                        .collect();
+                    let pending: Vec<_> = governance_actions
+                        .list_recent(100, Some("pending"))
+                        .into_iter()
+                        .filter(|item| item.action_type == "set_market_state")
+                        .filter(|item| {
+                            item.payload["market_id"].as_str() == Some(snapshot.market_id.as_str())
+                                && item.payload["outcome"]
+                                    .as_i64()
+                                    .map(|value| value as i32)
+                                    .unwrap_or(0)
+                                    == snapshot.outcome
+                        })
+                        .collect();
+                    Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                        "market_id": snapshot.market_id,
+                        "outcome": snapshot.outcome,
+                        "state": snapshot.state,
+                        "reference_price": snapshot.reference_price,
+                        "last_trade_price": snapshot.last_trade_price,
+                        "allowed_transitions": allowed_transitions,
+                        "pending_actions": pending,
+                        "updated_at": Utc::now(),
                     })))
                 }
             },
@@ -248,9 +425,7 @@ pub(crate) fn build_control_routes(
                         &principal.subject,
                         Some(request_id),
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
                         "approval": pending,
@@ -261,9 +436,13 @@ pub(crate) fn build_control_routes(
     deposit_route
         .or(mass_cancel_market_route)
         .unify()
+        .or(position_deposit_route)
+        .unify()
         .or(kill_switch_route)
         .unify()
         .or(set_market_state_route)
+        .unify()
+        .or(market_state_route)
         .unify()
         .or(reference_price_route)
         .unify()

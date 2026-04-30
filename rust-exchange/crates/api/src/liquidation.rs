@@ -105,7 +105,7 @@ pub(crate) fn apply_liquidation_queue_override(
     };
     queue_store
         .append(next.clone())
-        .map_err(|error| reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        .map_err(reject_internal_error)?;
     Ok(next)
 }
 
@@ -164,19 +164,22 @@ pub(crate) async fn run_liquidation_queue_worker(
             &governance,
             &entry_prices,
         );
-        let current_item =
-            if refreshed_adl != item.adl_candidates || refreshed_mark_price != item.mark_price {
-                let updated = LiquidationQueueRecord {
-                    mark_price: refreshed_mark_price,
-                    adl_candidates: refreshed_adl.clone(),
-                    recorded_at: now,
-                    ..item.clone()
-                };
-                let _ = queue_store.append(updated.clone());
-                updated
-            } else {
-                item.clone()
+        let current_item = if refreshed_adl != item.adl_candidates
+            || refreshed_mark_price != item.mark_price
+        {
+            let updated = LiquidationQueueRecord {
+                mark_price: refreshed_mark_price,
+                adl_candidates: refreshed_adl.clone(),
+                recorded_at: now,
+                ..item.clone()
             };
+            if let Err(e) = queue_store.append(updated.clone()) {
+                tracing::warn!(queue_id = %updated.queue_id, error = %e, "liquidation: failed to append updated queue record (mark price refresh)");
+            }
+            updated
+        } else {
+            item.clone()
+        };
 
         let schedule_retry = |chosen_liquidator: String,
                               error_text: String,
@@ -199,7 +202,9 @@ pub(crate) async fn run_liquidation_queue_worker(
                     recorded_at: now,
                     ..current_item.clone()
                 };
-                let _ = queue_store.append(retry_record);
+                if let Err(e) = queue_store.append(retry_record.clone()) {
+                    tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append retry record");
+                }
                 append_risk_audit_event(
                     audit_store.as_ref(),
                     "liquidation_retry_scheduled",
@@ -218,14 +223,16 @@ pub(crate) async fn run_liquidation_queue_worker(
                     }),
                 );
             } else {
-                let _ = queue_store.append(LiquidationQueueRecord {
+                if let Err(e) = queue_store.append(LiquidationQueueRecord {
                     liquidator_user_id: chosen_liquidator.clone(),
                     status: "failed".to_string(),
                     last_attempt_at: Some(now),
                     error: Some(error_text.clone()),
                     recorded_at: now,
                     ..current_item.clone()
-                });
+                }) {
+                    tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append terminal failed record");
+                }
                 append_risk_audit_event(
                     audit_store.as_ref(),
                     "liquidation_executed",
@@ -289,12 +296,16 @@ pub(crate) async fn run_liquidation_queue_worker(
                         error: None,
                         recorded_at: now,
                     };
-                    let _ = auction_store.append(record);
-                    let _ = queue_store.append(LiquidationQueueRecord {
+                    if let Err(e) = auction_store.append(record) {
+                        tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append auction record");
+                    }
+                    if let Err(e) = queue_store.append(LiquidationQueueRecord {
                         status: "auction_open".to_string(),
                         recorded_at: now,
                         ..current_item.clone()
-                    });
+                    }) {
+                        tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append auction_open queue record");
+                    }
                     append_risk_audit_event(
                         audit_store.as_ref(),
                         "liquidation_auction_opened",
@@ -316,12 +327,14 @@ pub(crate) async fn run_liquidation_queue_worker(
                 Some(auction) if auction.status == "open" => {
                     let valid_levels = valid_auction_price_levels(&auction);
                     if valid_levels.is_empty() {
-                        let _ = auction_store.append(LiquidationAuctionRecord {
+                        if let Err(e) = auction_store.append(LiquidationAuctionRecord {
                             status: "failed".to_string(),
                             error: Some("auction ended without valid ladder bids".to_string()),
                             recorded_at: now,
                             ..auction.clone()
-                        });
+                        }) {
+                            tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append failed auction record");
+                        }
                         // Advance auction_round so the next retry opens a new auction
                         let advanced_item = LiquidationQueueRecord {
                             auction_round: current_item.auction_round.saturating_add(1),
@@ -337,12 +350,14 @@ pub(crate) async fn run_liquidation_queue_worker(
                         );
                         continue;
                     }
-                    let _ = queue_store.append(LiquidationQueueRecord {
+                    if let Err(e) = queue_store.append(LiquidationQueueRecord {
                         status: "running".to_string(),
                         last_attempt_at: Some(now),
                         recorded_at: now,
                         ..current_item.clone()
-                    });
+                    }) {
+                        tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append running queue record");
+                    }
                     let mut remaining_position_qty = current_item.remaining_position_qty.max(0);
                     let mut filled_position_qty = current_item.filled_position_qty;
                     let mut matched_fills = Vec::new();
@@ -420,12 +435,14 @@ pub(crate) async fn run_liquidation_queue_worker(
                         }
                     }
                     if filled_position_qty == current_item.filled_position_qty {
-                        let _ = auction_store.append(LiquidationAuctionRecord {
+                        if let Err(e) = auction_store.append(LiquidationAuctionRecord {
                             status: "failed".to_string(),
                             error: Some("no executable ladder bids succeeded".to_string()),
                             recorded_at: now,
                             ..auction.clone()
-                        });
+                        }) {
+                            tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append failed auction record (no ladder bids)");
+                        }
                         schedule_retry(
                             default_liquidator_user_id.to_string(),
                             "no executable ladder bids succeeded".to_string(),
@@ -436,7 +453,7 @@ pub(crate) async fn run_liquidation_queue_worker(
                         );
                         continue;
                     }
-                    let _ = auction_store.append(LiquidationAuctionRecord {
+                    if let Err(e) = auction_store.append(LiquidationAuctionRecord {
                         status: if remaining_position_qty == 0 {
                             "settled".to_string()
                         } else {
@@ -447,7 +464,9 @@ pub(crate) async fn run_liquidation_queue_worker(
                         filled_position_qty,
                         recorded_at: now,
                         ..auction.clone()
-                    });
+                    }) {
+                        tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append auction settlement record");
+                    }
                     if remaining_position_qty > 0
                         && current_item.auction_round.saturating_add(1) < policy.max_auction_rounds
                     {
@@ -465,7 +484,9 @@ pub(crate) async fn run_liquidation_queue_worker(
                             recorded_at: now,
                             ..current_item.clone()
                         };
-                        let _ = queue_store.append(next_queue);
+                        if let Err(e) = queue_store.append(next_queue.clone()) {
+                            tracing::warn!(queue_id = %next_queue.queue_id, error = %e, "liquidation: failed to append next auction round queue record");
+                        }
                         append_risk_audit_event(
                             audit_store.as_ref(),
                             "liquidation_ladder_round_completed",
@@ -497,7 +518,9 @@ pub(crate) async fn run_liquidation_queue_worker(
                             recorded_at: now,
                             ..current_item.clone()
                         };
-                        let _ = queue_store.append(final_snapshot.clone());
+                        if let Err(e) = queue_store.append(final_snapshot.clone()) {
+                            tracing::warn!(queue_id = %final_snapshot.queue_id, error = %e, "liquidation: failed to append final snapshot queue record");
+                        }
                         if remaining_position_qty > 0 {
                             schedule_retry(
                                 last_winner
@@ -538,13 +561,15 @@ pub(crate) async fn run_liquidation_queue_worker(
                 .filter(|candidate| candidate != &current_item.user_id)
                 .unwrap_or_else(|| default_liquidator_user_id.to_string())
         };
-        let _ = queue_store.append(LiquidationQueueRecord {
+        if let Err(e) = queue_store.append(LiquidationQueueRecord {
             liquidator_user_id: chosen_liquidator.clone(),
             status: "running".to_string(),
             last_attempt_at: Some(now),
             recorded_at: now,
             ..current_item.clone()
-        });
+        }) {
+            tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append ADL running queue record");
+        }
         match risk.execute_partial_liquidation_with_governance_at_price(
             &current_item.user_id,
             &chosen_liquidator,
@@ -574,7 +599,7 @@ pub(crate) async fn run_liquidation_queue_worker(
                 let filled_position_qty = current_item
                     .filled_position_qty
                     .saturating_add(execution.transferred_position_qty);
-                let _ = queue_store.append(LiquidationQueueRecord {
+                if let Err(e) = queue_store.append(LiquidationQueueRecord {
                     liquidator_user_id: chosen_liquidator.clone(),
                     status: if remaining_position_qty == 0 {
                         "completed".to_string()
@@ -586,7 +611,9 @@ pub(crate) async fn run_liquidation_queue_worker(
                     last_attempt_at: Some(now),
                     recorded_at: now,
                     ..current_item.clone()
-                });
+                }) {
+                    tracing::warn!(queue_id = %current_item.queue_id, error = %e, "liquidation: failed to append execution result queue record");
+                }
                 append_risk_audit_event(
                     audit_store.as_ref(),
                     "liquidation_executed",
@@ -660,9 +687,7 @@ pub(crate) fn build_liquidation_routes(
                         &principal.subject,
                         Some(request_id.clone()),
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
                         "request_id": request_id,
@@ -670,7 +695,8 @@ pub(crate) fn build_liquidation_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let liquidation_auction_for_get = liquidation_auction.clone();
     let ip_rate_limiter_for_liquidation_auction_get = ip_rate_limiter.clone();
     let admin_rate_limiter_for_liquidation_auction_get = admin_rate_limiter.clone();
@@ -704,7 +730,8 @@ pub(crate) fn build_liquidation_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let liquidation_auction_for_bid = liquidation_auction.clone();
     let liquidation_queue_for_bid = liquidation_queue.clone();
     let ip_rate_limiter_for_liquidation_bid = ip_rate_limiter.clone();
@@ -788,7 +815,8 @@ pub(crate) fn build_liquidation_routes(
                         })))
                     }
                 },
-            );
+            )
+            .boxed();
     let liquidation_queue_for_get = liquidation_queue.clone();
     let ip_rate_limiter_for_liquidation_queue = ip_rate_limiter.clone();
     let admin_rate_limiter_for_liquidation_queue = admin_rate_limiter.clone();
@@ -822,7 +850,8 @@ pub(crate) fn build_liquidation_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let ledger_for_insurance_get = ledger.clone();
     let ip_rate_limiter_for_insurance_get = ip_rate_limiter.clone();
     let admin_rate_limiter_for_insurance_get = admin_rate_limiter.clone();
@@ -850,7 +879,8 @@ pub(crate) fn build_liquidation_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let ledger_for_insurance_post = ledger.clone();
     let ip_rate_limiter_for_insurance_post = ip_rate_limiter.clone();
     let admin_rate_limiter_for_insurance_post = admin_rate_limiter.clone();
@@ -915,7 +945,8 @@ pub(crate) fn build_liquidation_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     // ── User-facing liquidation history ──────────────────────────────
     let liquidation_queue_for_user = liquidation_queue.clone();
     let ip_rate_limiter_for_user_liq = ip_rate_limiter.clone();
@@ -967,7 +998,8 @@ pub(crate) fn build_liquidation_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     liquidation_execute_route
         .or(liquidation_auction_route)
         .unify()

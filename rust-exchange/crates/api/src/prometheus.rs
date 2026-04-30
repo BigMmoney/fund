@@ -96,6 +96,28 @@ pub fn render_prometheus() -> String {
         "Total HTTP error responses",
         METRICS.http_errors_total.load(Ordering::Relaxed),
     );
+    counter(
+        &mut out,
+        "exchange_submit_order_ip_rate_limited_total",
+        "Total /submit-order requests rejected by IP rate limiting",
+        METRICS.submit_order_ip_rate_limited.load(Ordering::Relaxed),
+    );
+    counter(
+        &mut out,
+        "exchange_submit_order_user_rate_limited_total",
+        "Total /submit-order requests rejected by user write rate limiting",
+        METRICS
+            .submit_order_user_rate_limited
+            .load(Ordering::Relaxed),
+    );
+    counter(
+        &mut out,
+        "exchange_submit_order_engine_rate_limited_total",
+        "Total /submit-order requests rejected by matching-engine rate limiting",
+        METRICS
+            .submit_order_engine_rate_limited
+            .load(Ordering::Relaxed),
+    );
 
     // ── Bridge health ────────────────────────────────────
     gauge(
@@ -156,6 +178,32 @@ pub fn render_prometheus() -> String {
         "exchange_http_request_latency_us",
         "HTTP request latency in microseconds",
         &METRICS.http_request_latency,
+    );
+
+    // ── Granular matching-engine stage latencies ─────────
+    histogram(
+        &mut out,
+        "exchange_risk_latency_us",
+        "Risk check + reservation latency in microseconds",
+        &METRICS.risk_latency,
+    );
+    histogram(
+        &mut out,
+        "exchange_matching_core_latency_us",
+        "Core order-book matching latency in microseconds",
+        &METRICS.matching_core_latency,
+    );
+    histogram(
+        &mut out,
+        "exchange_settlement_persist_latency_us",
+        "Trade settlement + WAL persistence latency in microseconds",
+        &METRICS.settlement_persist_latency,
+    );
+    histogram(
+        &mut out,
+        "exchange_post_match_latency_us",
+        "Post-match processing latency in microseconds",
+        &METRICS.post_match_latency,
     );
 
     // ── Per-partition gauges ─────────────────────────────

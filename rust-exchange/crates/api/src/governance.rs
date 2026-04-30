@@ -384,9 +384,10 @@ pub(crate) async fn apply_governance_action(
                 },
             )
             .map_err(|error| reject_api(StatusCode::BAD_REQUEST, error))?;
-            engine.submit_admin(command).await.map_err(|error| {
-                reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-            })?;
+            engine
+                .submit_admin(command)
+                .await
+                .map_err(reject_internal_error)?;
             update_lifecycle_after_admin(sequencer, &request_id);
             if req.enabled {
                 if let Some(s) = system_sentinel {
@@ -430,9 +431,10 @@ pub(crate) async fn apply_governance_action(
                 },
             )
             .map_err(|error| reject_api(StatusCode::BAD_REQUEST, error))?;
-            engine.submit_admin(command).await.map_err(|error| {
-                reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-            })?;
+            engine
+                .submit_admin(command)
+                .await
+                .map_err(reject_internal_error)?;
             update_lifecycle_after_admin(sequencer, &request_id);
             if matches!(
                 state_for_sentinel,
@@ -556,9 +558,9 @@ pub(crate) async fn apply_governance_action(
                 .clamp(0, 10_000);
             current.updated_by = record.requested_by.clone();
             current.recorded_at = Utc::now();
-            adl_governance.upsert(current.clone()).map_err(|error| {
-                reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-            })?;
+            adl_governance
+                .upsert(current.clone())
+                .map_err(reject_internal_error)?;
             Ok(serde_json::json!(current))
         }
         "liquidation_policy_update" => {
@@ -595,9 +597,7 @@ pub(crate) async fn apply_governance_action(
             current.recorded_at = Utc::now();
             liquidation_policy
                 .upsert(current.clone())
-                .map_err(|error| {
-                    reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                })?;
+                .map_err(reject_internal_error)?;
             Ok(serde_json::json!(current))
         }
         "index_price_upsert" => {
@@ -616,9 +616,9 @@ pub(crate) async fn apply_governance_action(
                 source: req.source.unwrap_or_else(|| "admin-manual".to_string()),
                 recorded_at: Utc::now(),
             };
-            index_prices.upsert(value.clone()).map_err(|error| {
-                reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-            })?;
+            index_prices
+                .upsert(value.clone())
+                .map_err(reject_internal_error)?;
             Ok(serde_json::json!(value))
         }
         "index_source_policy_update" => {
@@ -645,9 +645,9 @@ pub(crate) async fn apply_governance_action(
                 updated_by: record.requested_by.clone(),
                 recorded_at: Utc::now(),
             };
-            index_prices.upsert_policy(value.clone()).map_err(|error| {
-                reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-            })?;
+            index_prices
+                .upsert_policy(value.clone())
+                .map_err(reject_internal_error)?;
             Ok(serde_json::json!(value))
         }
         "liquidation_queue_override" => {
@@ -713,7 +713,8 @@ pub(crate) fn build_governance_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let adl_governance_for_post = adl_governance.clone();
     let governance_actions_for_adl_governance_post = governance_actions.clone();
     let ip_rate_limiter_for_adl_governance_post = ip_rate_limiter.clone();
@@ -749,9 +750,7 @@ pub(crate) fn build_governance_routes(
                         &principal.subject,
                         None,
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     let _ = adl_governance.current();
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
@@ -759,7 +758,8 @@ pub(crate) fn build_governance_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let liquidation_policy_for_get = liquidation_policy.clone();
     let ip_rate_limiter_for_liquidation_policy_get = ip_rate_limiter.clone();
     let admin_rate_limiter_for_liquidation_policy_get = admin_rate_limiter.clone();
@@ -786,7 +786,8 @@ pub(crate) fn build_governance_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let liquidation_policy_for_post = liquidation_policy.clone();
     let governance_actions_for_liquidation_policy_post = governance_actions.clone();
     let ip_rate_limiter_for_liquidation_policy_post = ip_rate_limiter.clone();
@@ -822,9 +823,7 @@ pub(crate) fn build_governance_routes(
                         &principal.subject,
                         None,
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     let _ = liquidation_policy.current();
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
@@ -832,7 +831,8 @@ pub(crate) fn build_governance_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let liquidation_queue_for_override = liquidation_queue.clone();
     let governance_actions_for_liquidation_override = governance_actions.clone();
     let ip_rate_limiter_for_liquidation_override = ip_rate_limiter.clone();
@@ -872,9 +872,7 @@ pub(crate) fn build_governance_routes(
                             &principal.subject,
                             Some(queue_id.clone()),
                         )
-                        .map_err(|error| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                        })?;
+                        .map_err(reject_internal_error)?;
                         Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                             "status": "pending",
                             "approval": pending,
@@ -914,7 +912,8 @@ pub(crate) fn build_governance_routes(
                     })))
                 }
             },
-        );
+        )
+        .boxed();
     let governance_actions_for_approve = governance_actions.clone();
     let adl_governance_for_approve = adl_governance.clone();
     let liquidation_policy_for_approve = liquidation_policy.clone();
@@ -987,9 +986,7 @@ pub(crate) fn build_governance_routes(
                                 decided_at: None,
                                 ..current
                             };
-                            governance_actions.append(pending.clone()).map_err(|error| {
-                                reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                            })?;
+                            governance_actions.append(pending.clone()).map_err(reject_internal_error)?;
                             return Ok::<_, warp::Rejection>(warp::reply::json(
                                 &serde_json::json!({
                                     "status": "pending",
@@ -1050,7 +1047,8 @@ pub(crate) fn build_governance_routes(
                         })))
                     }
                 },
-            );
+            )
+            .boxed();
     let governance_actions_for_reject = governance_actions.clone();
     let ip_rate_limiter_for_governance_reject = ip_rate_limiter.clone();
     let admin_rate_limiter_for_governance_reject = admin_rate_limiter.clone();
@@ -1108,16 +1106,15 @@ pub(crate) fn build_governance_routes(
                         };
                         governance_actions
                             .append(decided.clone())
-                            .map_err(|error| {
-                                reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                            })?;
+                            .map_err(reject_internal_error)?;
                         Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                             "status": "ok",
                             "action": decided,
                         })))
                     }
                 },
-            );
+            )
+            .boxed();
     adl_governance_get_route
         .or(adl_governance_post_route)
         .unify()

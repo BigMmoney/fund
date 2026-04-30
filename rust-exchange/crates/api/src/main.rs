@@ -43,6 +43,8 @@ use warp::{
 
 mod accounts;
 mod admin;
+mod admin_audit;
+mod beta_controls;
 mod bootstrap;
 mod capacity;
 mod config;
@@ -59,6 +61,7 @@ mod observability;
 mod oncall;
 mod openapi;
 mod ops;
+mod order_state_projection;
 mod perf;
 mod planes;
 mod position_costs;
@@ -80,6 +83,8 @@ mod withdrawals;
 
 use accounts::*;
 use admin::*;
+use admin_audit::*;
+use beta_controls::*;
 use bootstrap::*;
 use control::*;
 use dto::*;
@@ -88,6 +93,7 @@ use governance::*;
 use helpers::*;
 use liquidation::*;
 use markets::*;
+use order_state_projection::*;
 use position_costs::*;
 use pricing::*;
 use product_flows::*;
@@ -887,7 +893,7 @@ impl FixedWindowRateLimiter {
         {
             bucket.pop_front();
         }
-        if bucket.len() + weight as usize > limit {
+        if bucket.len().saturating_add(weight as usize) > limit {
             return Err(warp::reject::custom(ApiError {
                 status: StatusCode::TOO_MANY_REQUESTS,
                 message: "rate limit exceeded".to_string(),
@@ -1006,11 +1012,24 @@ fn submission_error_response(error: &SubmissionError) -> (StatusCode, serde_json
             ApiErrorCode::SelfTradePrevented,
             serde_json::json!({ "user_id": user_id }),
         ),
-        SubmissionError::Ledger(detail) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ApiErrorCode::LedgerError,
-            serde_json::json!({ "detail": detail }),
-        ),
+        SubmissionError::Ledger(detail) => {
+            // Client-side ledger failures (insufficient funds/margin) are 400 errors,
+            // not internal server errors.
+            let lower = detail.to_lowercase();
+            if lower.contains("insufficient") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    ApiErrorCode::InsufficientFunds,
+                    serde_json::json!({ "detail": detail }),
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ApiErrorCode::LedgerError,
+                    serde_json::json!({ "detail": detail }),
+                )
+            }
+        }
         SubmissionError::TickSizeViolation { price, tick_size } => (
             StatusCode::BAD_REQUEST,
             ApiErrorCode::TickSizeViolation,
@@ -1097,6 +1116,11 @@ fn submission_error_response(error: &SubmissionError) -> (StatusCode, serde_json
             StatusCode::CONFLICT,
             ApiErrorCode::MarketKillSwitchActive,
             serde_json::json!({ "market_id": market_id }),
+        ),
+        SubmissionError::InsufficientFunds { detail } => (
+            StatusCode::BAD_REQUEST,
+            ApiErrorCode::InsufficientFunds,
+            serde_json::json!({ "detail": detail }),
         ),
     };
     let body = serde_json::json!({
@@ -1513,6 +1537,175 @@ fn settlement_reconciliation_snapshot(
     })
 }
 
+fn max_sequencer_command_seq(records: &[SequencedCommandRecord]) -> Option<u64> {
+    records.iter().map(|record| record.command_seq).max()
+}
+
+fn max_trade_command_seq(records: &[TradeJournalRecord]) -> Option<u64> {
+    records
+        .iter()
+        .filter_map(|record| parse_command_seq_from_order_like_id(&record.trade_id))
+        .max()
+}
+
+fn max_settlement_command_seq(records: &[TradeSettlementRecord]) -> Option<u64> {
+    records
+        .iter()
+        .filter_map(|record| parse_command_seq_from_order_like_id(&record.trade_id))
+        .max()
+}
+
+fn max_ledger_command_seq(entries: &[LedgerDelta]) -> Option<u64> {
+    entries
+        .iter()
+        .filter_map(|entry| parse_command_seq_from_order_like_id(&entry.op_id))
+        .max()
+}
+
+fn frontiers_consistent(
+    sequencer_frontier: Option<u64>,
+    order_projection_frontier: Option<u64>,
+    trade_frontier: Option<u64>,
+    settlement_frontier: Option<u64>,
+    ledger_frontier: Option<u64>,
+) -> bool {
+    let Some(sequencer_frontier) = sequencer_frontier else {
+        return true;
+    };
+    let projection_ok = order_projection_frontier.is_none_or(|value| value <= sequencer_frontier);
+    let trade_ok = trade_frontier.is_none_or(|value| value <= sequencer_frontier);
+    let settlement_ok = settlement_frontier.is_none_or(|value| value <= sequencer_frontier);
+    let ledger_ok = ledger_frontier.is_none_or(|value| {
+        value <= sequencer_frontier && trade_frontier.is_none_or(|trade| value >= trade)
+    });
+    projection_ok && trade_ok && settlement_ok && ledger_ok
+}
+
+fn core_chain_frontiers_snapshot(
+    sequencer_records: &[SequencedCommandRecord],
+    order_projection: &OrderStateProjectionStore,
+    trades: &[TradeJournalRecord],
+    settlements: &[TradeSettlementRecord],
+    ledger_entries: &[LedgerDelta],
+) -> serde_json::Value {
+    let sequencer_frontier = max_sequencer_command_seq(sequencer_records);
+    let projection_frontier = order_projection.latest_command_seq();
+    let trade_frontier = max_trade_command_seq(trades);
+    let settlement_frontier = max_settlement_command_seq(settlements);
+    let ledger_frontier = max_ledger_command_seq(ledger_entries);
+    serde_json::json!({
+        "sequencer_command_seq": sequencer_frontier,
+        "order_projection_command_seq": projection_frontier,
+        "trade_log_command_seq": trade_frontier,
+        "trade_settlement_command_seq": settlement_frontier,
+        "ledger_command_seq": ledger_frontier,
+        "consistent": frontiers_consistent(
+            sequencer_frontier,
+            projection_frontier,
+            trade_frontier,
+            settlement_frontier,
+            ledger_frontier,
+        ),
+    })
+}
+
+fn core_chain_reconciliation_snapshot(
+    sequencer_records: &[SequencedCommandRecord],
+    order_projection: &OrderStateProjectionStore,
+    snapshots: &[MarketRuntimeSnapshot],
+    settlement_records: &[TradeSettlementRecord],
+    trade_records: &[TradeJournalRecord],
+    ledger_entries: &[LedgerDelta],
+    position_costs: &PositionCostLedgerStore,
+    limit: usize,
+) -> serde_json::Value {
+    let frontiers = core_chain_frontiers_snapshot(
+        sequencer_records,
+        order_projection,
+        trade_records,
+        settlement_records,
+        ledger_entries,
+    );
+    let projection_entries = order_projection.list_all();
+    let projection_map: HashMap<(String, String), OrderStateProjectionEntry> = projection_entries
+        .iter()
+        .cloned()
+        .map(|entry| ((entry.user_id.clone(), entry.order_id.clone()), entry))
+        .collect();
+    let open_order_keys: std::collections::HashSet<(String, String)> = snapshots
+        .iter()
+        .flat_map(|snapshot| snapshot.orders.iter())
+        .map(|order| (order.user_id.clone(), order.order_id.clone()))
+        .collect();
+
+    let mut trade_projection_gaps = Vec::new();
+    for trade in trade_records {
+        for (user_id, order_id) in [
+            (&trade.buy_user_id, &trade.buy_order_id),
+            (&trade.sell_user_id, &trade.sell_order_id),
+        ] {
+            if !projection_map.contains_key(&(user_id.clone(), order_id.clone())) {
+                trade_projection_gaps.push(serde_json::json!({
+                    "kind": "missing_projection_for_trade",
+                    "trade_id": trade.trade_id,
+                    "user_id": user_id,
+                    "order_id": order_id,
+                    "market_id": trade.market_id,
+                    "outcome": trade.outcome,
+                }));
+            }
+        }
+    }
+
+    let mut projection_runtime_gaps = Vec::new();
+    for entry in &projection_entries {
+        let key = (entry.user_id.clone(), entry.order_id.clone());
+        let should_be_open = matches!(
+            entry.status,
+            OrderProjectionStatus::Open | OrderProjectionStatus::PartiallyFilled
+        );
+        if should_be_open && !open_order_keys.contains(&key) {
+            projection_runtime_gaps.push(serde_json::json!({
+                "kind": "projection_open_but_not_resting",
+                "user_id": entry.user_id,
+                "order_id": entry.order_id,
+                "status": entry.status,
+                "market_id": entry.market_id,
+                "outcome": entry.outcome,
+            }));
+        }
+        if entry.status == OrderProjectionStatus::Replaced && entry.replaced_by_order_id.is_none() {
+            projection_runtime_gaps.push(serde_json::json!({
+                "kind": "replaced_without_successor",
+                "user_id": entry.user_id,
+                "order_id": entry.order_id,
+            }));
+        }
+    }
+
+    let mut items = Vec::new();
+    items.extend(trade_projection_gaps);
+    items.extend(projection_runtime_gaps);
+    items.truncate(limit);
+
+    serde_json::json!({
+        "frontiers": frontiers,
+        "settlement_reconciliation": settlement_reconciliation_snapshot(
+            settlement_records,
+            trade_records,
+            ledger_entries,
+            position_costs,
+            limit,
+        ),
+        "summary": {
+            "projection_entries": projection_entries.len(),
+            "open_runtime_orders": open_order_keys.len(),
+            "returned_items": items.len(),
+        },
+        "items": items,
+    })
+}
+
 fn trade_record_to_json(record: &TradeJournalRecord) -> serde_json::Value {
     serde_json::json!({
         "id": record.trade_id,
@@ -1617,38 +1810,6 @@ fn deposits_from_ledger(user_id: &str, ledger_entries: &[LedgerDelta]) -> Vec<se
         .collect()
 }
 
-fn stats_from_snapshots_and_trades(
-    snapshots: &[MarketRuntimeSnapshot],
-    trades: &[TradeJournalRecord],
-    ledger_entries: &[LedgerDelta],
-) -> serde_json::Value {
-    let total_volume_24h: i64 = trades
-        .iter()
-        .map(|trade| trade.price.saturating_mul(trade.amount))
-        .sum();
-    let total_liquidity: i64 = snapshots
-        .iter()
-        .flat_map(|snapshot| snapshot.orders.iter())
-        .map(|order| order.remaining_amount)
-        .sum();
-    let total_users = ledger_entries
-        .iter()
-        .flat_map(|delta| delta.entries.iter())
-        .filter_map(|entry| entry.credit_account.strip_prefix("U:"))
-        .filter_map(|account| account.split(':').next())
-        .collect::<std::collections::BTreeSet<_>>()
-        .len();
-
-    serde_json::json!({
-        "TotalVolume24h": total_volume_24h,
-        "TotalTrades24h": trades.len(),
-        "ActiveMarkets": snapshots.len(),
-        "TotalUsers": total_users,
-        "TotalLiquidity": total_liquidity,
-        "LastUpdated": Utc::now(),
-    })
-}
-
 fn sequencer_wal_path() -> String {
     cfg().wal.sequencer.clone()
 }
@@ -1713,8 +1874,20 @@ fn position_cost_event_wal_path() -> String {
     cfg().wal.position_cost_events.clone()
 }
 
+fn order_state_projection_wal_path() -> String {
+    cfg().wal.order_state_projection.clone()
+}
+
 fn governance_action_wal_path() -> String {
     cfg().wal.governance_actions.clone()
+}
+
+fn beta_controls_wal_path() -> String {
+    cfg().wal.beta_controls.clone()
+}
+
+fn admin_action_audit_wal_path() -> String {
+    cfg().wal.admin_action_audit.clone()
 }
 
 fn withdrawals_wal_path() -> String {
@@ -1766,11 +1939,14 @@ fn default_max_auction_rounds() -> u32 {
 }
 
 fn liquidation_retry_delay_secs(policy: &LiquidationPolicyRecord, retry_tier: u32) -> i64 {
+    let idx = retry_tier as usize;
+    if idx < policy.retry_backoff_secs.len() {
+        return policy.retry_backoff_secs[idx].max(0);
+    }
     policy
         .retry_backoff_secs
-        .get(retry_tier as usize)
+        .last()
         .copied()
-        .or_else(|| policy.retry_backoff_secs.last().copied())
         .unwrap_or(0)
         .max(0)
 }
@@ -2881,6 +3057,9 @@ async fn main() {
         )
         .init();
     initialize_internal_auth_secret().expect("failed to initialize internal auth secret");
+    initialize_api_key_registry().expect("failed to initialize API key registry");
+    initialize_role_mapping().expect("failed to initialize role mapping");
+    initialize_auth_failure_tracker();
 
     // Load configuration (TOML file + env overrides).
     let loaded_config = config::ExchangeConfig::load();
@@ -2932,6 +3111,19 @@ async fn main() {
         StopOrderStore::open_jsonl(stop_orders_wal_path())
             .unwrap_or_else(|e| panic!("failed to initialize stop order store: {e}")),
     );
+    let order_projection = Arc::new(
+        OrderStateProjectionStore::open_jsonl(order_state_projection_wal_path())
+            .unwrap_or_else(|e| panic!("failed to initialize order projection store: {e}")),
+    );
+    let beta_controls = Arc::new(
+        BetaControlStore::open_jsonl(beta_controls_wal_path())
+            .unwrap_or_else(|e| panic!("failed to initialize beta control store: {e}")),
+    );
+    let admin_action_audit = Arc::new(
+        AdminActionAuditStore::open_jsonl(admin_action_audit_wal_path())
+            .unwrap_or_else(|e| panic!("failed to initialize admin action audit store: {e}")),
+    );
+    initialize_admin_action_audit_store(admin_action_audit.clone());
 
     let system_sentinel = Arc::new(sentinel::SystemSentinel::new(
         sentinel::PosturePolicy::default(),
@@ -2942,12 +3134,27 @@ async fn main() {
         tracing::error!(error = %e, "startup sentinel: ledger invariant already violated");
         system_sentinel.report_risk_anomaly(&format!("startup invariant failure: {e}"));
     }
+    let startup_snapshots = partitioned_engine
+        .export_snapshots()
+        .await
+        .unwrap_or_default();
+    let startup_trades = trade_journal_wal.entries().unwrap_or_default();
+    if let Err(error) = order_projection.sync_from_sources(
+        &sequencer.latest_records(),
+        &startup_trades,
+        &flatten_market_snapshots(&startup_snapshots),
+    ) {
+        tracing::warn!(error = %error, "failed to bootstrap order state projection");
+    }
 
     let trading_routes = build_trading_routes(
         partitioned_engine.clone(),
         sequencer.clone(),
+        order_projection.clone(),
+        risk.clone(),
         instruments.clone(),
         stop_order_store.clone(),
+        beta_controls.clone(),
         ip_rate_limiter.clone(),
         user_rate_limiter.clone(),
         system_sentinel.clone(),
@@ -2957,11 +3164,14 @@ async fn main() {
         ledger.clone(),
         sequencer.clone(),
         governance_actions.clone(),
+        beta_controls.clone(),
         ip_rate_limiter.clone(),
         admin_rate_limiter.clone(),
     );
     let account_routes = build_account_routes(
         partitioned_engine.clone(),
+        sequencer.clone(),
+        order_projection.clone(),
         risk.clone(),
         instruments.clone(),
         ledger.clone(),
@@ -2981,7 +3191,6 @@ async fn main() {
         index_prices.clone(),
         ip_rate_limiter.clone(),
         user_rate_limiter.clone(),
-        admin_rate_limiter.clone(),
     );
     let withdrawal_store = Arc::new(
         WithdrawalStore::open_jsonl(withdrawals_wal_path())
@@ -3110,8 +3319,11 @@ async fn main() {
     let admin_routes = build_admin_routes(
         risk.clone(),
         instruments.clone(),
+        ledger.clone(),
         funding_rates.clone(),
         risk_automation_audit.clone(),
+        beta_controls.clone(),
+        admin_action_audit.clone(),
         ip_rate_limiter.clone(),
         admin_rate_limiter.clone(),
     );
@@ -3152,10 +3364,19 @@ async fn main() {
     let startup_time = Instant::now();
     let health_ledger = ledger.clone();
     let health_engine = partitioned_engine.clone();
+    let health_sequencer = sequencer.clone();
+    let health_order_projection = order_projection.clone();
+    let health_trade_journal = trade_journal_wal.clone();
+    let health_trade_settlement = trade_settlement_wal.clone();
     let health_route = warp::path("health")
+        .and(warp::path::end())
         .and(warp::get())
         .map(move || -> warp::reply::Json {
             let uptime_secs = startup_time.elapsed().as_secs();
+            let sequencer_records = health_sequencer.latest_records();
+            let trade_records = health_trade_journal.entries().unwrap_or_default();
+            let settlement_records = health_trade_settlement.entries().unwrap_or_default();
+            let ledger_entries = health_ledger.wal_entries().unwrap_or_default();
             warp::reply::json(&serde_json::json!({
                 "status": "ok",
                 "uptime_secs": uptime_secs,
@@ -3163,17 +3384,47 @@ async fn main() {
                 "seen_op_ids": health_ledger.seen_op_id_count(),
                 "kill_switch": health_engine.kill_switch_enabled(),
                 "bridge_alive": observability::METRICS.bridge_alive.load(Ordering::Relaxed),
+                "frontiers": core_chain_frontiers_snapshot(
+                    &sequencer_records,
+                    health_order_projection.as_ref(),
+                    &trade_records,
+                    &settlement_records,
+                    &ledger_entries,
+                ),
             }))
         });
     let readiness_ledger = ledger.clone();
+    let readiness_sequencer = sequencer.clone();
+    let readiness_order_projection = order_projection.clone();
+    let readiness_trade_journal = trade_journal_wal.clone();
+    let readiness_trade_settlement = trade_settlement_wal.clone();
     let readiness_route = warp::path("ready")
+        .and(warp::path::end())
         .and(warp::get())
         .map(move || -> warp::reply::Json {
             let invariant_ok = readiness_ledger.verify_global_invariant().is_ok();
-            let status = if invariant_ok { "ready" } else { "degraded" };
+            let sequencer_records = readiness_sequencer.latest_records();
+            let trade_records = readiness_trade_journal.entries().unwrap_or_default();
+            let settlement_records = readiness_trade_settlement.entries().unwrap_or_default();
+            let ledger_entries = readiness_ledger.wal_entries().unwrap_or_default();
+            let frontiers = core_chain_frontiers_snapshot(
+                &sequencer_records,
+                readiness_order_projection.as_ref(),
+                &trade_records,
+                &settlement_records,
+                &ledger_entries,
+            );
+            let frontier_ok = frontiers["consistent"].as_bool().unwrap_or(false);
+            let status = if invariant_ok && frontier_ok {
+                "ready"
+            } else {
+                "degraded"
+            };
             warp::reply::json(&serde_json::json!({
                 "status": status,
                 "balance_invariant": invariant_ok,
+                "frontier_consistency": frontier_ok,
+                "frontiers": frontiers,
             }))
         });
 
@@ -3233,31 +3484,6 @@ async fn main() {
             }))
         });
 
-    let insurance_fund_ledger = ledger.clone();
-    let insurance_fund_registry = instruments.clone();
-    let insurance_fund_status_route = warp::path!("insurance-fund")
-        .and(warp::get())
-        .map(move || -> warp::reply::Json {
-            let global_balance = insurance_fund_ledger.insurance_fund_balance();
-            let instruments = insurance_fund_registry.list();
-            let per_instrument: Vec<serde_json::Value> = instruments
-                .iter()
-                .map(|spec| {
-                    let bal = insurance_fund_ledger.insurance_fund_balance_for(&spec.instrument_id);
-                    serde_json::json!({
-                        "instrument_id": spec.instrument_id,
-                        "balance": bal,
-                        "account_id": LedgerService::insurance_fund_account_for(&spec.instrument_id),
-                    })
-                })
-                .collect();
-            warp::reply::json(&serde_json::json!({
-                "global_balance": global_balance,
-                "global_account_id": LedgerService::insurance_fund_account(),
-                "per_instrument": per_instrument,
-            }))
-        });
-
     let prometheus_route = warp::path!("metrics" / "prometheus")
         .and(warp::get())
         .map(|| {
@@ -3279,6 +3505,7 @@ async fn main() {
     let settlement_reconciliation_journal = trade_journal_wal.clone();
     let settlement_reconciliation_wal = trade_settlement_wal.clone();
     let settlement_reconciliation_costs = position_costs.clone();
+    let settlement_reconciliation_engine = partitioned_engine.clone();
     let settlement_reconciliation_ip_rate = ip_rate_limiter.clone();
     let settlement_reconciliation_admin_rate = admin_rate_limiter.clone();
     let settlement_reconciliation_route =
@@ -3292,6 +3519,7 @@ async fn main() {
                     let trade_journal_wal = settlement_reconciliation_journal.clone();
                     let trade_settlement_wal = settlement_reconciliation_wal.clone();
                     let position_costs = settlement_reconciliation_costs.clone();
+                    let engine = settlement_reconciliation_engine.clone();
                     let ip_rate_limiter = settlement_reconciliation_ip_rate.clone();
                     let admin_rate_limiter = settlement_reconciliation_admin_rate.clone();
                     async move {
@@ -3314,7 +3542,73 @@ async fn main() {
                         let ledger_entries = ledger.wal_entries().map_err(|error| {
                             reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
                         })?;
+                        let _snapshots = flatten_market_snapshots(
+                            &engine
+                                .export_snapshots()
+                                .await
+                                .map_err(reject_internal_error)?,
+                        );
                         Ok::<_, Rejection>(warp::reply::json(&settlement_reconciliation_snapshot(
+                            &settlements,
+                            &trades,
+                            &ledger_entries,
+                            position_costs.as_ref(),
+                            200,
+                        )))
+                    }
+                },
+            );
+    let core_chain_reconciliation_ledger = ledger.clone();
+    let core_chain_reconciliation_sequencer = sequencer.clone();
+    let core_chain_reconciliation_order_projection = order_projection.clone();
+    let core_chain_reconciliation_engine = partitioned_engine.clone();
+    let core_chain_reconciliation_journal = trade_journal_wal.clone();
+    let core_chain_reconciliation_wal = trade_settlement_wal.clone();
+    let core_chain_reconciliation_costs = position_costs.clone();
+    let core_chain_reconciliation_ip_rate = ip_rate_limiter.clone();
+    let core_chain_reconciliation_admin_rate = admin_rate_limiter.clone();
+    let core_chain_reconciliation_route =
+        warp::path!("admin" / "risk" / "reconciliation" / "core-chain")
+            .and(warp::get())
+            .and(with_principal())
+            .and(remote_ip())
+            .and_then(
+                move |principal: AuthenticatedPrincipal, remote: Option<SocketAddr>| {
+                    let ledger = core_chain_reconciliation_ledger.clone();
+                    let sequencer = core_chain_reconciliation_sequencer.clone();
+                    let order_projection = core_chain_reconciliation_order_projection.clone();
+                    let engine = core_chain_reconciliation_engine.clone();
+                    let trade_journal_wal = core_chain_reconciliation_journal.clone();
+                    let trade_settlement_wal = core_chain_reconciliation_wal.clone();
+                    let position_costs = core_chain_reconciliation_costs.clone();
+                    let ip_rate_limiter = core_chain_reconciliation_ip_rate.clone();
+                    let admin_rate_limiter = core_chain_reconciliation_admin_rate.clone();
+                    async move {
+                        require_admin(&principal)?;
+                        let ip_key = remote
+                            .map(|value| value.ip().to_string())
+                            .unwrap_or_else(|| "unknown".to_string());
+                        ip_rate_limiter
+                            .check(&format!("ip:{ip_key}"), RateLimitConfig::default().ip_limit)?;
+                        admin_rate_limiter.check(
+                            &format!("admin:{}", principal.subject),
+                            RateLimitConfig::default().admin_limit,
+                        )?;
+                        let settlements = trade_settlement_wal
+                            .entries()
+                            .map_err(reject_internal_error)?;
+                        let trades = trade_journal_wal.entries().map_err(reject_internal_error)?;
+                        let ledger_entries = ledger.wal_entries().map_err(reject_internal_error)?;
+                        let snapshots = flatten_market_snapshots(
+                            &engine
+                                .export_snapshots()
+                                .await
+                                .map_err(reject_internal_error)?,
+                        );
+                        Ok::<_, Rejection>(warp::reply::json(&core_chain_reconciliation_snapshot(
+                            &sequencer.latest_records(),
+                            order_projection.as_ref(),
+                            &snapshots,
                             &settlements,
                             &trades,
                             &ledger_entries,
@@ -3701,42 +3995,56 @@ async fn main() {
         admin_rate_limiter.clone(),
     );
 
-    let routes = trading_routes
+    let admin_group = trading_routes
         .or(control_routes)
         .or(admin_routes)
         .or(pricing_admin_routes)
         .or(governance_admin_routes)
         .or(liquidation_admin_routes)
-        .or(account_routes)
+        .boxed();
+    let user_group = account_routes
         .or(market_routes)
         .or(withdrawal_routes)
         .or(custody_routes)
         .or(sentinel_routes)
         .or(fee_tier_routes)
-        .or(transfer_routes)
+        .boxed();
+    let trade_aux_group = transfer_routes
         .or(stop_order_routes)
         .or(product_flow_routes)
         .or(perf_routes)
         .or(ops_routes)
         .or(failpoint_routes)
-        .or(plane_routes)
+        .boxed();
+    let ops_group = plane_routes
         .or(capacity_routes)
         .or(release_routes)
         .or(rollback_routes)
         .or(oncall_routes)
         .or(health_route)
-        .or(readiness_route)
+        .boxed();
+    let probe_group = readiness_route
         .or(partition_health_route)
         .or(prometheus_route)
         .or(metrics_route)
         .or(version_route)
-        .or(insurance_fund_status_route)
         .or(rules_route)
-        .or(micro_route)
+        .boxed();
+    let misc_group = micro_route
         .or(openapi_routes)
         .or(ws_routes)
         .or(settlement_reconciliation_route)
+        .or(core_chain_reconciliation_route)
         .or(static_files)
+        .boxed();
+
+    let routes = admin_group
+        .or(user_group)
+        .or(trade_aux_group)
+        .or(ops_group)
+        .or(probe_group)
+        .or(misc_group)
+        .boxed()
         .with(cors)
         .with(warp::trace(tracing_ctx::request_trace_fn()))
         .with(warp::log::custom(|info: warp::log::Info<'_>| {

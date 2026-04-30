@@ -75,6 +75,7 @@ pub(crate) fn build_transfer_routes(
     let create_route = warp::path("transfer")
         .and(warp::path::end())
         .and(warp::post())
+        .and(super::body_limit())
         .and(with_principal())
         .and(warp::body::json())
         .and(remote_ip())
@@ -120,7 +121,12 @@ pub(crate) fn build_transfer_routes(
 
                     ledger
                         .transfer_cash(&from_user_id, &to_user_id, req.amount, op_id.clone())
-                        .map_err(|e| reject_api(StatusCode::BAD_REQUEST, e.to_string()))?;
+                        .map_err(|e| {
+                            reject_api(
+                                StatusCode::BAD_REQUEST,
+                                super::helpers::sanitize_internal_error(&e.to_string()),
+                            )
+                        })?;
 
                     let record = TransferRecord {
                         transfer_id: transfer_id.clone(),

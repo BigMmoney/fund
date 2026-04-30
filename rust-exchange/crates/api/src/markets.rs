@@ -72,7 +72,6 @@ pub(crate) fn build_market_routes(
     index_prices: Arc<PersistentIndexPriceStore>,
     ip_rate_limiter: Arc<FixedWindowRateLimiter>,
     user_rate_limiter: Arc<FixedWindowRateLimiter>,
-    admin_rate_limiter: Arc<FixedWindowRateLimiter>,
 ) -> JsonRoute {
     let partitioned_engine_for_markets = partitioned_engine.clone();
     let instruments_for_markets = instruments.clone();
@@ -90,9 +89,10 @@ pub(crate) fn build_market_routes(
                     .map(|value| value.ip().to_string())
                     .unwrap_or_else(|| "unknown".to_string());
                 ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
-                let records = engine.export_snapshots().await.map_err(|error| {
-                    reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                })?;
+                let records = engine
+                    .export_snapshots()
+                    .await
+                    .map_err(reject_internal_error)?;
                 let snapshots = flatten_market_snapshots(&records);
                 Ok::<_, warp::Rejection>(warp::reply::json(&market_list_with_registry(
                     &snapshots,
@@ -116,9 +116,10 @@ pub(crate) fn build_market_routes(
                     .map(|value| value.ip().to_string())
                     .unwrap_or_else(|| "unknown".to_string());
                 ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
-                let records = engine.export_snapshots().await.map_err(|error| {
-                    reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                })?;
+                let records = engine
+                    .export_snapshots()
+                    .await
+                    .map_err(reject_internal_error)?;
                 let snapshots = flatten_market_snapshots(&records);
                 let market = market_list_with_registry(&snapshots, instruments.as_ref())
                     .into_iter()
@@ -144,9 +145,10 @@ pub(crate) fn build_market_routes(
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     let outcome = query.outcome.unwrap_or(0);
                     let depth = query.depth.unwrap_or(20).clamp(1, 200);
-                    let records = engine.export_snapshots().await.map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    let records = engine
+                        .export_snapshots()
+                        .await
+                        .map_err(reject_internal_error)?;
                     let snapshots = flatten_market_snapshots(&records);
                     let snapshot = snapshots
                         .into_iter()
@@ -162,22 +164,23 @@ pub(crate) fn build_market_routes(
                 }
             },
         );
-    let trade_journal_for_trades = trade_journal_wal.clone();
-    let ip_rate_limiter_for_trades = ip_rate_limiter.clone();
-    let user_rate_limiter_for_trades = user_rate_limiter.clone();
-    let trades_route = warp::path("trades")
+    let trade_journal_for_market_trades = trade_journal_wal.clone();
+    let ip_rate_limiter_for_market_trades = ip_rate_limiter.clone();
+    let user_rate_limiter_for_market_trades = user_rate_limiter.clone();
+    let market_trades_route = warp::path!("markets" / String / "trades")
         .and(warp::path::end())
         .and(warp::get())
         .and(with_optional_principal())
         .and(optional_query::<TradesQuery>())
         .and(remote_ip())
         .and_then(
-            move |principal: Option<AuthenticatedPrincipal>,
+            move |market_id: String,
+                  principal: Option<AuthenticatedPrincipal>,
                   query: TradesQuery,
                   remote: Option<SocketAddr>| {
-                let trade_journal = trade_journal_for_trades.clone();
-                let ip_rate_limiter = ip_rate_limiter_for_trades.clone();
-                let user_rate_limiter = user_rate_limiter_for_trades.clone();
+                let trade_journal = trade_journal_for_market_trades.clone();
+                let ip_rate_limiter = ip_rate_limiter_for_market_trades.clone();
+                let user_rate_limiter = user_rate_limiter_for_market_trades.clone();
                 async move {
                     let ip_key = remote
                         .map(|value| value.ip().to_string())
@@ -185,23 +188,16 @@ pub(crate) fn build_market_routes(
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     if let Some(user_id) = query.user_id.as_deref() {
                         let principal = principal.ok_or_else(|| {
-                            reject_api(StatusCode::UNAUTHORIZED, "missing internal auth headers")
+                            reject_api(StatusCode::UNAUTHORIZED, "missing authentication headers")
                         })?;
                         ensure_subject_or_admin(&principal, user_id)?;
                         user_rate_limiter.check(&format!("user-read:{}", principal.subject), 30)?;
                     }
                     let limit = query.limit.unwrap_or(50).clamp(1, 500);
                     let mut trades: Vec<_> = wal_entries_or_empty(trade_journal.as_ref())
-                        .map_err(|error| {
-                            reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                        })?
+                        .map_err(reject_internal_error)?
                         .into_iter()
-                        .filter(|trade| {
-                            query
-                                .market_id
-                                .as_deref()
-                                .is_none_or(|market_id| trade.market_id == market_id)
-                        })
+                        .filter(|trade| trade.market_id == market_id)
                         .filter(|trade| {
                             query.outcome.is_none_or(|outcome| trade.outcome == outcome)
                         })
@@ -220,6 +216,7 @@ pub(crate) fn build_market_routes(
                     let next_cursor = trades.last().map(|t| t.recorded_at.to_rfc3339());
                     let payload: Vec<_> = trades.iter().map(trade_record_to_json).collect();
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                        "market_id": market_id,
                         "trades": payload,
                         "count": payload.len(),
                         "next_cursor": next_cursor,
@@ -243,9 +240,8 @@ pub(crate) fn build_market_routes(
                         .unwrap_or_else(|| "unknown".to_string());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     let limit = query.limit.unwrap_or(24).clamp(1, 500);
-                    let trades = wal_entries_or_empty(trade_journal.as_ref()).map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    let trades = wal_entries_or_empty(trade_journal.as_ref())
+                        .map_err(reject_internal_error)?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&trades_to_history(
                         &market_id,
                         query.outcome,
@@ -257,39 +253,6 @@ pub(crate) fn build_market_routes(
                 }
             },
         );
-    let partitioned_engine_for_stats = partitioned_engine.clone();
-    let trade_journal_for_stats = trade_journal_wal.clone();
-    let ledger_for_stats = ledger.clone();
-    let ip_rate_limiter_for_stats = ip_rate_limiter.clone();
-    let stats_route = warp::path("stats")
-        .and(warp::path::end())
-        .and(warp::get())
-        .and(remote_ip())
-        .and_then(move |remote: Option<SocketAddr>| {
-            let engine = partitioned_engine_for_stats.clone();
-            let trade_journal = trade_journal_for_stats.clone();
-            let ledger = ledger_for_stats.clone();
-            let ip_rate_limiter = ip_rate_limiter_for_stats.clone();
-            async move {
-                let ip_key = remote
-                    .map(|value| value.ip().to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
-                ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
-                let records = engine.export_snapshots().await.map_err(|error| {
-                    reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                })?;
-                let snapshots = flatten_market_snapshots(&records);
-                let trades = wal_entries_or_empty(trade_journal.as_ref()).map_err(|error| {
-                    reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                })?;
-                let entries = ledger.wal_entries().map_err(|error| {
-                    reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                })?;
-                Ok::<_, warp::Rejection>(warp::reply::json(&stats_from_snapshots_and_trades(
-                    &snapshots, &trades, &entries,
-                )))
-            }
-        });
     // GET /markets/{market_id}/ticker — 24h rolling ticker
     let trade_journal_for_ticker = trade_journal_wal.clone();
     let ip_rate_limiter_for_ticker = ip_rate_limiter.clone();
@@ -308,7 +271,7 @@ pub(crate) fn build_market_routes(
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     let cutoff = Utc::now() - chrono::Duration::hours(24);
                     let trades: Vec<_> = wal_entries_or_empty(trade_journal.as_ref())
-                        .map_err(|e| reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+                        .map_err(reject_internal_error)?
                         .into_iter()
                         .filter(|t| t.market_id == market_id)
                         .filter(|t| query.outcome.is_none_or(|o| o == t.outcome))
@@ -401,9 +364,8 @@ pub(crate) fn build_market_routes(
                             ));
                         }
                     };
-                    let trades = wal_entries_or_empty(trade_journal.as_ref()).map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    let trades = wal_entries_or_empty(trade_journal.as_ref())
+                        .map_err(reject_internal_error)?;
                     let mut grouped: std::collections::BTreeMap<i64, Vec<&TradeJournalRecord>> =
                         std::collections::BTreeMap::new();
                     for trade in trades
@@ -449,44 +411,6 @@ pub(crate) fn build_market_routes(
             },
         );
 
-    let partitioned_engine_2 = partitioned_engine.clone();
-    let ip_rate_limiter_for_matching_status = ip_rate_limiter.clone();
-    let admin_rate_limiter_for_matching_status = admin_rate_limiter.clone();
-    let matching_status_route = warp::path("matching-status")
-        .and(warp::get())
-        .and(with_principal())
-        .and(remote_ip())
-        .and_then(
-            move |principal: AuthenticatedPrincipal, remote: Option<SocketAddr>| {
-                let engine = partitioned_engine_2.clone();
-                let ip_rate_limiter = ip_rate_limiter_for_matching_status.clone();
-                let admin_rate_limiter = admin_rate_limiter_for_matching_status.clone();
-                async move {
-                    require_admin(&principal)?;
-                    let ip_key = remote
-                        .map(|value| value.ip().to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
-                    ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
-                    admin_rate_limiter.check(&format!("admin:{}", principal.subject), 10)?;
-                    let queues: Vec<_> = engine
-                        .queue_depths()
-                        .into_iter()
-                        .map(|depth| {
-                            serde_json::json!({
-                                "partition_id": depth.partition_id,
-                                "inflight": depth.inflight,
-                                "capacity": depth.capacity,
-                            })
-                        })
-                        .collect();
-                    Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
-                        "status": "ok",
-                        "kill_switch_enabled": engine.kill_switch_enabled(),
-                        "queues": queues,
-                    })))
-                }
-            },
-        );
     // GET /markets/{market_id}/open-interest — open interest for the market
     let ledger_for_oi = ledger.clone();
     let ip_rate_limiter_for_oi = ip_rate_limiter.clone();
@@ -536,9 +460,10 @@ pub(crate) fn build_market_routes(
                         .unwrap_or_else(|| "unknown".into());
                     ip_rl.check(&format!("ip:{ip_key}"), 60)?;
                     let outcome = query.outcome.unwrap_or(0);
-                    let records = engine.export_snapshots().await.map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    let records = engine
+                        .export_snapshots()
+                        .await
+                        .map_err(reject_internal_error)?;
                     let snapshots = flatten_market_snapshots(&records);
                     let snapshot = snapshots
                         .iter()
@@ -611,9 +536,10 @@ pub(crate) fn build_market_routes(
                         .unwrap_or_else(|| "unknown".into());
                     ip_rl.check(&format!("ip:{ip_key}"), 60)?;
                     let outcome = query.outcome.unwrap_or(0);
-                    let records = engine.export_snapshots().await.map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    let records = engine
+                        .export_snapshots()
+                        .await
+                        .map_err(reject_internal_error)?;
                     let snapshots = flatten_market_snapshots(&records);
                     let snapshot = snapshots
                         .iter()
@@ -660,12 +586,12 @@ pub(crate) fn build_market_routes(
                     .unwrap_or_else(|| "unknown".into());
                 ip_rl.check(&format!("ip:{ip_key}"), 30)?;
                 let cutoff = Utc::now() - chrono::Duration::hours(24);
-                let trades = wal_entries_or_empty(journal.as_ref())
-                    .map_err(|e| reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                let trades =
+                    wal_entries_or_empty(journal.as_ref()).map_err(reject_internal_error)?;
                 let records = engine
                     .export_snapshots()
                     .await
-                    .map_err(|e| reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                    .map_err(reject_internal_error)?;
                 let snapshots = flatten_market_snapshots(&records);
 
                 // Gather all known market IDs
@@ -745,7 +671,7 @@ pub(crate) fn build_market_routes(
         .unify()
         .or(book_route)
         .unify()
-        .or(trades_route)
+        .or(market_trades_route)
         .unify()
         .or(history_route)
         .unify()
@@ -758,10 +684,6 @@ pub(crate) fn build_market_routes(
         .or(funding_rate_route)
         .unify()
         .or(mark_price_route)
-        .unify()
-        .or(stats_route)
-        .unify()
-        .or(matching_status_route)
         .unify()
         .boxed()
 }

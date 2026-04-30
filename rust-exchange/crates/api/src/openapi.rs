@@ -4,24 +4,50 @@
 //!   GET /openapi.json  — OpenAPI 3.0 JSON specification
 //!   GET /swagger-ui    — Single-page Swagger UI (CDN-hosted assets)
 
-use warp::Filter;
+use warp::filters::BoxedFilter;
+use warp::{Filter, Reply};
 
 /// Build routes for OpenAPI spec and Swagger UI.
-pub fn build_openapi_routes(
-) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
-    let spec_route = warp::path("openapi.json").and(warp::get()).map(|| {
-        warp::reply::with_header(
-            warp::reply::json(&spec()),
-            "Access-Control-Allow-Origin",
-            "*",
-        )
-    });
+pub fn build_openapi_routes() -> BoxedFilter<(warp::reply::Response,)> {
+    // Spec and UI require admin authentication to prevent API surface enumeration.
+    let spec_route = warp::path("openapi.json")
+        .and(warp::get())
+        .and(super::with_principal())
+        .map(|principal: super::AuthenticatedPrincipal| -> warp::reply::Response {
+            if principal.role != super::PrincipalRole::Admin {
+                return warp::reply::with_header(
+                    warp::reply::json(&serde_json::json!({"error":"admin access required"})),
+                    "Access-Control-Allow-Origin",
+                    "*",
+                )
+                .into_response();
+            }
+            warp::reply::with_header(
+                warp::reply::json(&spec()),
+                "Access-Control-Allow-Origin",
+                "*",
+            )
+            .into_response()
+        })
+        .boxed();
 
     let swagger_route = warp::path("swagger-ui")
         .and(warp::get())
-        .map(|| warp::reply::html(SWAGGER_HTML));
+        .and(super::with_principal())
+        .map(|principal: super::AuthenticatedPrincipal| -> warp::reply::Response {
+            if principal.role != super::PrincipalRole::Admin {
+                warp::reply::with_status(
+                    warp::reply::html(SWAGGER_HTML),
+                    warp::http::StatusCode::FORBIDDEN,
+                )
+                .into_response()
+            } else {
+                warp::reply::html(SWAGGER_HTML).into_response()
+            }
+        })
+        .boxed();
 
-    spec_route.or(swagger_route)
+    spec_route.or(swagger_route).unify().boxed()
 }
 
 fn spec() -> serde_json::Value {
@@ -38,7 +64,7 @@ fn spec() -> serde_json::Value {
         "tags": [
             { "name": "Trading", "description": "Order management" },
             { "name": "Accounts", "description": "Balances, positions, P&L" },
-            { "name": "Markets", "description": "Orderbook, trades, stats" },
+            { "name": "Markets", "description": "Orderbook, trades, summaries" },
             { "name": "Admin", "description": "Instruments, funding, risk" },
             { "name": "Governance", "description": "ADL, liquidation policy, dual-auth" },
             { "name": "Pricing", "description": "Index & fair price management" },
@@ -87,8 +113,14 @@ fn spec() -> serde_json::Value {
             "/orders/{user_id}": {
                 "get": route_get("Accounts", "Get orders", "All open orders with filtering", path_param("user_id"))
             },
+            "/orders/{user_id}/{order_id}": {
+                "get": route_get("Accounts", "Get order", "Single order lookup from open book or trade log", path_param("user_id"))
+            },
             "/fills/{user_id}": {
                 "get": route_get("Accounts", "Get fills", "Trade fills/settlement history (max 500)", path_param("user_id"))
+            },
+            "/ledger/{user_id}": {
+                "get": route_get("Accounts", "Get ledger view", "Explicit available/locked/raw ledger projection", path_param("user_id"))
             },
             "/deposits/{user_id}": {
                 "get": route_get("Accounts", "Get deposits", "On-chain deposit records", path_param("user_id"))
@@ -106,17 +138,14 @@ fn spec() -> serde_json::Value {
             "/markets/{market_id}/book": {
                 "get": route_get("Markets", "Get orderbook", "L1/L2 orderbook snapshot with ?depth=N (default 20, max 200)", path_param("market_id"))
             },
-            "/trades": {
-                "get": route_get_simple("Markets", "Get trades", "Recent trades (filterable by market/outcome/user)")
+            "/markets/{market_id}/trades": {
+                "get": route_get("Markets", "Get market trades", "Recent trades for one market", path_param("market_id"))
             },
             "/markets/{market_id}/history": {
                 "get": route_get("Markets", "Get OHLCV", "1-hour candle data", path_param("market_id"))
             },
-            "/stats": {
-                "get": route_get_simple("Markets", "Platform stats", "Volume, trades, users, liquidity")
-            },
-            "/matching-status": {
-                "get": route_get_simple("Markets", "Matching status", "Partition queue depths + kill-switch")
+            "/markets/summary": {
+                "get": route_get_simple("Markets", "Market summaries", "Aggregated 24h market stats across all markets")
             },
             "/rules": {
                 "get": route_get_simple("Markets", "Trading rules", "Standardised trading rules, order types, risk params, and per-market constraints")
@@ -141,6 +170,9 @@ fn spec() -> serde_json::Value {
                 "post": route("Admin", "Set market state", "Normal/Stress/AuctionCall/CancelOnly/Halted",
                     req_body("MarketStateRequest"), resp_json("GovernanceActionResponse"))
             },
+            "/admin/market-state/{market_id}": {
+                "get": route_get("Admin", "Get market state", "Current market state plus allowed transitions", path_param("market_id"))
+            },
             "/admin/reference-price": {
                 "post": route("Admin", "Set reference price", "Manually set reference price for market",
                     req_body("ReferencePriceRequest"), resp_json("GovernanceActionResponse"))
@@ -162,6 +194,20 @@ fn spec() -> serde_json::Value {
             },
             "/admin/risk/events": {
                 "get": route_get_simple("Admin", "Risk events", "Recent risk automation audit events")
+            },
+            "/admin/risk/users/{user_id}/limits": {
+                "get": route_get("Admin", "Get user risk limits", "Read configured per-user notional/open-order limits", path_param("user_id")),
+                "post": route("Admin", "Set user risk limits", "Upsert per-user notional/open-order limits",
+                    req_body("UserRiskLimits"), resp_json("GovernanceActionResponse"))
+            },
+            "/admin/treasury/fee-collector": {
+                "get": route_get_simple("Admin", "Get fee collector", "Global fee collector balance")
+            },
+            "/admin/treasury/insurance-funds": {
+                "get": route_get_simple("Admin", "Get insurance funds", "Global and per-market insurance fund balances")
+            },
+            "/admin/treasury/markets/{market_id}": {
+                "get": route_get("Admin", "Get market treasury", "Per-market treasury view", path_param("market_id"))
             },
             // ── Pricing ──────────────────────────────────
             "/admin/risk/pricing/index": {

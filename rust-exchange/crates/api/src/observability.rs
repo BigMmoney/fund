@@ -31,6 +31,13 @@ pub(crate) struct ExchangeMetrics {
     // HTTP request tracking.
     pub http_requests_total: AtomicU64,
     pub http_errors_total: AtomicU64,
+    pub submit_order_ip_rate_limited: AtomicU64,
+    pub submit_order_user_rate_limited: AtomicU64,
+    pub submit_order_engine_rate_limited: AtomicU64,
+    // Batch order tracking.
+    pub batch_orders_submitted: AtomicU64,
+    pub batch_orders_success: AtomicU64,
+    pub batch_latency: HistogramTracker,
     // EventBus → WS bridge health.
     pub bridge_alive: AtomicBool,
     // Histogram latency trackers (microseconds) with p50/p95/p99.
@@ -39,6 +46,11 @@ pub(crate) struct ExchangeMetrics {
     pub queue_wait_latency: HistogramTracker,
     pub match_execution_latency: HistogramTracker,
     pub http_request_latency: HistogramTracker,
+    // Granular matching-engine stage latencies.
+    pub risk_latency: HistogramTracker,
+    pub matching_core_latency: HistogramTracker,
+    pub settlement_persist_latency: HistogramTracker,
+    pub post_match_latency: HistogramTracker,
     // Per-partition fill counters.
     pub partition_fills: [AtomicU64; MAX_PARTITIONS],
     pub partition_orders: [AtomicU64; MAX_PARTITIONS],
@@ -175,12 +187,22 @@ impl ExchangeMetrics {
             ws_messages_sent: AtomicU64::new(0),
             http_requests_total: AtomicU64::new(0),
             http_errors_total: AtomicU64::new(0),
+            submit_order_ip_rate_limited: AtomicU64::new(0),
+            submit_order_user_rate_limited: AtomicU64::new(0),
+            submit_order_engine_rate_limited: AtomicU64::new(0),
+            batch_orders_submitted: AtomicU64::new(0),
+            batch_orders_success: AtomicU64::new(0),
+            batch_latency: HistogramTracker::new(),
             bridge_alive: AtomicBool::new(false),
             match_latency: HistogramTracker::new(),
             wal_append_latency: HistogramTracker::new(),
             queue_wait_latency: HistogramTracker::new(),
             match_execution_latency: HistogramTracker::new(),
             http_request_latency: HistogramTracker::new(),
+            risk_latency: HistogramTracker::new(),
+            matching_core_latency: HistogramTracker::new(),
+            settlement_persist_latency: HistogramTracker::new(),
+            post_match_latency: HistogramTracker::new(),
             partition_fills: [const { AtomicU64::new(0) }; MAX_PARTITIONS],
             partition_orders: [const { AtomicU64::new(0) }; MAX_PARTITIONS],
         }
@@ -196,6 +218,37 @@ impl ExchangeMetrics {
         if partition_id < MAX_PARTITIONS {
             self.partition_orders[partition_id].fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    pub fn record_cancel(&self) {
+        self.orders_cancelled.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_order_received(&self) {
+        self.orders_received.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_order_filled(&self) {
+        self.orders_filled.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_order_rejected(&self) {
+        self.orders_rejected.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_submit_order_ip_rate_limited(&self) {
+        self.submit_order_ip_rate_limited
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_submit_order_user_rate_limited(&self) {
+        self.submit_order_user_rate_limited
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_submit_order_engine_rate_limited(&self) {
+        self.submit_order_engine_rate_limited
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn snapshot(&self) -> serde_json::Value {
@@ -225,6 +278,9 @@ impl ExchangeMetrics {
             "ws_messages_sent": self.ws_messages_sent.load(Ordering::Relaxed),
             "http_requests_total": self.http_requests_total.load(Ordering::Relaxed),
             "http_errors_total": self.http_errors_total.load(Ordering::Relaxed),
+            "submit_order_ip_rate_limited": self.submit_order_ip_rate_limited.load(Ordering::Relaxed),
+            "submit_order_user_rate_limited": self.submit_order_user_rate_limited.load(Ordering::Relaxed),
+            "submit_order_engine_rate_limited": self.submit_order_engine_rate_limited.load(Ordering::Relaxed),
             "bridge_alive": self.bridge_alive.load(Ordering::Relaxed),
             "latency": {
                 "match_e2e_us": self.match_latency.snapshot_json(),
@@ -232,6 +288,12 @@ impl ExchangeMetrics {
                 "match_execution_us": self.match_execution_latency.snapshot_json(),
                 "wal_append_us": self.wal_append_latency.snapshot_json(),
                 "http_request_us": self.http_request_latency.snapshot_json(),
+                "granular": {
+                    "risk_us": self.risk_latency.snapshot_json(),
+                    "matching_core_us": self.matching_core_latency.snapshot_json(),
+                    "settlement_persist_us": self.settlement_persist_latency.snapshot_json(),
+                    "post_match_us": self.post_match_latency.snapshot_json(),
+                },
             },
             "partitions": partition_detail,
         })

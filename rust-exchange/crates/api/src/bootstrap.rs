@@ -141,9 +141,15 @@ pub(crate) async fn bootstrap_runtime(event_bus: EventBus) -> AppBootstrap {
     let governance_actions = build_governance_action_store();
     let engine_instrument_registry: Arc<dyn InstrumentRegistry> = instruments.clone();
 
+    // Configure matching engine with tuned snapshot interval from config
+    let engine_config = PartitionedEngineConfig {
+        snapshot_interval_commands: cfg().wal.snapshot_interval_commands as usize,
+        ..PartitionedEngineConfig::default()
+    };
+
     let partitioned_engine = Arc::new(
         PartitionedMatchingEngine::with_stores_registry_costs_and_settlements(
-            PartitionedEngineConfig::default(),
+            engine_config,
             event_bus,
             risk.clone(),
             engine_instrument_registry,
@@ -245,6 +251,12 @@ pub(crate) fn spawn_automation_tasks(runtime: AutomationRuntime) {
 }
 
 fn seed_demo_balances(ledger: &Arc<LedgerService>) {
+    // Demo balances are always seeded on first boot for dev/test environments.
+    // The env var is kept for backwards compatibility but defaults to ON.
+    if std::env::var("SKIP_DEMO_DATA_SEEDING").as_deref() == Ok("1") {
+        tracing::info!("demo balance seeding skipped via SKIP_DEMO_DATA_SEEDING=1");
+        return;
+    }
     let demo_accounts = [
         ("trader", 1_000_000_i64, "seed-demo-trader-usdc"),
         ("admin", 5_000_000_i64, "seed-demo-admin-usdc"),
@@ -261,6 +273,10 @@ fn seed_demo_balances(ledger: &Arc<LedgerService>) {
 }
 
 fn seed_demo_inventory(ledger: &Arc<LedgerService>) {
+    // Demo inventory is always seeded on first boot for dev/test environments.
+    if std::env::var("SKIP_DEMO_DATA_SEEDING").as_deref() == Ok("1") {
+        return;
+    }
     let demo_positions = [
         ("trader", "btc-usdt", 0, 25_i64, "seed-demo-trader-btc-spot"),
         ("viewer", "btc-usdt", 0, 25_i64, "seed-demo-viewer-btc-spot"),

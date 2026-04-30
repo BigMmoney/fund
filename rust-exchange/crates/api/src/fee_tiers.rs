@@ -146,9 +146,8 @@ pub(crate) fn build_fee_tier_routes(
                     user_rl.check(&format!("user-read:{}", principal.subject), 30)?;
 
                     let cutoff = Utc::now() - chrono::Duration::days(30);
-                    let trades = wal_entries_or_empty(trade_journal.as_ref()).map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    let trades = wal_entries_or_empty(trade_journal.as_ref())
+                        .map_err(reject_internal_error)?;
                     let volume_30d: i64 = trades
                         .iter()
                         .filter(|t| t.recorded_at >= cutoff)
@@ -206,9 +205,9 @@ pub(crate) fn build_fee_tier_routes(
                         }
                     }
 
-                    store.replace_all(tiers.clone()).map_err(|e| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    })?;
+                    store
+                        .replace_all(tiers.clone())
+                        .map_err(reject_internal_error)?;
 
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "ok",

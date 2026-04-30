@@ -31,6 +31,7 @@ pub struct WalConfig {
     pub data_dir: String,
     pub rotation_max_entries: u64,
     pub group_commit_size: u64,
+    pub snapshot_interval_commands: u64,
     pub ledger: String,
     pub sequencer: String,
     pub matching_snapshot: String,
@@ -47,7 +48,10 @@ pub struct WalConfig {
     pub index_source_policy: String,
     pub position_cost_state: String,
     pub position_cost_events: String,
+    pub order_state_projection: String,
     pub governance_actions: String,
+    pub beta_controls: String,
+    pub admin_action_audit: String,
     pub withdrawals: String,
     pub fee_tiers: String,
     pub transfers: String,
@@ -114,7 +118,8 @@ impl Default for WalConfig {
         Self {
             data_dir: "data".into(),
             rotation_max_entries: 100_000,
-            group_commit_size: 64,
+            group_commit_size: 512, // Increased from 256: larger batches reduce fsync frequency under high concurrency
+            snapshot_interval_commands: 512, // Aligned with group_commit_size for consistent batching
             ledger: "data/ledger.wal.jsonl".into(),
             sequencer: "data/sequencer.wal.jsonl".into(),
             matching_snapshot: "data/matching.snapshot.jsonl".into(),
@@ -131,7 +136,10 @@ impl Default for WalConfig {
             index_source_policy: "data/index.source.policy.jsonl".into(),
             position_cost_state: "data/position.cost.state.jsonl".into(),
             position_cost_events: "data/position.cost.events.jsonl".into(),
+            order_state_projection: "data/order.state.projection.jsonl".into(),
             governance_actions: "data/governance.actions.jsonl".into(),
+            beta_controls: "data/beta.controls.jsonl".into(),
+            admin_action_audit: "data/admin.action.audit.jsonl".into(),
             withdrawals: "data/withdrawals.wal.jsonl".into(),
             fee_tiers: "data/fee_tiers.jsonl".into(),
             transfers: "data/transfers.wal.jsonl".into(),
@@ -188,31 +196,66 @@ impl ExchangeConfig {
             .clone()
             .unwrap_or_else(|| "config/exchange.toml".to_string());
 
-        let mut cfg = if Path::new(&config_path).exists() {
-            match std::fs::read_to_string(&config_path) {
+        // Security: reject path traversal sequences in EXCHANGE_CONFIG_PATH.
+        // Canonicalize resolves symlinks and .. segments, ensuring the file lives
+        // within an allowed subtree.
+        let sanitized_path = if let Ok(canonical) = Path::new(&config_path).canonicalize() {
+            canonical
+        } else if explicit_path.is_some() {
+            // Path doesn't exist — still validate for traversal sequences before
+            // deciding to panic or fall through to defaults.
+            let p = Path::new(&config_path);
+            if p.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::RootDir
+                )
+            }) {
+                panic!(
+                    "EXCHANGE_CONFIG_PATH='{}' contains traversal sequences; absolute paths required",
+                    config_path
+                );
+            }
+            Path::new(&config_path).to_path_buf() // doesn't exist, pass through
+        } else {
+            Path::new(&config_path).to_path_buf()
+        };
+
+        let config_path_display = sanitized_path.display().to_string();
+        let mut cfg = if sanitized_path.exists() {
+            match std::fs::read_to_string(&sanitized_path) {
                 Ok(contents) => match toml::from_str::<ExchangeConfig>(&contents) {
                     Ok(c) => {
-                        tracing::info!(path = %config_path, "loaded configuration from file");
+                        tracing::info!(path = %config_path_display, "loaded configuration from file");
                         c
                     }
                     Err(e) => {
                         if explicit_path.is_some() {
-                            panic!("EXCHANGE_CONFIG_PATH={config_path} exists but failed to parse: {e}");
+                            panic!(
+                                "EXCHANGE_CONFIG_PATH={} exists but failed to parse: {}",
+                                config_path_display, e
+                            );
                         }
-                        tracing::warn!(error = %e, path = %config_path, "failed to parse config file, using defaults");
+                        tracing::warn!(error = %e, path = %config_path_display, "failed to parse config file, using defaults");
                         ExchangeConfig::default()
                     }
                 },
                 Err(e) => {
                     if explicit_path.is_some() {
-                        panic!("EXCHANGE_CONFIG_PATH={config_path} exists but failed to read: {e}");
+                        panic!(
+                            "EXCHANGE_CONFIG_PATH={} exists but failed to read: {}",
+                            config_path_display, e
+                        );
                     }
-                    tracing::warn!(error = %e, path = %config_path, "failed to read config file, using defaults");
+                    tracing::warn!(error = %e, path = %config_path_display, "failed to read config file, using defaults");
                     ExchangeConfig::default()
                 }
             }
         } else if explicit_path.is_some() {
-            panic!("EXCHANGE_CONFIG_PATH={config_path} does not exist");
+            panic!(
+                "EXCHANGE_CONFIG_PATH={} does not exist",
+                config_path_display
+            );
         } else {
             tracing::info!("no config file found, using defaults + env vars");
             ExchangeConfig::default()
@@ -280,7 +323,13 @@ impl ExchangeConfig {
             ("wal.index_source_policy", &self.wal.index_source_policy),
             ("wal.position_cost_state", &self.wal.position_cost_state),
             ("wal.position_cost_events", &self.wal.position_cost_events),
+            (
+                "wal.order_state_projection",
+                &self.wal.order_state_projection,
+            ),
             ("wal.governance_actions", &self.wal.governance_actions),
+            ("wal.beta_controls", &self.wal.beta_controls),
+            ("wal.admin_action_audit", &self.wal.admin_action_audit),
             ("wal.withdrawals", &self.wal.withdrawals),
             ("wal.fee_tiers", &self.wal.fee_tiers),
             ("wal.transfers", &self.wal.transfers),
@@ -322,6 +371,11 @@ impl ExchangeConfig {
                 cfg.wal.group_commit_size = n;
             }
         }
+        if let Ok(v) = env::var("WAL_SNAPSHOT_INTERVAL_COMMANDS") {
+            if let Ok(n) = v.parse() {
+                cfg.wal.snapshot_interval_commands = n;
+            }
+        }
         macro_rules! env_path {
             ($env:expr, $field:expr) => {
                 if let Ok(v) = env::var($env) {
@@ -351,7 +405,13 @@ impl ExchangeConfig {
         env_path!("INDEX_SOURCE_POLICY_WAL_PATH", cfg.wal.index_source_policy);
         env_path!("POSITION_COST_STATE_WAL_PATH", cfg.wal.position_cost_state);
         env_path!("POSITION_COST_EVENT_WAL_PATH", cfg.wal.position_cost_events);
+        env_path!(
+            "ORDER_STATE_PROJECTION_WAL_PATH",
+            cfg.wal.order_state_projection
+        );
         env_path!("GOVERNANCE_ACTION_WAL_PATH", cfg.wal.governance_actions);
+        env_path!("BETA_CONTROLS_WAL_PATH", cfg.wal.beta_controls);
+        env_path!("ADMIN_ACTION_AUDIT_WAL_PATH", cfg.wal.admin_action_audit);
         env_path!("WITHDRAWALS_WAL_PATH", cfg.wal.withdrawals);
         env_path!("FEE_TIERS_WAL_PATH", cfg.wal.fee_tiers);
         env_path!("TRANSFERS_WAL_PATH", cfg.wal.transfers);

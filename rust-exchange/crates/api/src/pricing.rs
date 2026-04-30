@@ -495,9 +495,7 @@ pub(crate) fn build_pricing_routes(
                         &principal.subject,
                         None,
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
                         "approval": pending,
@@ -549,9 +547,7 @@ pub(crate) fn build_pricing_routes(
                         &principal.subject,
                         None,
                     )
-                    .map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    .map_err(reject_internal_error)?;
                     Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
                         "status": "pending",
                         "approval": pending,
@@ -581,9 +577,10 @@ pub(crate) fn build_pricing_routes(
                         .map(|value| value.ip().to_string())
                         .unwrap_or_else(|| "unknown".to_string());
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
-                    let records = engine.export_snapshots().await.map_err(|error| {
-                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                    })?;
+                    let records = engine
+                        .export_snapshots()
+                        .await
+                        .map_err(reject_internal_error)?;
                     let outcome = query.outcome.unwrap_or(0);
                     let snapshot = flatten_market_snapshots(&records)
                         .into_iter()
@@ -686,6 +683,8 @@ mod tests {
                     stp_mode: types::StpMode::default(),
                     display_qty: None,
                     min_fill_qty: None,
+                    stp_group_id: None,
+                    is_market_maker: false,
                 },
                 RestingOrderSnapshot {
                     order_id: "ask-1".to_string(),
@@ -708,6 +707,8 @@ mod tests {
                     stp_mode: types::StpMode::default(),
                     display_qty: None,
                     min_fill_qty: None,
+                    stp_group_id: None,
+                    is_market_maker: false,
                 },
             ],
             trade_stats: Default::default(),

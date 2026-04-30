@@ -10,14 +10,17 @@
 //! ```
 
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::RwLock;
 use tokio::sync::broadcast;
+use warp::filters::BoxedFilter;
 use warp::ws::{Message, WebSocket};
-use warp::Filter;
+use warp::{Filter, Reply};
 
 use super::observability;
 use super::security::{require_user, with_principal};
@@ -25,6 +28,9 @@ use types::AuthenticatedPrincipal;
 
 /// Default maximum concurrent WebSocket connections (overridden by config).
 const DEFAULT_MAX_CONNECTIONS: usize = 1024;
+
+/// Default maximum concurrent WebSocket connections per single IP address.
+const DEFAULT_MAX_CONNECTIONS_PER_IP: usize = 20;
 
 /// Feed event pushed to subscribers.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -52,6 +58,9 @@ pub struct WsHub {
     liquidation_tx: Arc<broadcast::Sender<WsFeedEvent>>,
     connection_count: Arc<std::sync::atomic::AtomicUsize>,
     max_connections: usize,
+    /// Per-IP connection counts for DoS mitigation.
+    connections_per_ip: Arc<DashMap<IpAddr, usize>>,
+    max_connections_per_ip: usize,
     /// Shutdown signal: when sent, all WS loops should exit.
     shutdown_tx: Arc<broadcast::Sender<()>>,
 }
@@ -62,6 +71,10 @@ impl WsHub {
     }
 
     pub fn with_max_connections(max: usize) -> Self {
+        Self::with_limits(max, DEFAULT_MAX_CONNECTIONS_PER_IP)
+    }
+
+    pub fn with_limits(max: usize, max_per_ip: usize) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
         let (liquidation_tx, _) = broadcast::channel(128);
         Self {
@@ -73,6 +86,8 @@ impl WsHub {
             liquidation_tx: Arc::new(liquidation_tx),
             connection_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             max_connections: max,
+            connections_per_ip: Arc::new(DashMap::new()),
+            max_connections_per_ip: max_per_ip,
             shutdown_tx: Arc::new(shutdown_tx),
         }
     }
@@ -208,13 +223,28 @@ impl WsHub {
         self.liquidation_tx.subscribe()
     }
 
-    fn add_connection(&self) -> bool {
+    fn add_connection(&self, remote_ip: IpAddr) -> bool {
+        // Per-IP check first (DoS mitigation)
+        {
+            let mut ip_count = self.connections_per_ip.entry(remote_ip).or_insert(0);
+            if *ip_count >= self.max_connections_per_ip {
+                tracing::warn!(%remote_ip, "WS connection rejected: per-IP limit reached");
+                return false;
+            }
+            *ip_count += 1;
+        }
+
+        // Global check
         let prev = self
             .connection_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if prev >= self.max_connections {
             self.connection_count
                 .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            // Rollback per-IP count
+            if let Some(mut entry) = self.connections_per_ip.get_mut(&remote_ip) {
+                *entry = entry.saturating_sub(1);
+            }
             return false;
         }
         observability::METRICS
@@ -226,12 +256,21 @@ impl WsHub {
         true
     }
 
-    fn remove_connection(&self) {
+    fn remove_connection(&self, remote_ip: IpAddr) {
         self.connection_count
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         observability::METRICS
             .ws_connections_active
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
+        // Decrement per-IP count, remove entry if zero
+        if let Some(mut entry) = self.connections_per_ip.get_mut(&remote_ip) {
+            *entry = entry.saturating_sub(1);
+            if *entry == 0 {
+                drop(entry);
+                self.connections_per_ip.remove(&remote_ip);
+            }
+        }
     }
 }
 
@@ -253,27 +292,41 @@ fn send_and_track(
 }
 
 /// Build WebSocket warp routes.
-pub fn build_ws_routes(
-    hub: Arc<WsHub>,
-) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+pub fn build_ws_routes(hub: Arc<WsHub>) -> BoxedFilter<(warp::reply::Response,)> {
     let trades = {
         let hub = hub.clone();
-        warp::path!("ws" / "trades" / String).and(warp::ws()).map(
-            move |market_id: String, ws: warp::ws::Ws| {
-                let hub = hub.clone();
-                ws.on_upgrade(move |socket| handle_trade_ws(socket, market_id, hub))
-            },
-        )
+        warp::path!("ws" / "trades" / String)
+            .and(warp::ws())
+            .and(warp::addr::remote())
+            .map(
+                move |market_id: String, ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| -> warp::reply::Response {
+                    let hub = hub.clone();
+                    let ip = remote
+                        .map(|s| s.ip())
+                        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                    ws.on_upgrade(move |socket| handle_trade_ws(socket, market_id, ip, hub))
+                        .into_response()
+                },
+            )
+            .boxed()
     };
 
     let orderbook = {
         let hub = hub.clone();
         warp::path!("ws" / "orderbook" / String)
             .and(warp::ws())
-            .map(move |market_id: String, ws: warp::ws::Ws| {
-                let hub = hub.clone();
-                ws.on_upgrade(move |socket| handle_orderbook_ws(socket, market_id, hub))
-            })
+            .and(warp::addr::remote())
+            .map(
+                move |market_id: String, ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| -> warp::reply::Response {
+                    let hub = hub.clone();
+                    let ip = remote
+                        .map(|s| s.ip())
+                        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                    ws.on_upgrade(move |socket| handle_orderbook_ws(socket, market_id, ip, hub))
+                        .into_response()
+                },
+            )
+            .boxed()
     };
 
     let user = {
@@ -281,58 +334,98 @@ pub fn build_ws_routes(
         warp::path!("ws" / "user")
             .and(with_principal())
             .and(warp::ws())
-            .and_then(move |principal: AuthenticatedPrincipal, ws: warp::ws::Ws| {
-                let hub = hub.clone();
-                async move {
-                    require_user(&principal)?;
-                    let user_id = principal.subject.clone();
-                    Ok::<_, warp::Rejection>(
-                        ws.on_upgrade(move |socket| handle_user_ws(socket, user_id, hub)),
-                    )
-                }
-            })
+            .and(warp::addr::remote())
+            .and_then(
+                move |principal: AuthenticatedPrincipal,
+                      ws: warp::ws::Ws,
+                      remote: Option<std::net::SocketAddr>| {
+                    let hub = hub.clone();
+                    async move {
+                        require_user(&principal)?;
+                        let user_id = principal.subject.clone();
+                        let ip = remote
+                            .map(|s| s.ip())
+                            .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                        Ok::<warp::reply::Response, warp::Rejection>(
+                            ws.on_upgrade(move |socket| handle_user_ws(socket, user_id, ip, hub))
+                                .into_response(),
+                        )
+                    }
+                },
+            )
+            .boxed()
     };
 
     let ticker = {
         let hub = hub.clone();
-        warp::path!("ws" / "ticker" / String).and(warp::ws()).map(
-            move |market_id: String, ws: warp::ws::Ws| {
-                let hub = hub.clone();
-                ws.on_upgrade(move |socket| handle_ticker_ws(socket, market_id, hub))
-            },
-        )
+        warp::path!("ws" / "ticker" / String)
+            .and(warp::ws())
+            .and(warp::addr::remote())
+            .map(
+                move |market_id: String, ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| -> warp::reply::Response {
+                    let hub = hub.clone();
+                    let ip = remote
+                        .map(|s| s.ip())
+                        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                    ws.on_upgrade(move |socket| handle_ticker_ws(socket, market_id, ip, hub))
+                        .into_response()
+                },
+            )
+            .boxed()
     };
 
     let liquidations = {
         let hub = hub.clone();
         warp::path!("ws" / "liquidations")
             .and(warp::ws())
-            .map(move |ws: warp::ws::Ws| {
-                let hub = hub.clone();
-                ws.on_upgrade(move |socket| handle_liquidation_ws(socket, hub))
-            })
+            .and(warp::addr::remote())
+            .map(
+                move |ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| -> warp::reply::Response {
+                    let hub = hub.clone();
+                    let ip = remote
+                        .map(|s| s.ip())
+                        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                    ws.on_upgrade(move |socket| handle_liquidation_ws(socket, ip, hub))
+                        .into_response()
+                },
+            )
+            .boxed()
     };
 
     let mark_price = {
         let hub = hub.clone();
         warp::path!("ws" / "mark-price" / String)
             .and(warp::ws())
-            .map(move |market_id: String, ws: warp::ws::Ws| {
-                let hub = hub.clone();
-                ws.on_upgrade(move |socket| handle_mark_price_ws(socket, market_id, hub))
-            })
+            .and(warp::addr::remote())
+            .map(
+                move |market_id: String, ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| -> warp::reply::Response {
+                    let hub = hub.clone();
+                    let ip = remote
+                        .map(|s| s.ip())
+                        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                    ws.on_upgrade(move |socket| handle_mark_price_ws(socket, market_id, ip, hub))
+                        .into_response()
+                },
+            )
+            .boxed()
     };
 
     trades
         .or(orderbook)
+        .unify()
         .or(user)
+        .unify()
         .or(ticker)
+        .unify()
         .or(liquidations)
+        .unify()
         .or(mark_price)
+        .unify()
+        .boxed()
 }
 
-async fn handle_trade_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>) {
-    if !hub.add_connection() {
+async fn handle_trade_ws(ws: WebSocket, market_id: String, remote_ip: IpAddr, hub: Arc<WsHub>) {
+    if !hub.add_connection(remote_ip) {
         tracing::warn!("WS connection rejected: max connections reached");
         let (mut tx, _) = ws.split();
         let _ = tx
@@ -414,12 +507,12 @@ async fn handle_trade_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>) {
 
     let _ = close_tx.send(());
     ping_task.abort();
-    hub.remove_connection();
+    hub.remove_connection(remote_ip);
     tracing::info!(market_id = %market_id, "WS trade feed disconnected");
 }
 
-async fn handle_orderbook_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>) {
-    if !hub.add_connection() {
+async fn handle_orderbook_ws(ws: WebSocket, market_id: String, remote_ip: IpAddr, hub: Arc<WsHub>) {
+    if !hub.add_connection(remote_ip) {
         tracing::warn!("WS connection rejected: max connections reached");
         let (mut tx, _) = ws.split();
         let _ = tx
@@ -498,12 +591,12 @@ async fn handle_orderbook_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>) 
 
     let _ = close_tx.send(());
     ping_task.abort();
-    hub.remove_connection();
+    hub.remove_connection(remote_ip);
     tracing::info!(market_id = %market_id, "WS orderbook feed disconnected");
 }
 
-async fn handle_user_ws(ws: WebSocket, user_id: String, hub: Arc<WsHub>) {
-    if !hub.add_connection() {
+async fn handle_user_ws(ws: WebSocket, user_id: String, remote_ip: IpAddr, hub: Arc<WsHub>) {
+    if !hub.add_connection(remote_ip) {
         tracing::warn!("WS connection rejected: max connections reached");
         let (mut tx, _) = ws.split();
         let _ = tx
@@ -579,12 +672,12 @@ async fn handle_user_ws(ws: WebSocket, user_id: String, hub: Arc<WsHub>) {
 
     let _ = close_tx.send(());
     ping_task.abort();
-    hub.remove_connection();
+    hub.remove_connection(remote_ip);
     tracing::info!(user_id = %user_id, "WS user private feed disconnected");
 }
 
-async fn handle_ticker_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>) {
-    if !hub.add_connection() {
+async fn handle_ticker_ws(ws: WebSocket, market_id: String, remote_ip: IpAddr, hub: Arc<WsHub>) {
+    if !hub.add_connection(remote_ip) {
         let (mut tx, _) = ws.split();
         let _ = tx
             .send(Message::close_with(1013u16, "max connections"))
@@ -631,11 +724,11 @@ async fn handle_ticker_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>) {
         }
     }
 
-    hub.remove_connection();
+    hub.remove_connection(remote_ip);
 }
 
-async fn handle_liquidation_ws(ws: WebSocket, hub: Arc<WsHub>) {
-    if !hub.add_connection() {
+async fn handle_liquidation_ws(ws: WebSocket, remote_ip: IpAddr, hub: Arc<WsHub>) {
+    if !hub.add_connection(remote_ip) {
         let (mut tx, _) = ws.split();
         let _ = tx
             .send(Message::close_with(1013u16, "max connections"))
@@ -682,11 +775,16 @@ async fn handle_liquidation_ws(ws: WebSocket, hub: Arc<WsHub>) {
         }
     }
 
-    hub.remove_connection();
+    hub.remove_connection(remote_ip);
 }
 
-async fn handle_mark_price_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>) {
-    if !hub.add_connection() {
+async fn handle_mark_price_ws(
+    ws: WebSocket,
+    market_id: String,
+    remote_ip: IpAddr,
+    hub: Arc<WsHub>,
+) {
+    if !hub.add_connection(remote_ip) {
         let (mut tx, _) = ws.split();
         let _ = tx
             .send(Message::close_with(1013u16, "max connections"))
@@ -732,19 +830,85 @@ async fn handle_mark_price_ws(ws: WebSocket, market_id: String, hub: Arc<WsHub>)
         }
     }
 
-    hub.remove_connection();
+    hub.remove_connection(remote_ip);
 }
 
-/// Bridge: subscribes to eventbus `fill.created` events and publishes them to the WsHub.
+fn publish_event_to_ws_hub(hub: &WsHub, event: types::Event) {
+    match event {
+        types::Event::FillCreated(fill) => {
+            let data = serde_json::json!({
+                "trade_id": fill.id,
+                "price": fill.price,
+                "amount": fill.amount,
+                "side": format!("{:?}", fill.side),
+                "timestamp": fill.timestamp,
+            });
+            hub.publish_trade(&fill.market_id, data);
+            hub.publish_ticker(
+                &fill.market_id,
+                serde_json::json!({
+                    "last_price": fill.price,
+                    "last_amount": fill.amount,
+                    "side": format!("{:?}", fill.side),
+                    "timestamp": fill.timestamp,
+                }),
+            );
+            hub.publish_user_event(
+                &fill.user_id,
+                WsFeedEvent {
+                    event_type: "fill".into(),
+                    market_id: fill.market_id.clone(),
+                    data: serde_json::json!({
+                        "trade_id": fill.id,
+                        "side": format!("{:?}", fill.side),
+                        "price": fill.price,
+                        "amount": fill.amount,
+                        "fee": fill.fee,
+                        "is_maker": fill.is_maker,
+                        "timestamp": fill.timestamp,
+                    }),
+                },
+            );
+        }
+        types::Event::LedgerCommitted(delta) => {
+            let mut notified = std::collections::HashSet::new();
+            for entry in &delta.entries {
+                for acct in [&entry.debit_account, &entry.credit_account] {
+                    if let Some(user_id) = acct.strip_prefix("U:") {
+                        if let Some(uid) = user_id.split(':').next() {
+                            if notified.insert(uid.to_string()) {
+                                hub.publish_user_event(
+                                    uid,
+                                    WsFeedEvent {
+                                        event_type: "balance_update".into(),
+                                        market_id: String::new(),
+                                        data: serde_json::json!({
+                                            "op_id": delta.op_id,
+                                            "timestamp": delta.timestamp,
+                                        }),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Bridge: subscribes to eventbus fill and ledger events and publishes them to the WsHub.
 pub async fn bridge_eventbus_to_ws(eventbus: eventbus::EventBus, hub: Arc<WsHub>) {
-    let mut rx = eventbus.subscribe("fill.created");
+    let mut fill_rx = eventbus.subscribe("fill.created");
+    let mut ledger_rx = eventbus.subscribe("ledger.committed");
     let mut shutdown_rx = hub.subscribe_shutdown();
     observability::METRICS
         .bridge_alive
         .store(true, std::sync::atomic::Ordering::Relaxed);
     loop {
         tokio::select! {
-            result = rx.recv() => {
+            result = fill_rx.recv() => {
                 match result {
                     Ok(types::Event::FillCreated(fill)) => {
                         let data = serde_json::json!({
@@ -804,6 +968,15 @@ pub async fn bridge_eventbus_to_ws(eventbus: eventbus::EventBus, hub: Arc<WsHub>
                     Ok(_) => {} // other event types — ignore
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!(lagged = n, "eventbus→ws bridge lagged");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            result = ledger_rx.recv() => {
+                match result {
+                    Ok(event) => publish_event_to_ws_hub(hub.as_ref(), event),
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(lagged = n, stream = "ledger.committed", "eventbus->ws bridge lagged");
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -938,5 +1111,87 @@ pub async fn run_mark_price_scheduler(
             }
             _ = shutdown_rx.recv() => break,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use tokio::time::{timeout, Duration};
+    use types::{Event, Fill, LedgerDelta, LedgerEntry, SettlementStatus, Side};
+
+    #[tokio::test]
+    async fn bridge_publishes_balance_updates_for_ledger_commits() {
+        let bus = eventbus::EventBus::new();
+        let hub = Arc::new(WsHub::new());
+        let mut user_rx = hub.subscribe_user("alice");
+        let bridge = tokio::spawn(bridge_eventbus_to_ws(bus.clone(), hub.clone()));
+
+        tokio::task::yield_now().await;
+
+        bus.publish(Event::LedgerCommitted(LedgerDelta {
+            op_id: "dep-alice-1".into(),
+            entries: vec![LedgerEntry {
+                debit_account: "SYS:VAULT:USDC".into(),
+                credit_account: "U:alice:USDC".into(),
+                amount: 1_000,
+                op_id: "dep-alice-1".into(),
+                timestamp: Utc::now(),
+            }],
+            timestamp: Utc::now(),
+        }));
+
+        let event = timeout(Duration::from_secs(1), user_rx.recv())
+            .await
+            .expect("balance update arrives")
+            .expect("bridge event");
+
+        assert_eq!(event.event_type, "balance_update");
+        assert_eq!(event.data["op_id"], "dep-alice-1");
+
+        hub.shutdown();
+        let _ = bridge.await;
+    }
+
+    #[tokio::test]
+    async fn bridge_still_publishes_fill_events_to_user_stream() {
+        let bus = eventbus::EventBus::new();
+        let hub = Arc::new(WsHub::new());
+        let mut user_rx = hub.subscribe_user("maker-1");
+        let bridge = tokio::spawn(bridge_eventbus_to_ws(bus.clone(), hub.clone()));
+
+        tokio::task::yield_now().await;
+
+        bus.publish(Event::FillCreated(Fill {
+            id: "fill-1".into(),
+            intent_id: "intent-1".into(),
+            user_id: "maker-1".into(),
+            market_id: "btc-usdt".into(),
+            side: Side::Sell,
+            price: 50_000,
+            amount: 2,
+            outcome: 0,
+            timestamp: Utc::now(),
+            op_id: "fill-op-1".into(),
+            fee: 1,
+            fee_bps: 5,
+            is_maker: true,
+            aggressor_side: Some(Side::Buy),
+            fill_index: 0,
+            settlement_status: SettlementStatus::Settled,
+        }));
+
+        let event = timeout(Duration::from_secs(1), user_rx.recv())
+            .await
+            .expect("fill event arrives")
+            .expect("bridge event");
+
+        assert_eq!(event.event_type, "fill");
+        assert_eq!(event.market_id, "btc-usdt");
+        assert_eq!(event.data["trade_id"], "fill-1");
+
+        hub.shutdown();
+        let _ = bridge.await;
     }
 }

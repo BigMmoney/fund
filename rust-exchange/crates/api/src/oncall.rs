@@ -490,7 +490,7 @@ pub(crate) fn runbook_registry() -> Vec<RunbookEntry> {
                 "1. Check /admin/liquidations/queue for pending liquidations".into(),
                 "2. Check /admin/sentinel/posture for degradation level".into(),
                 "3. If Orange/Red: manual liquidation oversight required".into(),
-                "4. Review insurance fund balance: GET /insurance-fund".into(),
+                "4. Review insurance fund balance: GET /admin/treasury/insurance-funds".into(),
                 "5. Consider market-specific kill switch if isolated to one market".into(),
             ],
             severity_hint: AlertLevel::Critical,
