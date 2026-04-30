@@ -1,0 +1,94 @@
+name: Backend Resilience
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "rust-exchange/**"
+      - ".github/workflows/backend-resilience.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "rust-exchange/**"
+      - ".github/workflows/backend-resilience.yml"
+  workflow_dispatch:
+    inputs:
+      extended_soak:
+        description: "Run the extended soak profile"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: rust-exchange
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  recovery-checks:
+    name: recovery checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-exchange
+      - name: matching recovery suite
+        shell: pwsh
+        run: ./scripts/run_backend_recovery_checks.ps1 -SkipSoakSeed
+
+  api-resilience-smoke:
+    name: api resilience smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-exchange
+      - name: build api release binary
+        run: cargo build -p api --release
+      - name: run real HTTP + WS + WAL smoke
+        shell: pwsh
+        run: ./scripts/run_backend_resilience_benchmarks.ps1 -Ci -Profile release
+      - name: upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-resilience-smoke
+          path: rust-exchange/artifacts/backend-resilience/**
+
+  api-resilience-soak:
+    name: api resilience soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.extended_soak)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-exchange
+      - name: build api release binary
+        run: cargo build -p api --release
+      - name: run extended HTTP + WS + WAL soak
+        shell: pwsh
+        run: ./scripts/run_backend_resilience_benchmarks.ps1 -Profile release -LatencySamples 4000 -Concurrency 24 -WarmDepthOrders 320 -FaultCycles 4 -SoakSeconds 900 -SoakBurstSize 96
+      - name: upload soak artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-resilience-soak
+          path: rust-exchange/artifacts/backend-resilience/**

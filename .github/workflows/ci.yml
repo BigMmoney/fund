@@ -28,10 +28,10 @@ jobs:
           test -z "$(gofmt -l $FILES)" || (echo "Please run gofmt"; gofmt -l $FILES; exit 1)
 
       - name: go vet
-        run: go vet ./benchmark ./matching ./ledger ./risk ./indexer ./services/...
+        run: go vet ./api ./benchmark ./matching ./ledger ./risk ./indexer ./services/...
 
       - name: Go tests
-        run: go test ./benchmark ./matching ./ledger ./risk ./indexer ./services/... -v
+        run: go test ./api ./benchmark ./matching ./ledger ./risk ./indexer ./services/... -v
 
   frontend-quality:
     runs-on: ubuntu-latest

@@ -1,0 +1,33 @@
+name: Recovery Drills
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: rust-exchange
+
+jobs:
+  recovery-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-exchange
+      - run: python scripts/run_recovery_drill.py --output recovery_drill_report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-drill-report
+          path: rust-exchange/recovery_drill_report.json

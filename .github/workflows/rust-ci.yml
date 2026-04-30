@@ -71,3 +71,75 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
+
+  audit:
+    name: cargo audit (dependency security)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-exchange
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Scan for known vulnerabilities
+        run: cargo audit --deny warnings
+        working-directory: rust-exchange
+
+  guardrails:
+    name: critical guardrails
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-exchange
+      - run: cargo test -p api config::tests -- --nocapture
+      - run: cargo test -p api websocket::tests::bridge_publishes_balance_updates_for_ledger_commits -- --nocapture
+      - run: python scripts/run_recovery_drill.py --output recovery_drill_report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-drill-report
+          path: rust-exchange/recovery_drill_report.json
+
+  benchmark-guardrails:
+    name: benchmark guardrails
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-exchange
+      - name: Run end-to-end benchmark guardrails
+        shell: pwsh
+        run: >
+          ./scripts/run_backend_resilience_benchmarks.ps1
+          -Ci
+          -HttpBenchClient go
+          -GoDisableKeepAlives:$false
+          -ScaleLadder
+          -LatencySamples 1000
+          -Concurrency 16
+          -WarmDepthOrders 24
+          -FaultCycles 0
+          -SoakSeconds 0
+          -SoakBurstSize 0
+          -FailOnRegression
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-resilience-artifacts
+          path: rust-exchange/artifacts/backend-resilience/**/reports/*
