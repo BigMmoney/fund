@@ -117,6 +117,60 @@ Code fixes that map directly to security findings live in regular commits on thi
 |---|---|---|
 | _to fill_ | _to fill_ | _to fill_ |
 
+### 7.1 Candidate fixes — public-history inventory
+
+> The reviewer fills §4 and the table above by mapping each finding in the private audit to the correct commit. As an aid, the table below inventories commits already on `p0-recovery-20260430` whose surface area touches a security category. **This is a candidate list, not an authoritative finding-to-fix mapping.** The reviewer must independently verify that each row actually closes a specific audit finding (or none) before promoting it into §4.
+
+| Commit | Subject (abbrev.) | Touches | Candidate categories |
+|---|---|---|---|
+| `8b43964` | feat(api): harden order validation and box warp routes | `crates/api/src/{trading,accounts,admin,custody,governance,liquidation,security,websocket,…}.rs` (≈25 files) | `input-val`, `auth`, `privilege`, `rate-limit`, `custody`, `audit-log` — broad. Reviewer must split into per-finding scope. |
+| `1d6ac04` | fix(api): skip terminal commands during WAL replay recovery | `crates/api/src/bootstrap.rs` (+35 / −14) | `data-integrity` — bootstrap-replay determinism / availability under crash recovery. |
+| `c7d8ca3` | build(rust): refresh Cargo.lock for API and matching dev deps | `Cargo.lock` | none direct — but reviewer should confirm `cargo audit` advisories on transitive deps in this lockfile. |
+| `0bd5f1f` | chore(ci): restore recovery drill script and add backend-resilience workflows | `.github/workflows/{rust-ci,backend-resilience,recovery-drills,ci}.yml`, `scripts/run_backend_recovery_checks.ps1`, `scripts/run_backend_resilience_benchmarks.ps1`, `rust-exchange/scripts/run_recovery_drill.py` | `audit-log` (CI surfaces audit hooks), `data-integrity` (recovery-drill workflow). |
+| `acf5c45` | fix(scripts): real WAL replay test, restart-after-errors counting, no orphan api.exe | `rust-exchange/scripts/{test_lib,test_wal_recovery,test_restart_after_errors}.ps1` | `data-integrity` — closes harness gaps that previously masked recovery issues. |
+| `5a421cf` | feat(scripts): one-shot P0 wrapper with aggregated JSON report | `rust-exchange/scripts/run_p0_full.ps1` | `audit-log` (machine-readable run reports support security-relevant evidence trails). |
+| `5427842` | feat(bench): WAL append, replay scaling, RTO/RPO harnesses | `crates/persistence/benches/wal_append.rs`, `crates/sequencer/benches/replay_scaling.rs`, `rust-exchange/scripts/measure_rto_rpo.ps1`, `Cargo.toml` ×2 | `data-integrity` — RTO/RPO measurement reinforces the recovery contract. |
+| `f387496` | fix(scripts): correct soak harness secret and metric aggregation | `rust-exchange/scripts/soak_test_v2.ps1` (+2 / −2) | `secrets` — fixed an undersized dev secret that would have failed the api's 32-char minimum. Not a production-secret bug. |
+| `eaf4542` | feat(scripts): add trade-journey demo script | `rust-exchange/scripts/demo_trade_journey.ps1` | none direct — but exercises authenticated end-to-end flow. |
+| `b7c7f35` | chore: ignore local artifacts, data backups, and IDE solution files | `.gitignore` | `secrets`, `audit-log` — ensures `data/internal_auth.secret` and `data.bak.*/` cannot be accidentally committed via `git add -A`. |
+| `7503cc8` | docs: refresh architecture, security, and deployment notes | `rust-exchange/SECURITY.md`, `rust-exchange/README*.md`, `docs/REAL_ARCHITECTURE_AND_DATA_FLOW_ZH.md`, others | docs only — not a code fix but documents the auth/secret/role schema reviewer is verifying. |
+| `bdd28bd` | chore(p0): add WAL backup restore scripts and runbook | `rust-exchange/scripts/wal_backup.ps1`, `run_wal_restore_drill.ps1`, `docs/P0_DEPLOYMENT_READINESS.md` | `data-integrity` — durability / DR. |
+| `31ca355` | deploy(k8s): base, observability, benchmarks, docker-desktop overlays | `rust-exchange/deploy/k8s/**`, `Dockerfile`, `docker-compose.yml` | `transport`, `secrets`, `privilege` — container hardening (`read_only`, `cap_drop: ALL`, `no-new-privileges`); secret schema migrated to file-mounted; explicit `CHANGE_ME` placeholders only. |
+| `037e9a1` | feat(matching): partitioned engine refinements + tests + bench | `crates/matching/src/{partitioned,high_performance,lib}.rs` + tests/benches | `fin-integrity` — matching engine determinism, queue saturation behaviour. |
+| `24d98d8` | feat(core): extend instruments, ledger, persistence, sequencer, types | `crates/{instruments,ledger,persistence,sequencer,types}/**` | `fin-integrity`, `data-integrity` — ledger account invariants, sequencer dedup, persistence CRC. |
+
+### 7.2 Code paths to inspect during review (no commit hash; structural)
+
+These are areas of the api crate / supporting crates that the reviewer should walk through against the audit's findings. They are not commits but standing surfaces of the codebase as of `rc-0.1`:
+
+| Surface | Path | Categories |
+|---|---|---|
+| HMAC-SHA256 internal auth | `rust-exchange/crates/api/src/security.rs` | `auth`, `secrets` |
+| Per-IP / per-user / per-admin rate limiting | `rust-exchange/crates/api/src/security.rs` (`FixedWindowRateLimiter`) | `rate-limit`, `dos` |
+| Role mapping + filter-level checks | `rust-exchange/crates/api/src/security.rs` (`require_admin`, `require_operator`, `require_user`) | `auth`, `privilege` |
+| Order input validation | `rust-exchange/crates/api/src/trading.rs`, `crates/types/src/lib.rs` | `input-val` |
+| Risk engine reservation, leverage, position limits | `rust-exchange/crates/risk/src/lib.rs`, `crates/api/src/{accounts,trading}.rs` | `fin-integrity` |
+| Ledger balance invariant | `rust-exchange/crates/ledger/src/lib.rs` (`verify_global_invariant`) | `fin-integrity` |
+| WAL CRC + recovery | `rust-exchange/crates/persistence/src/lib.rs`, `crates/api/src/bootstrap.rs` | `data-integrity` |
+| Custody whitelist, velocity, breaker, dual-auth | `rust-exchange/crates/api/src/custody.rs`, `withdrawals.rs` | `custody`, `privilege` |
+| Governance dual-auth + pending actions | `rust-exchange/crates/api/src/governance.rs` | `privilege` |
+| Admin / kill-switch / market-state endpoints | `rust-exchange/crates/api/src/{admin,control,markets}.rs` | `privilege`, `audit-log` |
+| WebSocket connection limit + auth | `rust-exchange/crates/api/src/websocket.rs` (`WsHub::with_max_connections`, `with_principal`) | `auth`, `ws`, `dos` |
+| Admin action audit log | `rust-exchange/crates/api/src/admin_audit.rs` | `audit-log` |
+| Risk automation audit log | `rust-exchange/crates/api/src/admin.rs` (`RiskAutomationAuditStore`) | `audit-log` |
+| Beta controls (per-market gating) | `rust-exchange/crates/api/src/beta_controls.rs` | `privilege` |
+| Deploy hardening (k8s / Docker) | `rust-exchange/deploy/k8s/**`, `Dockerfile`, `docker-compose.yml` | `transport`, `secrets`, `privilege` |
+
+### 7.3 Open questions for the reviewer
+
+These are explicit unknowns the reviewer should resolve during the session. They are NOT findings — they are scope-clarifications for the §4 fill-in:
+
+1. Is `8b43964` ("harden order validation and box warp routes") closing one finding, several, or none? The commit's diff spans ~25 files and touches multiple categories simultaneously. May warrant splitting into per-finding sub-commits in a future RC if this is a problem for §4 traceability.
+2. Does any audit finding cover the dev-secret literal `dev-secret-change-me-to-32-chars-min!` shipped in `rust-exchange/scripts/test_lib.ps1` and the docker-desktop overlay's Secret? If so, the resolution is documenting that this is dev-only and never a production secret (`secrets` category, "Accepted with mitigation").
+3. Does the audit cover `cargo audit` advisories on transitive dependencies as of the locked Cargo.lock? If so, the resolution is the `audit` job in `.github/workflows/rust-ci.yml` plus its blocking behaviour.
+4. Are there findings on the orphan `stress.rs` module (declared `mod stress;` but never used)? If so, decision is keep-and-wire vs delete.
+5. Does the audit address the still-untracked PowerShell scripts under `rust-exchange/scripts/` (e.g., `cancel_storm_test.ps1` has the same short-secret pattern that `f387496` fixed in `soak_test_v2.ps1`)? If the audit pre-dated those, they may need re-review.
+
 ## 8. Re-review schedule
 
 | Trigger | Action |
