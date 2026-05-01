@@ -1195,6 +1195,12 @@ pub enum Event {
     FillCreated(Fill),
     LedgerCommitted(LedgerDelta),
     LedgerRejected { op_id: String, reason: RejectReason },
+    /// Observer-only order-flow trace event. Carries no business state;
+    /// consumers (monitor projector, JSONL writer, future WS endpoint) are
+    /// fire-and-forget. Producer call sites must never block on, await on,
+    /// or return errors from the publish of this variant. See
+    /// `docs/MONITOR_DESIGN.md`.
+    OrderTrace(OrderTraceEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

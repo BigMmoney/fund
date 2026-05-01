@@ -44,6 +44,9 @@ impl EventBus {
             Event::FillCreated(_) => "fill.created",
             Event::LedgerCommitted(_) => "ledger.committed",
             Event::LedgerRejected { .. } => "ledger.rejected",
+            // Observer-only monitor channel. No producers in this commit;
+            // see docs/MONITOR_DESIGN.md §7 for the emission ladder.
+            Event::OrderTrace(_) => "order.trace",
         }
         .to_string()
     }
@@ -141,5 +144,23 @@ mod tests {
 
         bus2.publish(Event::IntentReceived(dummy_intent()));
         assert!(rx.try_recv().is_ok());
+    }
+
+    #[tokio::test]
+    async fn order_trace_routes_to_order_trace_channel() {
+        use types::{OrderTraceEvent, OrderTraceStage};
+
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe("order.trace");
+        let mut other = bus.subscribe("fill.created");
+
+        bus.publish(Event::OrderTrace(OrderTraceEvent::new(
+            OrderTraceStage::ApiReceived,
+            "ord-1",
+        )));
+
+        assert!(matches!(rx.recv().await.unwrap(), Event::OrderTrace(_)));
+        // unrelated channel must not see the trace event
+        assert!(other.try_recv().is_err());
     }
 }
