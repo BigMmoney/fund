@@ -2,10 +2,9 @@
 
 > **Status:** Release Candidate. NOT a production release. Suitable for staging deploy and stakeholder demos.
 > **Branch:** `p0-recovery-20260430`
-> **Tag:** `rc-0.1` (pending sign-off)
+> **Tag:** `rc-0.1` — created at the HEAD of `p0-recovery-20260430` as of 2026-05-02. Run `git show rc-0.1` to resolve the exact commit hash.
 > **Date:** 2026-05-02
-> **Commits since `origin/main`:** 36
-> **Last commit at tag time:** `32dc842 docs: add production/staging runbook`
+> **Commits since `origin/main`:** 38 (resolves at tag time; see `git rev-list --count origin/main..rc-0.1`)
 
 ## 1. What this release is
 
@@ -65,7 +64,7 @@ The api builds and runs cleanly on Docker Desktop's KIND-based k8s (node `deskto
 
 ## 4. Commits in RC 0.1 (in topological order, oldest first)
 
-> 36 commits total. Hashes are abbreviated.
+> 38 commits total at tag time. Hashes are abbreviated. The last two commits (release notes + metadata fix) are not yet listed below; the canonical list is `git log --oneline origin/main..rc-0.1`.
 
 | Hash | Type | Subject |
 |---|---|---|
@@ -138,11 +137,18 @@ For an existing operator running an older build:
 
 ## 8. Tag procedure
 
-When this RC is approved for tagging:
+When this RC is approved for tagging, tag at the HEAD of `p0-recovery-20260430`:
 
 ```bash
-git tag -a rc-0.1 32dc842 -m "Backend Reliability RC 0.1 — see docs/releases/RC_0.1_RELEASE_NOTES.md"
+git tag -a rc-0.1 -m "Backend Reliability RC 0.1 — see docs/releases/RC_0.1_RELEASE_NOTES.md"
 git push origin rc-0.1
+```
+
+Verify post-tag:
+
+```bash
+git show rc-0.1 --stat
+git rev-list --count origin/main..rc-0.1
 ```
 
 ## 9. RC 0.2 candidate scope
