@@ -57,6 +57,7 @@ mod governance;
 mod helpers;
 mod liquidation;
 mod markets;
+mod monitor;
 mod observability;
 mod oncall;
 mod openapi;

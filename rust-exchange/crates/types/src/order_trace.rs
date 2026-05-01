@@ -60,7 +60,11 @@ pub struct OrderTraceEvent {
     pub event_id: String,
     pub recorded_at: DateTime<Utc>,
 
-    pub order_id: String,
+    /// Canonical order id once assigned by the sequencer. `None` for
+    /// pre-sequencer events (`api_received`, `api_validated`, and
+    /// validation-path `api_rejected`) — see design §3.3.1.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub order_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub client_order_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -112,12 +116,49 @@ fn is_null_value(v: &serde_json::Value) -> bool {
 impl OrderTraceEvent {
     /// Construct a minimal event for `stage` on `order_id`, stamped at the
     /// current wall-clock time with a freshly-generated `event_id`.
+    /// Convenience for the post-sequencer case where the order id is known;
+    /// pre-sequencer producers should use [`OrderTraceEvent::new_unbound`]
+    /// instead and populate `request_id` / `client_order_id`.
     pub fn new(stage: OrderTraceStage, order_id: impl Into<String>) -> Self {
         Self {
             schema_version: ORDER_TRACE_SCHEMA_VERSION,
             event_id: Uuid::new_v4().to_string(),
             recorded_at: Utc::now(),
-            order_id: order_id.into(),
+            order_id: Some(order_id.into()),
+            client_order_id: None,
+            user_id: None,
+            session_id: None,
+            request_id: None,
+            command_seq: None,
+            market_id: None,
+            outcome: None,
+            stage,
+            lifecycle: None,
+            side: None,
+            price: None,
+            amount: None,
+            remaining_amount: None,
+            filled_amount: None,
+            fee: None,
+            detail: serde_json::Value::Null,
+            reject_code: None,
+            reject_message: None,
+            elapsed_us_since_request: None,
+            trace_id: None,
+        }
+    }
+
+    /// Construct a pre-sequencer event with no canonical `order_id` yet.
+    /// Producers must populate at least one of `request_id` or
+    /// `client_order_id` so the projector can correlate this event with
+    /// the eventual `order_id` assigned at `sequencer_accepted`
+    /// (design §3.3.1).
+    pub fn new_unbound(stage: OrderTraceStage) -> Self {
+        Self {
+            schema_version: ORDER_TRACE_SCHEMA_VERSION,
+            event_id: Uuid::new_v4().to_string(),
+            recorded_at: Utc::now(),
+            order_id: None,
             client_order_id: None,
             user_id: None,
             session_id: None,
@@ -167,7 +208,7 @@ mod tests {
 
         assert_eq!(back.schema_version, ORDER_TRACE_SCHEMA_VERSION);
         assert_eq!(back.event_id, "evt-1");
-        assert_eq!(back.order_id, "ord-1");
+        assert_eq!(back.order_id.as_deref(), Some("ord-1"));
         assert_eq!(back.stage, OrderTraceStage::ApiReceived);
         assert!(back.client_order_id.is_none());
         assert!(back.detail.is_null());
@@ -227,6 +268,19 @@ mod tests {
         assert_eq!(back.filled_amount, Some(6));
         assert_eq!(back.detail["counterparty_order_id"], "ord-4");
         assert_eq!(back.elapsed_us_since_request, Some(1_523));
+    }
+
+    #[test]
+    fn unbound_event_omits_order_id_on_wire() {
+        let mut ev = OrderTraceEvent::new_unbound(OrderTraceStage::ApiReceived);
+        ev.request_id = Some("req-9".into());
+        let json = serde_json::to_value(&ev).unwrap();
+        // Pre-sequencer event: no order_id on the wire.
+        assert!(json.get("order_id").is_none(), "order_id should be omitted: {}", json);
+        assert_eq!(json.get("request_id").and_then(|v| v.as_str()), Some("req-9"));
+        let back: OrderTraceEvent = serde_json::from_value(json).unwrap();
+        assert!(back.order_id.is_none());
+        assert_eq!(back.request_id.as_deref(), Some("req-9"));
     }
 
     #[test]
