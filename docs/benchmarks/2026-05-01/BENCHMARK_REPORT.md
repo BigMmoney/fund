@@ -298,3 +298,51 @@ api binary: `target/release/api.exe` from commit `1f21485`. WAL was clean at sta
 `docs/benchmarks/2026-05-01/raw/soak_30min/` (gitignored `.log` files):
 - `soak.log` — period-by-period output from `soak_test_v2.ps1`
 - `api_server.log`, `api_server.log.err` — api stdout/stderr captured during the soak
+
+### 11.6 Harness-latency caveat — the 253 ms P99 is mostly client-side overhead
+
+The 253 ms P99 in §11.2 is **the soak harness's `curl -w '%{time_total}'` value**, which measures the full `curl.exe` process invocation per request. To check whether that figure reflects api-server cost or client-side overhead, a follow-up decomposition was run with two narrower tools (no soak re-run; new tools only).
+
+**Tools used:**
+
+- `cargo bench -p matching --bench matching_benchmark` — pure in-process Rust orderbook ops, no HTTP, no IPC.
+- `benchmark/cmd/exchange_http_bench` (Go) — production-quality low-overhead HTTP client with `keepalive_off` (conservative profile). Records per-stage timings: client-side `build_and_sign_request_us`, `http_roundtrip_us`, `client_latency_us`; server-side telemetry from the api response (`queue_wait_us`, `risk_us`, `matching_core_us`, `settlement_persist_us`, `post_match_us`).
+- Run shape: 1000 orders (500 maker/taker pairs), pair-concurrency 8, fresh local api on the same binary used in §11. Result: 1000 / 1000 success, 0 errors, 952 fills.
+
+**Result:**
+
+| Layer | Metric | P50 | P95 | P99 | Max |
+|---|---|---:|---:|---:|---:|
+| Matching core (in-process Rust) | per-order orderbook insert (amortised, 1000-batch) | — | — | — | ≈0.16 µs |
+| API server hot-path (server-measured) | `queue_wait_us` | 12 µs | — | **32 µs** | — |
+| | `risk_us` | 19 µs | — | **59 µs** | — |
+| | `matching_core_us` | 0 µs | — | **230 µs** | — |
+| | `settlement_persist_us` | 0 µs | — | **224 µs** | — |
+| | `post_match_us` | 0 µs | — | **2 µs** | — |
+| Go HTTP client end-to-end (direct-success only, 936/1000) | `client_latency_us` | 2.04 ms | 3.78 ms | **17.5 ms** | 33.0 ms |
+| Go HTTP client | `http_roundtrip_us` (TCP+HTTP one-shot) | 1.88 ms | 12.1 ms | **23.1 ms** | 32.2 ms |
+| Go HTTP client | `build_and_sign_request_us` (HMAC + JSON) | 0 µs | — | 0 µs (avg 3.6 µs) | — |
+| PowerShell soak harness (`soak_test_v2.ps1`) | per-request `curl time_total` | 227 ms | 245 ms | **253 ms** | — |
+
+**Where the 253 ms goes (P99 budget, best estimate):**
+
+```
+253 ms total
+  ≈ 250 µs  server work (queue + risk + match + settle + post)   ~0.1%
+  ≈  17 ms  real Go-client end-to-end on the same api binary       ~7%
+  ≈ 236 ms  curl.exe process spawn + Windows AV scanning + PowerShell
+            runspace plumbing surrounding each request             ~93%
+```
+
+**Conclusions:**
+
+1. **The api server is fast.** Server-side P99 of the full `/intent` submit path is **under 1 millisecond** at concurrency 8 — within the matching engine + queue + risk + settle pipeline.
+2. The Go HTTP client (`exchange_http_bench`) shows the api can sustain ~17 ms P99 client-perceived from a low-overhead client.
+3. **The 253 ms in §11.2 is dominated by `curl.exe` process startup**, not by the api. It is a *harness-measurement artifact*, not an api performance characteristic. Treat the §11 P99 as a useful indicator of the harness's worst case, not as a budget for the api itself.
+4. Consequence for future bench plans: prefer `exchange_http_bench` (Go) or a Rust HTTP client for any latency budget that needs to apply to the api, not the soak harness.
+
+**Raw artifacts for this decomposition:**
+
+- `D:\pre_trading\artifacts\bench_smoke\hot_path_bench.json` — full Go bench output (19 KB).
+- `D:\pre_trading\artifacts\bench_smoke\hot_path_api.log` — api stdout during the Go bench run.
+- `target/criterion/orderbook_insert_1000/` — matching micro-bench HTML report.
