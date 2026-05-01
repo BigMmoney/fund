@@ -15,7 +15,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $BaseUri = "http://localhost:3030"
-$Secret = "dev-secret-change-me"
+$Secret = "dev-secret-change-me-to-32-chars-min!"
 $RunId = (New-Guid).ToString().Substring(0, 8)
 
 # ── HMAC helpers ──────────────────────────────────────────────
@@ -400,7 +400,7 @@ while ((Get-Date) -lt $endTime) {
     $periodResult = Run-ConcurrentBatch -OrderCount $ordersPerPeriod -Concurrency $Concurrency -OrderStartIndex $globalOrderIndex -GlobalCounter $globalOrderIndex
     $globalOrderIndex += $ordersPerPeriod
     
-    $periodResults += @{
+    $periodResults += [pscustomobject]@{
         period   = $iteration
         success  = $periodResult.success
         failed   = $periodResult.failed
