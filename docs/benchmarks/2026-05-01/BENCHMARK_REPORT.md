@@ -240,3 +240,61 @@ The committed `bench_compare.ps1` accepts an explicit `-Baseline <path>`. We del
 
 - RTO p99 = 0.787 s is **dominated by api process startup**, not by WAL replay (the captured WAL was only 500 cmds; replay completed in <10 ms). RTO at scale (1M cmds) is bounded above by §4.2's per-record cost × cmd count + this constant — not yet measured.
 - RPO = 0 has been observed across 5 iter × 3 runs = 15 hard-kill cycles. This is a strong durability signal for the tested traffic shape (sequential acknowledged writes). Concurrent-writer or batch-commit scenarios are not exercised by this bench.
+
+## 11. 30-minute soak (sustained-load stability)
+
+After the 3-run stability campaign, a 30-minute soak was run to validate the api binary's behaviour under sustained mixed traffic. The harness (`scripts/soak_test_v2.ps1`) submits authenticated 50/50 buy/sell orders at fixed concurrency, samples server-side metrics every 30 seconds, and reports first-half-vs-second-half tail latency degradation.
+
+The committed `soak_test_v2.ps1` had two pre-existing bugs that surfaced when this soak was first attempted; both fixed in `f387496`:
+- Hard-coded HMAC secret was 19 chars (`"dev-secret-change-me"`) — too short for the api's 32-char minimum, so every request would have failed auth. Replaced with the matching `dev-secret-change-me-to-32-chars-min!`.
+- Final tail-latency aggregation called `Measure-Object -Property p99` against a hashtable, which has no property accessor. Fixed by emitting `[pscustomobject]` instead of `@{}`.
+
+### 11.1 Setup
+
+```
+DurationMin     = 30
+Concurrency     = 8
+Periods         = 1121 (≈ 30s/period)
+Orders/period   = 32
+Total orders    = 35872
+```
+
+api binary: `target/release/api.exe` from commit `1f21485`. WAL was clean at start; no preload.
+
+### 11.2 Results
+
+| Metric | Value |
+|---|---:|
+| Successful submissions | **35,872** |
+| Failed submissions | **0** |
+| Periods with any failure | **0** |
+| Total fills | 12 |
+| Overall P50 latency | 227 ms |
+| Overall P95 latency | 245 ms |
+| Overall P99 latency | 253 ms |
+| First-half avg period P99 | 248.7 ms |
+| Second-half avg period P99 | 250.4 ms |
+| **Tail latency degradation** | **+1%** |
+| Post-soak `/health.status` | ok |
+| Post-soak accounts | 26 |
+| Post-soak `sequencer_command_seq` | **35,872** (matches success count) |
+| Post-soak `frontiers.consistent` | **true** |
+| Post-soak `/ready.balance_invariant` | **true** |
+| Post-soak `/ready.frontier_consistency` | **true** |
+
+### 11.3 Verdict
+
+**PASS.** No panics, no failed requests, no measurable tail latency degradation across 30 minutes of sustained 8-concurrent mixed traffic. `sequencer_command_seq` equals the success count exactly, frontiers stay consistent, balance invariant holds. The script's own internal threshold for tail-latency drift is 20% (red) / 50% (green-borderline); we observed 1%.
+
+### 11.4 Caveats
+
+- Single 30-min run on the same dev box used for §4-§10. RSS / GC behaviour over longer horizons (4h+) not validated here.
+- Concurrency 8 is a moderate, not aggressive, level. The api was not stressed to the point of queue saturation in this run — observed P99 stayed under 260 ms throughout, well below typical backpressure thresholds.
+- No fault-injection during the soak (no kill-switch toggle, no failpoint, no mass-cancel). A fault-soak run is queued as future work.
+- This soak data is **observational, not baseline-grade.** It confirms stability for the operational profile tested; not promoted to a CI-gating metric.
+
+### 11.5 Raw artifacts
+
+`docs/benchmarks/2026-05-01/raw/soak_30min/` (gitignored `.log` files):
+- `soak.log` — period-by-period output from `soak_test_v2.ps1`
+- `api_server.log`, `api_server.log.err` — api stdout/stderr captured during the soak
