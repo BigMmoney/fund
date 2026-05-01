@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
+pub mod order_trace;
+pub use order_trace::{OrderTraceEvent, OrderTraceStage, ORDER_TRACE_SCHEMA_VERSION};
+
 /// A user or system account with a balance tracked in the ledger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
