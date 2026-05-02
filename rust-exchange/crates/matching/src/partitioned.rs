@@ -17,8 +17,8 @@ use types::{
     AdminAction, AdminCommand, AuthenticatedPrincipal, CancelOrderCommand, Command,
     CommandLifecycle, CommandMetadata, Event, Fill, InstrumentKind, InstrumentSpec, MarketState,
     MassCancelByMarketCommand, MassCancelBySessionCommand, MassCancelByUserCommand,
-    NewOrderCommand, OrderState, OrderType, PrincipalRole, ReplaceOrderCommand, ReplayCursor, Side,
-    StpMode, TimeInForce,
+    NewOrderCommand, OrderState, OrderTraceEvent, OrderTraceStage, OrderType, PrincipalRole,
+    ReplaceOrderCommand, ReplayCursor, Side, StpMode, TimeInForce,
 };
 
 #[derive(Debug, Clone)]
@@ -2049,6 +2049,15 @@ impl PartitionState {
             return if fills.is_empty() {
                 Err(error)
             } else {
+                // Observer: aborted-with-partial-fill outcome.
+                emit_matching_outcome_for_new_order(
+                    &self.event_bus,
+                    &command,
+                    &incoming.order_id,
+                    OrderState::PartiallyFilled,
+                    incoming.remaining_amount,
+                    fills.len(),
+                );
                 Ok(SubmitOrderResult {
                     metadata: command.metadata,
                     order_id: incoming.order_id,
@@ -2141,6 +2150,19 @@ impl PartitionState {
         let post_match_us = post_match_start.elapsed().as_micros() as u64;
 
         let settlement_persist_us = match_outcome.settlement_persist_us;
+
+        // Observer: emit one matching trace event for the final outcome.
+        // For new orders this is the binding moment that lets the projector
+        // flush any pre-sequencer trace_key bucket per design §3.3.1.
+        emit_matching_outcome_for_new_order(
+            &self.event_bus,
+            &command,
+            &incoming.order_id,
+            state,
+            incoming.remaining_amount,
+            fills.len(),
+        );
+
         Ok(SubmitOrderResult {
             metadata: command.metadata,
             order_id: incoming.order_id,
@@ -2260,6 +2282,18 @@ impl PartitionState {
                 existing.session_id.as_deref(),
             );
         }
+        // Observer: the old order is now removed from the book. The new
+        // order's lifecycle (matching_resting / matching_filled / etc.)
+        // will be emitted by the recursive process_new_order call below.
+        emit_matching_cancelled(
+            &self.event_bus,
+            &existing.order_id,
+            &command.metadata.request_id,
+            command.metadata.command_seq,
+            Some(&existing.user_id),
+            Some(&market_key.market_id),
+            Some(market_key.outcome),
+        );
 
         match self.process_new_order(replacement) {
             Ok(result) => Ok(result),
@@ -2319,6 +2353,16 @@ impl PartitionState {
             command.metadata.advance(CommandLifecycle::Executed);
             command.metadata.advance(CommandLifecycle::Completed);
             self.advance_replay_cursor(command.metadata.command_seq);
+            // Observer: trigger order cancelled before activation.
+            emit_matching_cancelled(
+                &self.event_bus,
+                &command.order_id,
+                &command.metadata.request_id,
+                command.metadata.command_seq,
+                Some(&command.user_id),
+                Some(&command.market_id),
+                command.outcome,
+            );
             return Ok(CancelResult {
                 metadata: command.metadata,
                 market_state: aggregate_market_state(&self.markets),
@@ -2339,6 +2383,18 @@ impl PartitionState {
         command.metadata.advance(CommandLifecycle::Executed);
         command.metadata.advance(CommandLifecycle::Completed);
         self.advance_replay_cursor(command.metadata.command_seq);
+        // Observer: emit one matching_cancelled per cancelled order_id.
+        for cancelled_id in &cancelled_order_ids {
+            emit_matching_cancelled(
+                &self.event_bus,
+                cancelled_id,
+                &command.metadata.request_id,
+                command.metadata.command_seq,
+                Some(&command.user_id),
+                Some(&command.market_id),
+                command.outcome,
+            );
+        }
         Ok(CancelResult {
             metadata: command.metadata,
             market_state: aggregate_market_state(&self.markets),
@@ -2370,6 +2426,21 @@ impl PartitionState {
         command.metadata.advance(CommandLifecycle::Executed);
         command.metadata.advance(CommandLifecycle::Completed);
         self.advance_replay_cursor(command.metadata.command_seq);
+        // Observer: emit one matching_cancelled per cancelled order_id.
+        // Mass-cancel does not have a single market_id/outcome (it spans the
+        // user's entire book), so those fields are populated from the
+        // affected order's market lookup is skipped — `None` here.
+        for cancelled_id in &cancelled_order_ids {
+            emit_matching_cancelled(
+                &self.event_bus,
+                cancelled_id,
+                &command.metadata.request_id,
+                command.metadata.command_seq,
+                Some(&command.user_id),
+                None,
+                None,
+            );
+        }
         Ok(CancelResult {
             metadata: command.metadata,
             market_state: aggregate_market_state(&self.markets),
@@ -2401,6 +2472,17 @@ impl PartitionState {
         command.metadata.advance(CommandLifecycle::Executed);
         command.metadata.advance(CommandLifecycle::Completed);
         self.advance_replay_cursor(command.metadata.command_seq);
+        for cancelled_id in &cancelled_order_ids {
+            emit_matching_cancelled(
+                &self.event_bus,
+                cancelled_id,
+                &command.metadata.request_id,
+                command.metadata.command_seq,
+                Some(&command.user_id),
+                None,
+                None,
+            );
+        }
         Ok(CancelResult {
             metadata: command.metadata,
             market_state: aggregate_market_state(&self.markets),
@@ -2432,6 +2514,18 @@ impl PartitionState {
         command.metadata.advance(CommandLifecycle::Executed);
         command.metadata.advance(CommandLifecycle::Completed);
         self.advance_replay_cursor(command.metadata.command_seq);
+        let market_id_for_trace = command.market_id.clone();
+        for cancelled_id in &cancelled_order_ids {
+            emit_matching_cancelled(
+                &self.event_bus,
+                cancelled_id,
+                &command.metadata.request_id,
+                command.metadata.command_seq,
+                None,
+                Some(&market_id_for_trace),
+                None,
+            );
+        }
         Ok(CancelResult {
             metadata: command.metadata,
             market_state: aggregate_market_state(&self.markets),
@@ -3324,6 +3418,78 @@ struct RecentMarketEvent {
     at: Instant,
     kind: RecentMarketEventKind,
     weight: usize,
+}
+
+/// Emit one matching trace event for the final outcome of a NewOrder
+/// process. Observer-only (publishes to the eventbus `order.trace`
+/// channel where lagged subscribers are silently dropped). The
+/// `state` parameter selects the stage:
+/// - `OrderState::Filled`         -> `matching_filled`
+/// - `OrderState::Active`         -> `matching_resting` (may include partial fills,
+///                                    captured in `filled_amount`)
+/// - `OrderState::PartiallyFilled`-> `matching_partially_filled` (IOC/FOK that
+///                                    filled some and was discarded)
+/// - `OrderState::Cancelled`      -> `matching_cancelled` (IOC/FOK with no fills)
+/// - other states are not emitted (defensive — they should not occur on
+///   the normal-success return path).
+///
+/// `order_id` is the canonical id assigned by the engine — for new
+/// orders this is the binding moment that lets the projector flush the
+/// pre-sequencer trace_key bucket per design §3.3.1.
+fn emit_matching_outcome_for_new_order(
+    event_bus: &eventbus::EventBus,
+    command: &NewOrderCommand,
+    order_id: &str,
+    state: OrderState,
+    remaining_amount: i64,
+    fills_count: usize,
+) {
+    let stage = match state {
+        OrderState::Filled => OrderTraceStage::MatchingFilled,
+        OrderState::Active => OrderTraceStage::MatchingResting,
+        OrderState::PartiallyFilled => OrderTraceStage::MatchingPartiallyFilled,
+        OrderState::Cancelled => OrderTraceStage::MatchingCancelled,
+        // Rejected / Replaced should not arrive on a success-path emit.
+        _ => return,
+    };
+    let mut ev = OrderTraceEvent::new(stage, order_id);
+    ev.client_order_id = Some(command.client_order_id.clone());
+    ev.user_id = Some(command.user_id.clone());
+    ev.session_id = command.session_id.clone();
+    ev.request_id = Some(command.metadata.request_id.clone());
+    ev.command_seq = command.metadata.command_seq;
+    ev.market_id = Some(command.market_id.clone());
+    ev.outcome = Some(command.outcome);
+    ev.side = Some(command.side);
+    ev.price = command.price;
+    ev.amount = Some(command.amount);
+    ev.remaining_amount = Some(remaining_amount);
+    ev.filled_amount = Some(command.amount.saturating_sub(remaining_amount));
+    if fills_count > 0 {
+        ev.detail = serde_json::json!({ "fills_count": fills_count });
+    }
+    event_bus.publish(Event::OrderTrace(ev));
+}
+
+/// Emit a `matching_cancelled` trace event for one specific order_id.
+/// Used by direct cancels, mass-cancels, and the cancel-old-order leg
+/// of replace.
+fn emit_matching_cancelled(
+    event_bus: &eventbus::EventBus,
+    order_id: &str,
+    request_id: &str,
+    command_seq: Option<u64>,
+    user_id: Option<&str>,
+    market_id: Option<&str>,
+    outcome: Option<i32>,
+) {
+    let mut ev = OrderTraceEvent::new(OrderTraceStage::MatchingCancelled, order_id);
+    ev.request_id = Some(request_id.to_string());
+    ev.command_seq = command_seq;
+    ev.user_id = user_id.map(String::from);
+    ev.market_id = market_id.map(String::from);
+    ev.outcome = outcome;
+    event_bus.publish(Event::OrderTrace(ev));
 }
 
 fn insert_resting_order(market: &mut MarketRuntime, order: RestingOrder) {
