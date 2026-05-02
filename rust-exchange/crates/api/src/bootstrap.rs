@@ -156,6 +156,10 @@ pub(crate) async fn bootstrap_runtime(event_bus: EventBus) -> AppBootstrap {
         ..PartitionedEngineConfig::default()
     };
 
+    // Clone the event_bus before handing ownership to the engine, so the
+    // recovery emit (Step 9 — recovery_completed aggregate event) can
+    // publish onto the same channel.
+    let event_bus_for_replay = event_bus.clone();
     let partitioned_engine = Arc::new(
         PartitionedMatchingEngine::with_stores_registry_costs_and_settlements(
             engine_config,
@@ -170,9 +174,13 @@ pub(crate) async fn bootstrap_runtime(event_bus: EventBus) -> AppBootstrap {
         .unwrap_or_else(|e| panic!("failed to initialize partitioned matching engine: {e}")),
     );
 
-    replay_commands_after_snapshot(partitioned_engine.as_ref(), sequencer.as_ref())
-        .await
-        .unwrap_or_else(|e| panic!("FATAL: command replay after snapshot failed — cannot guarantee matching engine consistency: {e}"));
+    replay_commands_after_snapshot(
+        partitioned_engine.as_ref(),
+        sequencer.as_ref(),
+        &event_bus_for_replay,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("FATAL: command replay after snapshot failed — cannot guarantee matching engine consistency: {e}"));
     if let Err(e) = position_costs.sync_from_trade_journal(trade_journal_wal.as_ref()) {
         tracing::error!(error = %e, "failed to recover position cost ledger from trade journal — costs may be stale");
     }
@@ -338,6 +346,7 @@ async fn run_position_cost_resync_scheduler(
 async fn replay_commands_after_snapshot(
     partitioned_engine: &PartitionedMatchingEngine,
     sequencer: &Sequencer,
+    event_bus: &EventBus,
 ) -> anyhow::Result<()> {
     let mut partition_snapshot_seqs: HashMap<usize, u64> = partitioned_engine
         .export_snapshots()
@@ -351,7 +360,25 @@ async fn replay_commands_after_snapshot(
         })
         .collect();
 
+    // Per-record recovery events are gated on MONITOR_TRACE_RECOVERY_DETAIL=1
+    // (design §3.6). Evaluated once up front so the per-record cost when
+    // the flag is unset is a single boolean test, not an env_var lookup.
+    let detail_emit = std::env::var("MONITOR_TRACE_RECOVERY_DETAIL")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    let started_at = std::time::Instant::now();
+    let mut replayed_count: u64 = 0;
+    let mut skipped_terminal_count: u64 = 0;
+    let mut total_seen: u64 = 0;
+    let mut highest_command_seq: u64 = 0;
+
     for record in sequencer.latest_records().into_iter() {
+        total_seen += 1;
+        if record.command_seq > highest_command_seq {
+            highest_command_seq = record.command_seq;
+        }
+
         if should_skip_replay_record(&record) {
             tracing::info!(
                 command_seq = record.command_seq,
@@ -359,6 +386,14 @@ async fn replay_commands_after_snapshot(
                 lifecycle = ?record.command.metadata().lifecycle,
                 "skipping replay for terminal non-applying command"
             );
+            skipped_terminal_count += 1;
+            if detail_emit {
+                emit_recovery_per_record(
+                    event_bus,
+                    types::OrderTraceStage::RecoverySkippedTerminal,
+                    &record,
+                );
+            }
             continue;
         }
 
@@ -378,6 +413,13 @@ async fn replay_commands_after_snapshot(
             request_id = %record.request_id,
             "replaying sequenced command after snapshot"
         );
+        if detail_emit {
+            emit_recovery_per_record(
+                event_bus,
+                types::OrderTraceStage::RecoveryReplayed,
+                &record,
+            );
+        }
         if let Err(error) = partitioned_engine
             .replay_command(record.command.clone())
             .await
@@ -390,11 +432,53 @@ async fn replay_commands_after_snapshot(
                 error
             );
         }
+        replayed_count += 1;
         for partition in replay_partitions {
             partition_snapshot_seqs.insert(partition, record.command_seq);
         }
     }
+
+    // Always emit recovery_completed once on the success path. Aggregate
+    // counts go in `detail`; per-record events do not (design §3.6).
+    let duration_ms = started_at.elapsed().as_millis() as u64;
+    let mut ev = types::OrderTraceEvent::new_unbound(types::OrderTraceStage::RecoveryCompleted);
+    ev.detail = serde_json::json!({
+        "replayed_count": replayed_count,
+        "skipped_terminal_count": skipped_terminal_count,
+        "total_seen": total_seen,
+        "duration_ms": duration_ms,
+        "highest_command_seq": highest_command_seq,
+        "detail_emit_enabled": detail_emit,
+    });
+    event_bus.publish(types::Event::OrderTrace(ev));
+
+    tracing::info!(
+        replayed_count,
+        skipped_terminal_count,
+        total_seen,
+        duration_ms,
+        highest_command_seq,
+        detail_emit,
+        "command replay after snapshot complete"
+    );
+
     Ok(())
+}
+
+/// Build and publish a per-record recovery event. Called only when the
+/// MONITOR_TRACE_RECOVERY_DETAIL env var is set; the JSONL writer drops
+/// these events regardless (design §3.6), so they live on the broadcast
+/// channel only and are safe to drop under lag.
+fn emit_recovery_per_record(
+    event_bus: &EventBus,
+    stage: types::OrderTraceStage,
+    record: &SequencedCommandRecord,
+) {
+    let mut ev = types::OrderTraceEvent::new_unbound(stage);
+    ev.request_id = Some(record.request_id.clone());
+    ev.command_seq = Some(record.command_seq);
+    ev.lifecycle = Some(record.command.metadata().lifecycle);
+    event_bus.publish(types::Event::OrderTrace(ev));
 }
 
 fn should_skip_replay_record(record: &SequencedCommandRecord) -> bool {
