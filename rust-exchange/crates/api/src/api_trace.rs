@@ -71,10 +71,67 @@ pub(crate) fn emit_new_order_validated(
     event_bus.publish(Event::OrderTrace(ev));
 }
 
+/// Emit `api_received` for a request that targets a known `order_id`
+/// (cancel / replace). The projector applies these directly to the
+/// existing order's timeline since `order_id` is bound from the start.
+pub(crate) fn emit_for_order_received(
+    event_bus: &EventBus,
+    order_id: &str,
+    request_id: &str,
+    principal: &AuthenticatedPrincipal,
+    market_id: Option<&str>,
+    outcome: Option<i32>,
+) {
+    let mut ev = OrderTraceEvent::new(OrderTraceStage::ApiReceived, order_id);
+    ev.request_id = Some(request_id.to_string());
+    ev.user_id = Some(principal.subject.clone());
+    ev.session_id = principal.session_id.clone();
+    ev.market_id = market_id.map(String::from);
+    ev.outcome = outcome;
+    event_bus.publish(Event::OrderTrace(ev));
+}
+
+/// Emit `api_validated` for a known-order request.
+pub(crate) fn emit_for_order_validated(
+    event_bus: &EventBus,
+    order_id: &str,
+    request_id: &str,
+    principal: &AuthenticatedPrincipal,
+    market_id: Option<&str>,
+    outcome: Option<i32>,
+) {
+    let mut ev = OrderTraceEvent::new(OrderTraceStage::ApiValidated, order_id);
+    ev.request_id = Some(request_id.to_string());
+    ev.user_id = Some(principal.subject.clone());
+    ev.session_id = principal.session_id.clone();
+    ev.market_id = market_id.map(String::from);
+    ev.outcome = outcome;
+    event_bus.publish(Event::OrderTrace(ev));
+}
+
+/// Emit `api_rejected` for a known-order request that fails at the
+/// engine or sequencer boundary.
+pub(crate) fn emit_for_order_rejected(
+    event_bus: &EventBus,
+    order_id: &str,
+    request_id: &str,
+    user_id: &str,
+    code: ApiErrorCode,
+    message: impl Into<String>,
+) {
+    let mut ev = OrderTraceEvent::new(OrderTraceStage::ApiRejected, order_id);
+    ev.request_id = Some(request_id.to_string());
+    ev.user_id = Some(user_id.to_string());
+    ev.reject_code = Some(code);
+    ev.reject_message = Some(message.into());
+    event_bus.publish(Event::OrderTrace(ev));
+}
+
 /// Emit `api_rejected` for a request that has not yet been assigned a
 /// canonical `order_id` — e.g. new-order submissions that fail at the
-/// engine boundary or in the sequencer. The projector correlates via
-/// `request_id` (design §3.3.1).
+/// engine boundary or in the sequencer, OR mass-cancel commands which
+/// span multiple orders. The projector correlates via `request_id`
+/// (design §3.3.1).
 pub(crate) fn emit_api_rejected_unbound(
     event_bus: &EventBus,
     request_id: &str,

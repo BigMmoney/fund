@@ -772,6 +772,7 @@ pub(crate) fn build_trading_routes(
     let user_rate_limiter_for_cancel = user_rate_limiter.clone();
     let sequencer_for_cancel_order = sequencer.clone();
     let order_projection_for_cancel = order_projection.clone();
+    let event_bus_for_cancel = event_bus.clone();
     let cancel_order_route = warp::path("cancel-order")
         .and(warp::post())
         .and(with_principal())
@@ -787,15 +788,34 @@ pub(crate) fn build_trading_routes(
                 let order_projection = order_projection_for_cancel.clone();
                 let user_rate_limiter = user_rate_limiter_for_cancel.clone();
                 let ip_rate_limiter = ip_rate_limiter_for_cancel.clone();
+                let event_bus = event_bus_for_cancel.clone();
                 async move {
                     require_user(&principal)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    let user_id = principal.subject.clone();
+                    let order_id = req.order_id.clone();
+                    let market_id = req.market_id.clone();
+                    api_trace::emit_for_order_received(
+                        &event_bus,
+                        &order_id,
+                        &request_id,
+                        &principal,
+                        Some(&market_id),
+                        req.outcome,
+                    );
                     let ip_key = remote
                         .map(|value| value.ip().to_string())
                         .unwrap_or_else(|| format!("user:{}", principal.subject));
                     ip_rate_limiter.check(&format!("ip:{ip_key}"), 60)?;
                     user_rate_limiter.check(&format!("user:{}", principal.subject), 30)?;
-                    let request_id = normalize_request_id(req.request_id);
-                    let user_id = principal.subject.clone();
+                    api_trace::emit_for_order_validated(
+                        &event_bus,
+                        &order_id,
+                        &request_id,
+                        &principal,
+                        Some(&market_id),
+                        req.outcome,
+                    );
                     audit("cancel_order", &request_id, &principal);
                     let command = match sequence_cancel_order(
                         &sequencer,
@@ -807,7 +827,17 @@ pub(crate) fn build_trading_routes(
                         req.client_order_id,
                     ) {
                         Ok(command) => command,
-                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                        Err(error) => {
+                            api_trace::emit_for_order_rejected(
+                                &event_bus,
+                                &order_id,
+                                &request_id,
+                                &user_id,
+                                ApiErrorCode::InternalError,
+                                error.clone(),
+                            );
+                            return Err(reject_api(StatusCode::BAD_REQUEST, error));
+                        }
                     };
 
                     match engine.cancel_order(command).await {
@@ -833,6 +863,14 @@ pub(crate) fn build_trading_routes(
                         }
                         Err(error) => {
                             let _ = sequencer.mark_rejected(&request_id);
+                            api_trace::emit_for_order_rejected(
+                                &event_bus,
+                                &order_id,
+                                &request_id,
+                                &user_id,
+                                ApiErrorCode::InternalError,
+                                error.to_string(),
+                            );
                             Err(reject_submission_error(&error))
                         }
                     }
@@ -849,6 +887,7 @@ pub(crate) fn build_trading_routes(
     let order_projection_for_replace = order_projection.clone();
     let instruments_for_replace = instruments.clone();
     let beta_controls_for_replace = beta_controls.clone();
+    let event_bus_for_replace = event_bus.clone();
     let replace_order_route = warp::path("replace-order")
         .and(warp::post())
         .and(with_principal())
@@ -867,8 +906,19 @@ pub(crate) fn build_trading_routes(
                 let beta_controls = beta_controls_for_replace.clone();
                 let user_rate_limiter = user_rate_limiter_for_replace.clone();
                 let ip_rate_limiter = ip_rate_limiter_for_replace.clone();
+                let event_bus = event_bus_for_replace.clone();
                 async move {
                     require_user(&principal)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    let target_order_id = req.order_id.clone();
+                    api_trace::emit_for_order_received(
+                        &event_bus,
+                        &target_order_id,
+                        &request_id,
+                        &principal,
+                        Some(&req.market_id),
+                        req.outcome,
+                    );
                     let ip_key = remote
                         .map(|value| value.ip().to_string())
                         .unwrap_or_else(|| format!("user:{}", principal.subject));
@@ -929,13 +979,20 @@ pub(crate) fn build_trading_routes(
                         Some(&req.order_id),
                     )
                     .await?;
-                    let request_id = normalize_request_id(req.request_id);
                     let user_id = principal.subject.clone();
+                    api_trace::emit_for_order_validated(
+                        &event_bus,
+                        &target_order_id,
+                        &request_id,
+                        &principal,
+                        Some(&req.market_id),
+                        req.outcome,
+                    );
                     audit("replace_order", &request_id, &principal);
-                    let command = sequence_replace_order(
+                    let command = match sequence_replace_order(
                         &sequencer,
                         request_id.clone(),
-                        user_id,
+                        user_id.clone(),
                         req.market_id,
                         req.outcome,
                         req.order_id,
@@ -947,8 +1004,20 @@ pub(crate) fn build_trading_routes(
                         req.reduce_only,
                         req.new_leverage,
                         req.new_expires_at,
-                    )
-                    .map_err(|error| reject_api(StatusCode::BAD_REQUEST, error))?;
+                    ) {
+                        Ok(command) => command,
+                        Err(error) => {
+                            api_trace::emit_for_order_rejected(
+                                &event_bus,
+                                &target_order_id,
+                                &request_id,
+                                &user_id,
+                                ApiErrorCode::InternalError,
+                                error.clone(),
+                            );
+                            return Err(reject_api(StatusCode::BAD_REQUEST, error));
+                        }
+                    };
 
                     let projection_command = command.clone();
                     match engine.replace_order(command).await {
@@ -995,6 +1064,14 @@ pub(crate) fn build_trading_routes(
                             {
                                 tracing::warn!(request_id, error = %write_error, "order projection replace reject write failed");
                             }
+                            api_trace::emit_for_order_rejected(
+                                &event_bus,
+                                &target_order_id,
+                                &request_id,
+                                &user_id,
+                                ApiErrorCode::InternalError,
+                                error.to_string(),
+                            );
                             Err(reject_submission_error(&error))
                         }
                     }
