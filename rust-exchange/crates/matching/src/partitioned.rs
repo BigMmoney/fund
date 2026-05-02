@@ -3471,6 +3471,38 @@ fn emit_matching_outcome_for_new_order(
     event_bus.publish(Event::OrderTrace(ev));
 }
 
+/// Emit one `ledger_settled` trace event for a single side of a trade
+/// fill — i.e. one row in the order's timeline marking that the ledger
+/// commits associated with this match (fee collection, cash/position
+/// transfers) have all completed without the market halting. Called
+/// once per side at the fill construction site, so each match produces
+/// two events (one for the incoming order, one for the resting order).
+fn emit_ledger_settled(
+    event_bus: &eventbus::EventBus,
+    order_id: &str,
+    request_id: &str,
+    command_seq: Option<u64>,
+    user_id: &str,
+    market_id: &str,
+    outcome_value: i32,
+    side: Side,
+    price: i64,
+    fill_amount: i64,
+    fee: i64,
+) {
+    let mut ev = OrderTraceEvent::new(OrderTraceStage::LedgerSettled, order_id);
+    ev.request_id = Some(request_id.to_string());
+    ev.command_seq = command_seq;
+    ev.user_id = Some(user_id.to_string());
+    ev.market_id = Some(market_id.to_string());
+    ev.outcome = Some(outcome_value);
+    ev.side = Some(side);
+    ev.price = Some(price);
+    ev.filled_amount = Some(fill_amount);
+    ev.fee = Some(fee);
+    event_bus.publish(Event::OrderTrace(ev));
+}
+
 /// Emit a `matching_cancelled` trace event for one specific order_id.
 /// Used by direct cancels, mass-cancels, and the cancel-old-order leg
 /// of replace.
@@ -4703,6 +4735,36 @@ fn match_incoming(
         };
         event_bus.publish(Event::FillCreated(buy_fill.clone()));
         event_bus.publish(Event::FillCreated(sell_fill.clone()));
+        // Observer: emit ledger_settled per side. The fee collections,
+        // cash/position transfers above all succeeded; the matching loop
+        // would have aborted with `outcome.aborted` if any ledger op
+        // failed, so reaching this point means settlement landed cleanly.
+        emit_ledger_settled(
+            event_bus,
+            &incoming.order_id,
+            &incoming.request_id,
+            incoming.command_seq,
+            &incoming.user_id,
+            &incoming.market_id,
+            incoming.outcome,
+            incoming.side,
+            best_price,
+            executed_amount,
+            incoming_fee,
+        );
+        emit_ledger_settled(
+            event_bus,
+            &resting.order_id,
+            &resting.request_id,
+            resting.command_seq,
+            &resting.user_id,
+            &resting.market_id,
+            resting.outcome,
+            resting.side,
+            best_price,
+            executed_amount,
+            resting_fee,
+        );
         outcome.fills.push(buy_fill);
         outcome.fills.push(sell_fill);
 

@@ -3174,6 +3174,7 @@ async fn main() {
     let event_bus_for_ws = event_bus.clone();
     let event_bus_for_stops = event_bus.clone();
     let event_bus_for_monitor = event_bus.clone();
+    let event_bus_for_projection = event_bus.clone();
     let app = bootstrap_runtime(event_bus).await;
     let AppBootstrap {
         ledger,
@@ -3203,9 +3204,15 @@ async fn main() {
         StopOrderStore::open_jsonl(stop_orders_wal_path())
             .unwrap_or_else(|e| panic!("failed to initialize stop order store: {e}")),
     );
+    // Order Flow Monitor: attach a trace emitter so OrderStateProjectionStore
+    // emits projection_updated after each upsert. Observer-only.
+    let projection_trace_emitter: Arc<dyn types::TraceEmitter> = Arc::new(
+        monitor::EventBusTraceEmitter::new(event_bus_for_projection),
+    );
     let order_projection = Arc::new(
         OrderStateProjectionStore::open_jsonl(order_state_projection_wal_path())
-            .unwrap_or_else(|e| panic!("failed to initialize order projection store: {e}")),
+            .unwrap_or_else(|e| panic!("failed to initialize order projection store: {e}"))
+            .with_trace_emitter(projection_trace_emitter),
     );
     let beta_controls = Arc::new(
         BetaControlStore::open_jsonl(beta_controls_wal_path())

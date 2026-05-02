@@ -52,6 +52,10 @@ pub(crate) struct OrderStateProjectionStore {
     entries: DashMap<String, OrderStateProjectionEntry>,
     store: Arc<dyn persistence::WalStore<OrderStateProjectionEntry>>,
     write_locks: Vec<Mutex<()>>,
+    /// Observer-only sink. When `Some`, emits `projection_updated` after
+    /// every successful upsert (i.e. after the WAL append commits). See
+    /// `docs/MONITOR_DESIGN.md` §3.1.
+    trace_emitter: Option<Arc<dyn types::TraceEmitter>>,
 }
 
 const ORDER_PROJECTION_LOCK_SHARDS: usize = 64;
@@ -66,6 +70,7 @@ impl OrderStateProjectionStore {
             write_locks: (0..ORDER_PROJECTION_LOCK_SHARDS)
                 .map(|_| Mutex::new(()))
                 .collect(),
+            trace_emitter: None,
         };
         for entry in result.store.entries()? {
             result
@@ -79,6 +84,16 @@ impl OrderStateProjectionStore {
         let store: Arc<dyn persistence::WalStore<OrderStateProjectionEntry>> =
             Arc::new(JsonlFileWal::new(path)?);
         Self::new(store)
+    }
+
+    /// Builder-style attachment of a `TraceEmitter`. Observer-only —
+    /// failures emit nothing, no behavioural impact when None.
+    pub(crate) fn with_trace_emitter(
+        mut self,
+        emitter: Arc<dyn types::TraceEmitter>,
+    ) -> Self {
+        self.trace_emitter = Some(emitter);
+        self
     }
 
     pub(crate) fn get(&self, user_id: &str, order_id: &str) -> Option<OrderStateProjectionEntry> {
@@ -453,6 +468,29 @@ impl OrderStateProjectionStore {
         let key = order_projection_key(&entry.user_id, &entry.order_id);
         let _guard = self.write_locks[order_projection_lock_shard(&key)].lock();
         self.store.append(&entry)?;
+        // Observer: emit projection_updated after the WAL append commits.
+        // Done before inserting into the in-memory map so a panic mid-emit
+        // (the trait says implementations MUST NOT panic) cannot leave the
+        // map in a half-inserted state — but since emit is fire-and-forget
+        // and never panics, this ordering is purely defensive.
+        if let Some(emitter) = &self.trace_emitter {
+            let mut ev = types::OrderTraceEvent::new(
+                types::OrderTraceStage::ProjectionUpdated,
+                entry.order_id.clone(),
+            );
+            ev.user_id = Some(entry.user_id.clone());
+            ev.request_id = Some(entry.request_id.clone());
+            ev.command_seq = entry.command_seq;
+            ev.market_id = Some(entry.market_id.clone());
+            ev.outcome = Some(entry.outcome);
+            ev.side = Some(entry.side);
+            ev.price = entry.price;
+            ev.amount = Some(entry.original_amount);
+            ev.remaining_amount = Some(entry.remaining_amount);
+            ev.filled_amount = Some(entry.filled_amount);
+            ev.detail = serde_json::json!({ "status": entry.status });
+            emitter.emit(ev);
+        }
         self.entries.insert(key, entry);
         Ok(())
     }
