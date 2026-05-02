@@ -222,6 +222,7 @@ pub(crate) fn build_trading_routes(
     ip_rate_limiter: Arc<FixedWindowRateLimiter>,
     user_rate_limiter: Arc<FixedWindowRateLimiter>,
     system_sentinel: Arc<sentinel::SystemSentinel>,
+    event_bus: eventbus::EventBus,
 ) -> JsonRoute {
     let sequencer_for_intent = sequencer.clone();
     let order_projection_for_intent = order_projection.clone();
@@ -232,6 +233,7 @@ pub(crate) fn build_trading_routes(
     let instruments_for_intent = instruments.clone();
     let beta_controls_for_intent = beta_controls.clone();
     let sentinel_for_intent = system_sentinel.clone();
+    let event_bus_for_intent = event_bus.clone();
     let intent_route = warp::path("intent")
         .and(warp::post())
         .and(with_principal())
@@ -251,8 +253,26 @@ pub(crate) fn build_trading_routes(
                 let instruments = instruments_for_intent.clone();
                 let beta_controls = beta_controls_for_intent.clone();
                 let sentinel = sentinel_for_intent.clone();
+                let event_bus = event_bus_for_intent.clone();
                 async move {
                     require_user(&principal)?;
+                    // Normalize request_id / client_order_id up front so the
+                    // api_received trace carries the canonical identifiers
+                    // and the projector's trace_key bucket is keyed on the
+                    // same value the sequencer will see (design §3.3.1).
+                    let request_id = normalize_request_id(req.request_id);
+                    let client_order_id = normalize_client_order_id(req.client_order_id);
+                    api_trace::emit_new_order_received(
+                        &event_bus,
+                        &request_id,
+                        Some(&client_order_id),
+                        &principal,
+                        &req.market_id,
+                        req.outcome,
+                        req.side,
+                        Some(req.price),
+                        req.amount,
+                    );
                     let ip_key = remote
                         .map(|value| value.ip().to_string())
                         .unwrap_or_else(|| format!("user:{}", principal.subject));
@@ -291,14 +311,23 @@ pub(crate) fn build_trading_routes(
                         None,
                     )
                     .await?;
-                    let request_id = normalize_request_id(req.request_id);
-                    let client_order_id = normalize_client_order_id(req.client_order_id);
+                    api_trace::emit_new_order_validated(
+                        &event_bus,
+                        &request_id,
+                        Some(&client_order_id),
+                        &principal,
+                        &req.market_id,
+                        req.outcome,
+                        req.side,
+                        Some(req.price),
+                        req.amount,
+                    );
                     audit("intent", &request_id, &principal);
 
                     let command = match sequence_new_order(
                         &sequencer,
                         request_id.clone(),
-                        client_order_id,
+                        client_order_id.clone(),
                         principal.subject.clone(),
                         principal.session_id.clone(),
                         req.market_id.clone(),
@@ -317,7 +346,17 @@ pub(crate) fn build_trading_routes(
                         None,
                     ) {
                         Ok(command) => command,
-                        Err(error) => return Err(reject_api(StatusCode::BAD_REQUEST, error)),
+                        Err(error) => {
+                            api_trace::emit_api_rejected_unbound(
+                                &event_bus,
+                                &request_id,
+                                Some(&client_order_id),
+                                Some(&principal.subject),
+                                ApiErrorCode::InternalError,
+                                error.clone(),
+                            );
+                            return Err(reject_api(StatusCode::BAD_REQUEST, error));
+                        }
                     };
 
                     let match_start = Instant::now();
@@ -404,6 +443,14 @@ pub(crate) fn build_trading_routes(
                             {
                                 tracing::warn!(request_id, error = %write_error, "order projection reject write failed");
                             }
+                            api_trace::emit_api_rejected_unbound(
+                                &event_bus,
+                                &request_id,
+                                Some(&client_order_id),
+                                Some(&principal.subject),
+                                ApiErrorCode::InternalError,
+                                error.to_string(),
+                            );
                             Err(reject_submission_error(&error))
                         }
                     }
@@ -422,6 +469,7 @@ pub(crate) fn build_trading_routes(
     let stop_store_for_submit = stop_order_store.clone();
     let beta_controls_for_submit = beta_controls.clone();
     let sentinel_for_submit = system_sentinel.clone();
+    let event_bus_for_submit = event_bus.clone();
     let submit_order_route = warp::path("submit-order")
         .and(warp::post())
         .and(with_principal())
@@ -442,8 +490,22 @@ pub(crate) fn build_trading_routes(
                 let stop_store = stop_store_for_submit.clone();
                 let beta_controls = beta_controls_for_submit.clone();
                 let sentinel = sentinel_for_submit.clone();
+                let event_bus = event_bus_for_submit.clone();
                 async move {
                     require_user(&principal)?;
+                    let request_id = normalize_request_id(req.request_id);
+                    let client_order_id = normalize_client_order_id(req.client_order_id);
+                    api_trace::emit_new_order_received(
+                        &event_bus,
+                        &request_id,
+                        Some(&client_order_id),
+                        &principal,
+                        &req.market_id,
+                        req.outcome,
+                        req.side,
+                        req.price,
+                        req.amount,
+                    );
                     let ip_key = remote
                         .map(|value| value.ip().to_string())
                         .unwrap_or_else(|| format!("user:{}", principal.subject));
@@ -472,8 +534,6 @@ pub(crate) fn build_trading_routes(
                         req.leverage,
                         req.order_type,
                     )?;
-                    let request_id = normalize_request_id(req.request_id);
-                    let client_order_id = normalize_client_order_id(req.client_order_id);
                     let order_type = req.order_type.unwrap_or(OrderType::Limit);
                     let time_in_force = req.time_in_force.unwrap_or(TimeInForce::Gtc);
                     let post_only = req.post_only.unwrap_or(false);
@@ -494,6 +554,17 @@ pub(crate) fn build_trading_routes(
                         None,
                     )
                     .await?;
+                    api_trace::emit_new_order_validated(
+                        &event_bus,
+                        &request_id,
+                        Some(&client_order_id),
+                        &principal,
+                        &req.market_id,
+                        req.outcome,
+                        req.side,
+                        req.price,
+                        req.amount,
+                    );
                     if time_in_force == TimeInForce::Gtd {
                         if let Some(expires_at) = req.expires_at {
                             if expires_at <= Utc::now() {
@@ -580,7 +651,7 @@ pub(crate) fn build_trading_routes(
                     let command = match sequence_new_order(
                         &sequencer,
                         request_id.clone(),
-                        client_order_id,
+                        client_order_id.clone(),
                         principal.subject.clone(),
                         principal.session_id.clone().or(req.session_id.clone()),
                         req.market_id.clone(),
@@ -680,6 +751,14 @@ pub(crate) fn build_trading_routes(
                             {
                                 tracing::warn!(request_id, error = %write_error, "order projection reject write failed");
                             }
+                            api_trace::emit_api_rejected_unbound(
+                                &event_bus,
+                                &request_id,
+                                Some(&client_order_id),
+                                Some(&principal.subject),
+                                ApiErrorCode::InternalError,
+                                error.to_string(),
+                            );
                             Err(reject_submission_error(&error))
                         }
                     }

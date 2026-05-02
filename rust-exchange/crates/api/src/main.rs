@@ -44,6 +44,7 @@ use warp::{
 mod accounts;
 mod admin;
 mod admin_audit;
+mod api_trace;
 mod beta_controls;
 mod bootstrap;
 mod capacity;
@@ -3175,6 +3176,7 @@ async fn main() {
     let event_bus_for_stops = event_bus.clone();
     let event_bus_for_monitor = event_bus.clone();
     let event_bus_for_projection = event_bus.clone();
+    let event_bus_for_trading = event_bus.clone();
     let app = bootstrap_runtime(event_bus).await;
     let AppBootstrap {
         ledger,
@@ -3257,6 +3259,7 @@ async fn main() {
         ip_rate_limiter.clone(),
         user_rate_limiter.clone(),
         system_sentinel.clone(),
+        event_bus_for_trading,
     );
     let control_routes = build_control_routes(
         partitioned_engine.clone(),
