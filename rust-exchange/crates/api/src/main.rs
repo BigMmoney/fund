@@ -60,6 +60,7 @@ mod liquidation;
 mod markets;
 mod monitor;
 mod monitor_http;
+mod monitor_integration;
 mod monitor_jsonl;
 mod observability;
 mod oncall;
