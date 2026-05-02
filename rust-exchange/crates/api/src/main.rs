@@ -3177,6 +3177,7 @@ async fn main() {
     let event_bus_for_monitor = event_bus.clone();
     let event_bus_for_projection = event_bus.clone();
     let event_bus_for_trading = event_bus.clone();
+    let event_bus_for_ws_routes = event_bus.clone();
     let app = bootstrap_runtime(event_bus).await;
     let AppBootstrap {
         ledger,
@@ -3616,7 +3617,7 @@ async fn main() {
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,
     ));
-    let ws_routes = websocket::build_ws_routes(ws_hub.clone());
+    let ws_routes = websocket::build_ws_routes(ws_hub.clone(), event_bus_for_ws_routes);
 
     let settlement_reconciliation_ledger = ledger.clone();
     let settlement_reconciliation_journal = trade_journal_wal.clone();

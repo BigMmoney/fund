@@ -292,7 +292,10 @@ fn send_and_track(
 }
 
 /// Build WebSocket warp routes.
-pub fn build_ws_routes(hub: Arc<WsHub>) -> BoxedFilter<(warp::reply::Response,)> {
+pub fn build_ws_routes(
+    hub: Arc<WsHub>,
+    event_bus: eventbus::EventBus,
+) -> BoxedFilter<(warp::reply::Response,)> {
     let trades = {
         let hub = hub.clone();
         warp::path!("ws" / "trades" / String)
@@ -410,6 +413,41 @@ pub fn build_ws_routes(hub: Arc<WsHub>) -> BoxedFilter<(warp::reply::Response,)>
             .boxed()
     };
 
+    // ── /ws/order-trace ── Order Flow Monitor live stream (design §5.4).
+    // Authenticated via with_principal; admin sees every order, non-admin
+    // sees only events tagged with their own subject (matches REST §5.1
+    // semantics). Forwards Event::OrderTrace events from the eventbus
+    // `order.trace` channel directly — no WsHub bridge needed.
+    let order_trace = {
+        let hub = hub.clone();
+        let event_bus = event_bus.clone();
+        warp::path!("ws" / "order-trace")
+            .and(with_principal())
+            .and(warp::ws())
+            .and(warp::addr::remote())
+            .and_then(
+                move |principal: AuthenticatedPrincipal,
+                      ws: warp::ws::Ws,
+                      remote: Option<std::net::SocketAddr>| {
+                    let hub = hub.clone();
+                    let event_bus = event_bus.clone();
+                    async move {
+                        require_user(&principal)?;
+                        let ip = remote
+                            .map(|s| s.ip())
+                            .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                        Ok::<warp::reply::Response, warp::Rejection>(
+                            ws.on_upgrade(move |socket| {
+                                handle_order_trace_ws(socket, principal, ip, hub, event_bus)
+                            })
+                            .into_response(),
+                        )
+                    }
+                },
+            )
+            .boxed()
+    };
+
     trades
         .or(orderbook)
         .unify()
@@ -420,6 +458,8 @@ pub fn build_ws_routes(hub: Arc<WsHub>) -> BoxedFilter<(warp::reply::Response,)>
         .or(liquidations)
         .unify()
         .or(mark_price)
+        .unify()
+        .or(order_trace)
         .unify()
         .boxed()
 }
@@ -831,6 +871,130 @@ async fn handle_mark_price_ws(
     }
 
     hub.remove_connection(remote_ip);
+}
+
+/// Handler for `/ws/order-trace` (design §5.4). Subscribes to the eventbus
+/// `order.trace` channel and forwards `Event::OrderTrace` events to the
+/// connected WebSocket client. Authorization filtering: admin sees every
+/// event, non-admin sees only events tagged with `user_id == subject`.
+/// Emits `{"type": "ready"}` once on upgrade, `{"type": "trace", "event":
+/// {...}}` per forwarded event, and `{"type": "lagged", "skipped": n}`
+/// when broadcast lag is detected.
+async fn handle_order_trace_ws(
+    ws: WebSocket,
+    principal: AuthenticatedPrincipal,
+    remote_ip: IpAddr,
+    hub: Arc<WsHub>,
+    event_bus: eventbus::EventBus,
+) {
+    if !hub.add_connection(remote_ip) {
+        tracing::warn!("WS connection rejected: max connections reached");
+        let (mut tx, _) = ws.split();
+        let _ = tx
+            .send(Message::close_with(1013u16, "max connections"))
+            .await;
+        return;
+    }
+
+    let mut rx = event_bus.subscribe("order.trace");
+    let mut shutdown_rx = hub.subscribe_shutdown();
+    let (mut ws_tx, mut ws_rx) = ws.split();
+
+    let is_admin = matches!(principal.role, types::PrincipalRole::Admin);
+    let subject = principal.subject.clone();
+    tracing::info!(subject = %subject, role = ?principal.role, "WS order-trace connected");
+
+    // Send `ready` so the client knows it can start rendering. Mirrors the
+    // contract in design §5.4.
+    let _ = send_and_track(
+        &mut ws_tx,
+        Message::text(serde_json::json!({"type": "ready"}).to_string()),
+    )
+    .await;
+
+    let ping_interval = Duration::from_secs(30);
+    let (close_tx, mut close_rx) = tokio::sync::oneshot::channel::<()>();
+    let ping_task = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(ping_interval);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {}
+                _ = &mut close_rx => break,
+            }
+        }
+    });
+
+    let mut consecutive_failures: u32 = 0;
+    const MAX_SEND_FAILURES: u32 = 5;
+
+    loop {
+        tokio::select! {
+            result = rx.recv() => {
+                match result {
+                    Ok(types::Event::OrderTrace(ev)) => {
+                        // Authorization filter: non-admin only sees their
+                        // own subject's events. Events with no user_id
+                        // (e.g. recovery_completed aggregates) are admin-
+                        // only.
+                        let visible = is_admin
+                            || ev.user_id.as_deref() == Some(subject.as_str());
+                        if !visible {
+                            continue;
+                        }
+                        let frame = serde_json::json!({
+                            "type": "trace",
+                            "event": ev,
+                        });
+                        if let Ok(text) = serde_json::to_string(&frame) {
+                            if send_and_track(&mut ws_tx, Message::text(text)).await.is_err() {
+                                consecutive_failures += 1;
+                                if consecutive_failures >= MAX_SEND_FAILURES {
+                                    tracing::warn!(
+                                        subject = %subject,
+                                        "WS order-trace: closing after {MAX_SEND_FAILURES} consecutive send failures"
+                                    );
+                                    break;
+                                }
+                            } else {
+                                consecutive_failures = 0;
+                            }
+                        }
+                    }
+                    Ok(_) => {} // Other Event variants are not for this stream.
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(subject = %subject, lagged = n, "WS order-trace lagged");
+                        let _ = send_and_track(
+                            &mut ws_tx,
+                            Message::text(serde_json::json!({
+                                "type": "lagged",
+                                "skipped": n,
+                            }).to_string()),
+                        )
+                        .await;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            msg = ws_rx.next() => {
+                match msg {
+                    Some(Ok(m)) if m.is_close() => break,
+                    Some(Err(_)) | None => break,
+                    _ => {} // ignore client text/binary; stream is server-push only
+                }
+            }
+            _ = shutdown_rx.recv() => {
+                let _ = ws_tx
+                    .send(Message::close_with(1001u16, "server shutting down"))
+                    .await;
+                break;
+            }
+        }
+    }
+
+    let _ = close_tx.send(());
+    ping_task.abort();
+    hub.remove_connection(remote_ip);
+    tracing::info!(subject = %subject, "WS order-trace disconnected");
 }
 
 fn publish_event_to_ws_hub(hub: &WsHub, event: types::Event) {
