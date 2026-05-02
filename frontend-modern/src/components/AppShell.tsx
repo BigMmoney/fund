@@ -51,6 +51,9 @@ export function AppShell({ auth, onChangeAuth, notice, onNotice, children }: App
           <NavLink to="/control" className={({ isActive }) => `nav-tab ${isActive ? 'nav-tab-active' : ''}`}>
             Control
           </NavLink>
+          <NavLink to="/monitor" className={({ isActive }) => `nav-tab ${isActive ? 'nav-tab-active' : ''}`}>
+            Monitor
+          </NavLink>
           <NavLink to="/system" className={({ isActive }) => `nav-tab ${isActive ? 'nav-tab-active' : ''}`}>
             System
           </NavLink>

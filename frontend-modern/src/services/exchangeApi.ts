@@ -295,5 +295,39 @@ export function createExchangeApi(auth: AuthConfig) {
     getEarnPositions: (userId: string) => requestJson(auth, `/earn/positions/${encodeURIComponent(userId)}`),
     subscribeEarn: (body: JsonRecord) => requestJson(auth, '/earn/subscribe', { method: 'POST', body: JSON.stringify(body) }),
     redeemEarn: (body: JsonRecord) => requestJson(auth, '/earn/redeem', { method: 'POST', body: JSON.stringify(body) }),
+
+    // ── Order Flow Monitor (docs/MONITOR_DESIGN.md §5) ──
+    listMonitorOrders: (query: MonitorOrderListQuery = {}) => {
+      const params = new URLSearchParams()
+      if (query.userId) params.set('user_id', query.userId)
+      if (query.marketId) params.set('market_id', query.marketId)
+      if (query.stage) params.set('stage', query.stage)
+      if (typeof query.terminal === 'boolean') params.set('terminal', String(query.terminal))
+      if (typeof query.limit === 'number') params.set('limit', String(query.limit))
+      if (typeof query.sinceMs === 'number') params.set('since_ms', String(query.sinceMs))
+      const qs = params.toString()
+      return requestJson(auth, `/monitor/orders${qs.length > 0 ? `?${qs}` : ''}`)
+    },
+    getMonitorOrder: (orderId: string) =>
+      requestJson(auth, `/monitor/orders/${encodeURIComponent(orderId)}`),
+    getMonitorTimeline: (orderId: string, sinceEventId?: string, limit?: number) => {
+      const params = new URLSearchParams()
+      if (sinceEventId) params.set('since_event_id', sinceEventId)
+      if (typeof limit === 'number') params.set('limit', String(limit))
+      const qs = params.toString()
+      return requestJson(
+        auth,
+        `/monitor/orders/${encodeURIComponent(orderId)}/timeline${qs.length > 0 ? `?${qs}` : ''}`,
+      )
+    },
   }
+}
+
+export interface MonitorOrderListQuery {
+  userId?: string
+  marketId?: string
+  stage?: string
+  terminal?: boolean
+  limit?: number
+  sinceMs?: number
 }

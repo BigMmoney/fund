@@ -3,6 +3,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/AppShell'
 import { BusinessPage } from '@/pages/BusinessPage'
 import { ControlPage } from '@/pages/ControlPage'
+import { MonitorPage } from '@/pages/MonitorPage'
 import { SystemPage } from '@/pages/SystemPage'
 import type { AuthConfig } from '@/services/exchangeApi'
 
@@ -57,6 +58,7 @@ function Workspace() {
         <Route path="/" element={<Navigate replace to="/business" />} />
         <Route path="/business" element={<BusinessPage auth={auth} onNotice={setNotice} />} />
         <Route path="/control" element={<ControlPage auth={auth} onNotice={setNotice} />} />
+        <Route path="/monitor" element={<MonitorPage auth={auth} onNotice={setNotice} />} />
         <Route path="/system" element={<SystemPage auth={auth} onNotice={setNotice} />} />
         <Route path="*" element={<Navigate replace to="/business" />} />
       </Routes>
