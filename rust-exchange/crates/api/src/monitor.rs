@@ -36,7 +36,30 @@ use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use types::{OrderTraceEvent, OrderTraceStage};
+use eventbus::EventBus;
+use types::{Event, OrderTraceEvent, OrderTraceStage, TraceEmitter};
+
+/// `TraceEmitter` impl that publishes onto the production `EventBus` so
+/// the monitor consumer task (see `main.rs::spawn_monitor_consumer`) can
+/// pick events up via `event_bus.subscribe("order.trace")`. Producers in
+/// the sequencer / matching / api / bootstrap crates depend only on the
+/// `TraceEmitter` trait in `crates/types` — they do not link to
+/// `eventbus`. The api crate is the single place that closes that loop.
+pub(crate) struct EventBusTraceEmitter {
+    event_bus: EventBus,
+}
+
+impl EventBusTraceEmitter {
+    pub(crate) fn new(event_bus: EventBus) -> Self {
+        Self { event_bus }
+    }
+}
+
+impl TraceEmitter for EventBusTraceEmitter {
+    fn emit(&self, event: OrderTraceEvent) {
+        self.event_bus.publish(Event::OrderTrace(event));
+    }
+}
 
 /// Default soft cap on tracked orders. Eviction starts when the projector
 /// crosses this on the next write. See design §4.1.
@@ -201,12 +224,15 @@ impl OrderTraceProjector {
 
     fn apply_with_order_id(&self, ev: OrderTraceEvent, order_id: String) {
         // If a pre-sequencer bucket exists for this request, drain it into
-        // the order timeline before applying the current event.
-        if matches!(ev.stage, OrderTraceStage::SequencerAccepted) {
-            if let Some(key) = trace_key_of(&ev) {
-                if let Some((_k, bucket)) = self.by_trace_key.remove(&key) {
-                    self.merge_buffered_events(&order_id, bucket.events);
-                }
+        // the order timeline before applying the current event. The flush
+        // happens on *any* event that carries both an order_id and a
+        // trace_key, not just `sequencer_accepted` — for new orders, the
+        // sequencer never sees an order_id (it is assigned downstream by
+        // matching), so the actual binding moment is the first matching
+        // event that carries both. See design §3.3.1.
+        if let Some(key) = trace_key_of(&ev) {
+            if let Some((_k, bucket)) = self.by_trace_key.remove(&key) {
+                self.merge_buffered_events(&order_id, bucket.events);
             }
         }
 
@@ -498,6 +524,59 @@ mod tests {
         assert!(!s.terminal);
         let tl = p.get_timeline("ord-1", None, None).unwrap();
         assert_eq!(tl.timeline.len(), 1);
+    }
+
+    #[test]
+    fn realistic_new_order_flow_binds_at_first_matching_event() {
+        // For new orders the sequencer never sees an order_id — it is
+        // assigned downstream by matching. The full pre-binding
+        // sequence (api_received, sequencer_accepted, sequencer_persisted)
+        // accumulates in the trace_key bucket; matching_resting is the
+        // first event that carries both order_id AND request_id, and it
+        // triggers the flush.
+        let p = OrderTraceProjector::new();
+
+        let mut received = ev(OrderTraceStage::ApiReceived, None, 0);
+        received.request_id = Some("req-new".into());
+        received.client_order_id = Some("cli-new".into());
+        p.apply_event(received);
+
+        let mut accepted = ev(OrderTraceStage::SequencerAccepted, None, 1);
+        accepted.request_id = Some("req-new".into());
+        accepted.client_order_id = Some("cli-new".into());
+        accepted.command_seq = Some(7);
+        p.apply_event(accepted);
+
+        let mut persisted = ev(OrderTraceStage::SequencerPersisted, None, 2);
+        persisted.request_id = Some("req-new".into());
+        persisted.command_seq = Some(7);
+        p.apply_event(persisted);
+
+        // Three buffered, no order yet.
+        assert_eq!(p.order_count(), 0);
+        assert_eq!(p.trace_key_bucket_count(), 1);
+
+        // Matching assigns the canonical order_id and emits its first
+        // event with both order_id AND request_id populated. Bucket
+        // flushes here.
+        let mut resting = ev(OrderTraceStage::MatchingResting, Some("ord-z"), 3);
+        resting.request_id = Some("req-new".into());
+        resting.client_order_id = Some("cli-new".into());
+        resting.command_seq = Some(7);
+        p.apply_event(resting);
+
+        assert_eq!(p.trace_key_bucket_count(), 0);
+        let tl = p.get_timeline("ord-z", None, None).unwrap();
+        // Three buffered + the matching event itself = 4.
+        assert_eq!(tl.timeline.len(), 4);
+        assert_eq!(tl.timeline[0].stage, OrderTraceStage::ApiReceived);
+        assert_eq!(tl.timeline[1].stage, OrderTraceStage::SequencerAccepted);
+        assert_eq!(tl.timeline[2].stage, OrderTraceStage::SequencerPersisted);
+        assert_eq!(tl.timeline[3].stage, OrderTraceStage::MatchingResting);
+
+        let s = p.get_order("ord-z").unwrap();
+        assert_eq!(s.command_seq, Some(7));
+        assert_eq!(s.client_order_id.as_deref(), Some("cli-new"));
     }
 
     #[test]

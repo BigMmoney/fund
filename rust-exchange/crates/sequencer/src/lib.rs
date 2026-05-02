@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
-use types::{Command, CommandLifecycle, CommandMetadata};
+use types::{
+    Command, CommandLifecycle, CommandMetadata, OrderTraceEvent, OrderTraceStage, TraceEmitter,
+};
 
 /// Controls how sequence gaps are handled during WAL recovery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +58,12 @@ pub struct Sequencer {
     next_seq: AtomicU64,
     record_by_request: DashMap<String, SequencedCommandRecord>,
     wal_store: Arc<dyn WalStore<SequencedCommandRecord>>,
+    /// Observer-only sink. When `Some`, the sequencer emits
+    /// `sequencer_accepted` + `sequencer_persisted` on the success path of
+    /// `sequence_and_append`, and `sequencer_accepted` from `sequence`.
+    /// Failures (WAL append failure, duplicate request) emit nothing.
+    /// See `docs/MONITOR_DESIGN.md`.
+    trace_emitter: Option<Arc<dyn TraceEmitter>>,
 }
 
 impl std::fmt::Debug for Sequencer {
@@ -73,10 +81,29 @@ impl Sequencer {
     }
 
     pub fn with_wal(start_seq: u64, wal_store: Arc<dyn WalStore<SequencedCommandRecord>>) -> Self {
+        Self::with_wal_and_emitter(start_seq, wal_store, None)
+    }
+
+    /// Construct a Sequencer with an optional `TraceEmitter` for the order
+    /// flow monitor. When `trace_emitter` is `Some`, the sequencer emits
+    /// trace events on the success path of `sequence` and
+    /// `sequence_and_append`. Failures emit nothing.
+    pub fn with_wal_and_emitter(
+        start_seq: u64,
+        wal_store: Arc<dyn WalStore<SequencedCommandRecord>>,
+        trace_emitter: Option<Arc<dyn TraceEmitter>>,
+    ) -> Self {
         Self {
             next_seq: AtomicU64::new(start_seq),
             record_by_request: DashMap::new(),
             wal_store,
+            trace_emitter,
+        }
+    }
+
+    fn maybe_emit(&self, event: OrderTraceEvent) {
+        if let Some(emitter) = &self.trace_emitter {
+            emitter.emit(event);
         }
     }
 
@@ -173,6 +200,18 @@ impl Sequencer {
                     recorded_at: Utc::now(),
                 };
                 entry.insert(record);
+
+                // Observer: emit `sequencer_accepted`. No `sequencer_persisted`
+                // here — this path does not touch a durable WAL.
+                if let Some(ev) = order_trace_for(
+                    &command,
+                    OrderTraceStage::SequencerAccepted,
+                    seq,
+                    CommandLifecycle::Sequenced,
+                ) {
+                    self.maybe_emit(ev);
+                }
+
                 Ok(command)
             }
         }
@@ -212,6 +251,28 @@ impl Sequencer {
                 })?;
 
                 entry.insert(record);
+
+                // Observer: emit `sequencer_accepted` then `sequencer_persisted`
+                // only after the success path commits. WAL failure rolls back
+                // the seq and emits nothing — the api layer will emit
+                // `api_rejected` for the caller.
+                if let Some(ev) = order_trace_for(
+                    &command,
+                    OrderTraceStage::SequencerAccepted,
+                    seq,
+                    CommandLifecycle::Sequenced,
+                ) {
+                    self.maybe_emit(ev);
+                }
+                if let Some(ev) = order_trace_for(
+                    &command,
+                    OrderTraceStage::SequencerPersisted,
+                    seq,
+                    CommandLifecycle::WalAppended,
+                ) {
+                    self.maybe_emit(ev);
+                }
+
                 Ok(command)
             }
         }
@@ -370,6 +431,69 @@ impl Sequencer {
 impl Default for Sequencer {
     fn default() -> Self {
         Self::new(1)
+    }
+}
+
+/// Build an `OrderTraceEvent` for a sequencer-emitted stage. Returns
+/// `None` for command kinds that do not correspond to a single tracked
+/// order (mass-cancel, admin) — those are not on the order-flow timeline
+/// the monitor visualizes.
+///
+/// For `NewOrderCommand` the event is constructed via
+/// [`OrderTraceEvent::new_unbound`]: the sequencer assigns a
+/// `command_seq` but not a canonical `order_id` — the projector will
+/// bind this event to the eventual order via `request_id` once a
+/// downstream stage (matching) emits with both fields populated. See
+/// `docs/MONITOR_DESIGN.md` §3.3.1.
+fn order_trace_for(
+    command: &Command,
+    stage: OrderTraceStage,
+    command_seq: u64,
+    lifecycle: CommandLifecycle,
+) -> Option<OrderTraceEvent> {
+    match command {
+        Command::NewOrder(c) => {
+            let mut ev = OrderTraceEvent::new_unbound(stage);
+            ev.client_order_id = Some(c.client_order_id.clone());
+            ev.user_id = Some(c.user_id.clone());
+            ev.session_id = c.session_id.clone();
+            ev.request_id = Some(c.metadata.request_id.clone());
+            ev.command_seq = Some(command_seq);
+            ev.market_id = Some(c.market_id.clone());
+            ev.outcome = Some(c.outcome);
+            ev.side = Some(c.side);
+            ev.price = c.price;
+            ev.amount = Some(c.amount);
+            ev.lifecycle = Some(lifecycle);
+            Some(ev)
+        }
+        Command::CancelOrder(c) => {
+            let mut ev = OrderTraceEvent::new(stage, c.order_id.clone());
+            ev.client_order_id = c.client_order_id.clone();
+            ev.user_id = Some(c.user_id.clone());
+            ev.request_id = Some(c.metadata.request_id.clone());
+            ev.command_seq = Some(command_seq);
+            ev.market_id = Some(c.market_id.clone());
+            ev.outcome = c.outcome;
+            ev.lifecycle = Some(lifecycle);
+            Some(ev)
+        }
+        Command::ReplaceOrder(c) => {
+            let mut ev = OrderTraceEvent::new(stage, c.order_id.clone());
+            ev.client_order_id = c.new_client_order_id.clone();
+            ev.user_id = Some(c.user_id.clone());
+            ev.request_id = Some(c.metadata.request_id.clone());
+            ev.command_seq = Some(command_seq);
+            ev.market_id = Some(c.market_id.clone());
+            ev.outcome = c.outcome;
+            ev.lifecycle = Some(lifecycle);
+            Some(ev)
+        }
+        // Mass-cancel and admin commands are not single-order events.
+        Command::MassCancelByUser(_)
+        | Command::MassCancelBySession(_)
+        | Command::MassCancelByMarket(_)
+        | Command::Admin(_) => None,
     }
 }
 
@@ -718,5 +842,122 @@ mod tests {
             panic!("expected replace command");
         };
         assert_eq!(command.new_client_order_id.as_deref(), Some("generated-1"));
+    }
+
+    // ── Order Flow Monitor: trace event emission ─────────────────────────
+
+    /// Record-and-replay sink for sequencer trace events. Used in tests to
+    /// assert the sequencer emits the expected `OrderTraceEvent`s in the
+    /// expected order.
+    #[derive(Default)]
+    struct RecordingEmitter {
+        events: parking_lot::Mutex<Vec<OrderTraceEvent>>,
+    }
+    impl TraceEmitter for RecordingEmitter {
+        fn emit(&self, event: OrderTraceEvent) {
+            self.events.lock().push(event);
+        }
+    }
+
+    fn new_seq_with_emitter() -> (Sequencer, Arc<RecordingEmitter>) {
+        let emitter: Arc<RecordingEmitter> = Arc::new(RecordingEmitter::default());
+        let trace: Arc<dyn TraceEmitter> = emitter.clone();
+        let seq = Sequencer::with_wal_and_emitter(1, Arc::new(InMemoryWal::new()), Some(trace));
+        (seq, emitter)
+    }
+
+    #[test]
+    fn sequence_and_append_emits_accepted_then_persisted_for_new_order() {
+        let (seq, emitter) = new_seq_with_emitter();
+        seq.sequence_and_append(new_order_command("req-1", "cli-1"))
+            .unwrap();
+
+        let evs = emitter.events.lock().clone();
+        assert_eq!(evs.len(), 2, "expected accepted + persisted, got {}", evs.len());
+        assert_eq!(evs[0].stage, OrderTraceStage::SequencerAccepted);
+        assert_eq!(evs[1].stage, OrderTraceStage::SequencerPersisted);
+
+        // New order: order_id is None at sequencer time (assigned by matching
+        // later); request_id and client_order_id carry the correlation.
+        for ev in &evs {
+            assert!(ev.order_id.is_none());
+            assert_eq!(ev.request_id.as_deref(), Some("req-1"));
+            assert_eq!(ev.client_order_id.as_deref(), Some("cli-1"));
+            assert_eq!(ev.command_seq, Some(1));
+            assert_eq!(ev.user_id.as_deref(), Some("user-1"));
+            assert_eq!(ev.market_id.as_deref(), Some("btc-usdt"));
+            assert_eq!(ev.amount, Some(10));
+            assert_eq!(ev.price, Some(100));
+        }
+        assert_eq!(evs[0].lifecycle, Some(CommandLifecycle::Sequenced));
+        assert_eq!(evs[1].lifecycle, Some(CommandLifecycle::WalAppended));
+    }
+
+    #[test]
+    fn sequence_and_append_emits_with_order_id_for_cancel() {
+        let (seq, emitter) = new_seq_with_emitter();
+        let cancel = Command::CancelOrder(CancelOrderCommand {
+            metadata: CommandMetadata::new("req-cxl"),
+            user_id: "user-1".into(),
+            market_id: "btc-usdt".into(),
+            outcome: Some(0),
+            order_id: "ord-target".into(),
+            client_order_id: Some("cli-cxl".into()),
+        });
+        seq.sequence_and_append(cancel).unwrap();
+
+        let evs = emitter.events.lock().clone();
+        assert_eq!(evs.len(), 2);
+        for ev in &evs {
+            assert_eq!(ev.order_id.as_deref(), Some("ord-target"));
+            assert_eq!(ev.request_id.as_deref(), Some("req-cxl"));
+        }
+    }
+
+    #[test]
+    fn sequence_emits_accepted_only_no_persisted() {
+        let (seq, emitter) = new_seq_with_emitter();
+        seq.sequence(new_order_command("req-x", "cli-x")).unwrap();
+
+        let evs = emitter.events.lock().clone();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].stage, OrderTraceStage::SequencerAccepted);
+    }
+
+    #[test]
+    fn duplicate_request_emits_nothing() {
+        let (seq, emitter) = new_seq_with_emitter();
+        seq.sequence_and_append(new_order_command("req-dup", "cli"))
+            .unwrap();
+        emitter.events.lock().clear();
+
+        let _err = seq.sequence_and_append(new_order_command("req-dup", "cli"));
+        assert!(
+            emitter.events.lock().is_empty(),
+            "duplicate request must emit nothing"
+        );
+    }
+
+    #[test]
+    fn mass_cancel_emits_nothing() {
+        let (seq, emitter) = new_seq_with_emitter();
+        let mass = Command::MassCancelByUser(MassCancelByUserCommand {
+            metadata: CommandMetadata::new("req-mass"),
+            user_id: "user-1".into(),
+        });
+        seq.sequence_and_append(mass).unwrap();
+        assert!(
+            emitter.events.lock().is_empty(),
+            "mass-cancel is not a single-order trace; emitter must not fire"
+        );
+    }
+
+    #[test]
+    fn sequencer_without_emitter_does_not_panic() {
+        // Default constructors set trace_emitter = None.
+        let seq = Sequencer::new(1);
+        seq.sequence_and_append(new_order_command("req-noemit", "cli"))
+            .unwrap();
+        // No assertion needed — test passes if no panic.
     }
 }

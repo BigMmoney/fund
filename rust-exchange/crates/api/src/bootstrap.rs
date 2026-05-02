@@ -74,7 +74,16 @@ pub(crate) async fn bootstrap_runtime(event_bus: EventBus) -> AppBootstrap {
         })
         .with_group_commit(wal_group_commit),
     );
-    let sequencer = Arc::new(Sequencer::with_wal(1, sequencer_wal));
+    // Order Flow Monitor: wire an observer-only trace emitter into the
+    // sequencer so `sequencer_accepted` and `sequencer_persisted` flow to
+    // the eventbus `order.trace` channel. Failures emit nothing.
+    let trace_emitter: Arc<dyn types::TraceEmitter> =
+        Arc::new(monitor::EventBusTraceEmitter::new(event_bus.clone()));
+    let sequencer = Arc::new(Sequencer::with_wal_and_emitter(
+        1,
+        sequencer_wal,
+        Some(trace_emitter),
+    ));
     if let Err(e) = sequencer.recover_from_wal() {
         panic!("FATAL: sequencer WAL recovery failed — refusing to start with empty state (wal={sequencer_wal_path}): {e}");
     }

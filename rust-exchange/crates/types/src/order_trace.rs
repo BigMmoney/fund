@@ -22,6 +22,18 @@ use crate::{ApiErrorCode, CommandLifecycle, Side};
 /// changes so old replay logs can be matched against the producing version.
 pub const ORDER_TRACE_SCHEMA_VERSION: u32 = 1;
 
+/// Observer-only sink for order trace events.
+///
+/// Implementations MUST NOT block or panic the calling thread. Producers
+/// (sequencer, matching, ledger, api request handlers, recovery) call
+/// `emit` on the success path of business operations and assume the
+/// implementation is fire-and-forget. The production wrapper publishes
+/// to an `eventbus::EventBus` channel where lagged subscribers are
+/// silently dropped.
+pub trait TraceEmitter: Send + Sync {
+    fn emit(&self, event: OrderTraceEvent);
+}
+
 /// Per-stage label for an order's journey through the system.
 ///
 /// Variants are ordered roughly along the happy-path timeline: api ingress →

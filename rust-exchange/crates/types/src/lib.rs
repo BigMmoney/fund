@@ -10,7 +10,9 @@ use std::fmt;
 use uuid::Uuid;
 
 pub mod order_trace;
-pub use order_trace::{OrderTraceEvent, OrderTraceStage, ORDER_TRACE_SCHEMA_VERSION};
+pub use order_trace::{
+    OrderTraceEvent, OrderTraceStage, TraceEmitter, ORDER_TRACE_SCHEMA_VERSION,
+};
 
 /// A user or system account with a balance tracked in the ledger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
