@@ -3050,6 +3050,94 @@ async fn run_funding_scheduler(
     }
 }
 
+/// Resolve the directory for the order-trace JSONL trail. Honors the
+/// `MONITOR_TRACE_DIR` environment variable if set; otherwise defaults to
+/// `data/trace` relative to the working directory (matches the path used
+/// in docs/MONITOR_DESIGN.md §2.1).
+fn monitor_trace_dir() -> std::path::PathBuf {
+    std::env::var("MONITOR_TRACE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("data/trace"))
+}
+
+/// Spawn the order-flow-monitor consumer and JSONL writer tasks.
+///
+/// Subscribes to the `order.trace` eventbus channel. For every
+/// `Event::OrderTrace`, the event is applied to the in-memory projector
+/// and forwarded into a bounded mpsc(8192) channel consumed by a
+/// `JsonlWriter`. Observer-only:
+///
+/// - The consumer is fire-and-forget. If the JSONL channel is full,
+///   events are dropped (`try_send` returns `Err`); producers never
+///   observe backpressure.
+/// - If the JSONL writer fails to open, the writer task exits cleanly
+///   and the in-memory projector continues to receive events. Reads
+///   through `/monitor/...` still work; only the durable trail is
+///   missing.
+/// - Per-record recovery events are filtered at the JSONL writer per
+///   design §3.6.
+fn spawn_monitor_consumer(
+    event_bus: eventbus::EventBus,
+    projector: std::sync::Arc<monitor::OrderTraceProjector>,
+) {
+    use tokio::sync::broadcast::error::RecvError;
+
+    let trace_dir = monitor_trace_dir();
+    let (jsonl_tx, mut jsonl_rx) = tokio::sync::mpsc::channel::<types::OrderTraceEvent>(8192);
+
+    tokio::spawn(async move {
+        let mut writer = match monitor_jsonl::JsonlWriter::open(
+            trace_dir.clone(),
+            monitor_jsonl::JsonlWriterConfig::default(),
+        )
+        .await
+        {
+            Ok(w) => {
+                tracing::info!(
+                    dir = %trace_dir.display(),
+                    "monitor JSONL writer started"
+                );
+                w
+            }
+            Err(e) => {
+                tracing::warn!(
+                    dir = %trace_dir.display(),
+                    error = %e,
+                    "monitor JSONL writer disabled (open failed)"
+                );
+                return;
+            }
+        };
+        while let Some(ev) = jsonl_rx.recv().await {
+            if let Err(e) = writer.write_event(&ev).await {
+                tracing::warn!(error = %e, "monitor JSONL write failed");
+            }
+        }
+        let _ = writer.flush().await;
+    });
+
+    tokio::spawn(async move {
+        let mut rx = event_bus.subscribe("order.trace");
+        tracing::info!("monitor trace consumer started");
+        loop {
+            match rx.recv().await {
+                Ok(types::Event::OrderTrace(ev)) => {
+                    let ev_for_jsonl = ev.clone();
+                    projector.apply_event(ev);
+                    // Best-effort forward to the JSONL writer. Channel-full
+                    // means the writer is behind; drop and continue.
+                    let _ = jsonl_tx.try_send(ev_for_jsonl);
+                }
+                Ok(_) => {}
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!(lagged = n, "monitor trace consumer lagged");
+                }
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -3085,6 +3173,7 @@ async fn main() {
     let event_bus = EventBus::new();
     let event_bus_for_ws = event_bus.clone();
     let event_bus_for_stops = event_bus.clone();
+    let event_bus_for_monitor = event_bus.clone();
     let app = bootstrap_runtime(event_bus).await;
     let AppBootstrap {
         ledger,
@@ -3498,6 +3587,21 @@ async fn main() {
         });
 
     let openapi_routes = openapi::build_openapi_routes();
+
+    // ── Order Flow Monitor (observer-only) ──────────────────────────────
+    // The projector is a per-process in-memory aggregator of trace events
+    // emitted by future per-stage emit sites (Steps 4–9 of the implementation
+    // ladder in docs/MONITOR_DESIGN.md §7). In this commit no producers
+    // exist, so the consumer task receives nothing at runtime — it is
+    // started here so the scaffold is fully wired and reviewable as one
+    // unit. Observer-only: the consumer never blocks the request path; if
+    // the JSONL channel is full, events are dropped on the floor.
+    let trace_projector = monitor::OrderTraceProjector::new();
+    let monitor_routes = monitor_http::build_monitor_routes(
+        trace_projector.clone(),
+        with_principal(),
+    );
+    spawn_monitor_consumer(event_bus_for_monitor, trace_projector);
 
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,
@@ -4011,6 +4115,7 @@ async fn main() {
         .or(custody_routes)
         .or(sentinel_routes)
         .or(fee_tier_routes)
+        .or(monitor_routes)
         .boxed();
     let trade_aux_group = transfer_routes
         .or(stop_order_routes)

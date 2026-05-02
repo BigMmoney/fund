@@ -1,9 +1,3 @@
-// Step 3C scaffold: routes are not mounted yet (mount + startup wiring
-// land in 3C2). The build function compiles and is exercised by unit
-// tests; nothing in main.rs constructs a projector or calls
-// build_monitor_routes in this commit.
-#![allow(dead_code)]
-
 //! Order Flow Monitor — REST handlers.
 //!
 //! Step 3C of `docs/MONITOR_DESIGN.md` §7. Three GET endpoints over the
@@ -32,7 +26,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use types::{AuthenticatedPrincipal, OrderTraceStage, PrincipalRole};
-use warp::{http::StatusCode, Filter, Rejection, Reply};
+use warp::{filters::BoxedFilter, Filter, Rejection};
 
 use crate::monitor::{OrderFilter, OrderTraceProjector};
 
@@ -74,7 +68,7 @@ fn with_projector(
 pub(crate) fn build_monitor_routes<F>(
     projector: Arc<OrderTraceProjector>,
     auth: F,
-) -> warp::filters::BoxedFilter<(Box<dyn Reply>,)>
+) -> BoxedFilter<(warp::reply::Json,)>
 where
     F: Filter<Extract = (AuthenticatedPrincipal,), Error = Rejection>
         + Clone
@@ -88,7 +82,6 @@ where
         .and(auth.clone())
         .and(warp::query::<ListOrdersQuery>())
         .and_then(handle_list_orders)
-        .map(|reply| Box::new(reply) as Box<dyn Reply>)
         .boxed();
 
     let get = warp::path!("monitor" / "orders" / String)
@@ -96,7 +89,6 @@ where
         .and(with_projector(projector.clone()))
         .and(auth.clone())
         .and_then(handle_get_order)
-        .map(|reply| Box::new(reply) as Box<dyn Reply>)
         .boxed();
 
     let timeline = warp::path!("monitor" / "orders" / String / "timeline")
@@ -105,7 +97,6 @@ where
         .and(auth)
         .and(warp::query::<TimelineQuery>())
         .and_then(handle_get_timeline)
-        .map(|reply| Box::new(reply) as Box<dyn Reply>)
         .boxed();
 
     timeline.or(get).unify().or(list).unify().boxed()
@@ -185,27 +176,14 @@ fn clamp_limit(raw: Option<usize>, default: usize, max: usize) -> usize {
     raw.unwrap_or(default).min(max).max(1)
 }
 
-/// Map the route-level `Rejection` types this module emits into HTTP
-/// status codes. The caller is responsible for actually wiring this into
-/// the warp recovery chain in 3C2; included here as a reference for
-/// reviewers.
-pub(crate) async fn recover(err: Rejection) -> Result<warp::reply::WithStatus<warp::reply::Json>, Rejection> {
-    if err.is_not_found() {
-        let body = serde_json::json!({"error": "not_found"});
-        return Ok(warp::reply::with_status(
-            warp::reply::json(&body),
-            StatusCode::NOT_FOUND,
-        ));
-    }
-    Err(err)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::monitor::OrderTraceProjector;
     use chrono::TimeZone;
     use types::{OrderTraceEvent, OrderTraceStage, PrincipalRole};
+    use warp::http::StatusCode;
+    use warp::Reply;
 
     fn principal(subject: &str, role: PrincipalRole) -> AuthenticatedPrincipal {
         AuthenticatedPrincipal {
