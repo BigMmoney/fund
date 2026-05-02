@@ -252,10 +252,18 @@ impl Sequencer {
 
                 entry.insert(record);
 
-                // Observer: emit `sequencer_accepted` then `sequencer_persisted`
-                // only after the success path commits. WAL failure rolls back
-                // the seq and emits nothing — the api layer will emit
-                // `api_rejected` for the caller.
+                // Observer: emit `sequencer_accepted`, then `sequencer_persisted`,
+                // then `wal_appended` after the success path commits. WAL
+                // failure rolls back the seq and emits nothing — the api
+                // layer will emit `api_rejected` for the caller.
+                //
+                // Per design §3.7, `wal_appended` is the generic "an order-
+                // bearing record reached durable storage" signal and lives at
+                // the higher-level call site rather than inside
+                // `crates/persistence`. For sequencer commands the trigger is
+                // identical to `sequencer_persisted`; both stages are emitted
+                // here so the timeline shows both lenses (the
+                // command-sequencer view and the durability view).
                 if let Some(ev) = order_trace_for(
                     &command,
                     OrderTraceStage::SequencerAccepted,
@@ -267,6 +275,14 @@ impl Sequencer {
                 if let Some(ev) = order_trace_for(
                     &command,
                     OrderTraceStage::SequencerPersisted,
+                    seq,
+                    CommandLifecycle::WalAppended,
+                ) {
+                    self.maybe_emit(ev);
+                }
+                if let Some(ev) = order_trace_for(
+                    &command,
+                    OrderTraceStage::WalAppended,
                     seq,
                     CommandLifecycle::WalAppended,
                 ) {
@@ -867,15 +883,21 @@ mod tests {
     }
 
     #[test]
-    fn sequence_and_append_emits_accepted_then_persisted_for_new_order() {
+    fn sequence_and_append_emits_accepted_persisted_wal_appended_for_new_order() {
         let (seq, emitter) = new_seq_with_emitter();
         seq.sequence_and_append(new_order_command("req-1", "cli-1"))
             .unwrap();
 
         let evs = emitter.events.lock().clone();
-        assert_eq!(evs.len(), 2, "expected accepted + persisted, got {}", evs.len());
+        assert_eq!(
+            evs.len(),
+            3,
+            "expected accepted + persisted + wal_appended, got {}",
+            evs.len()
+        );
         assert_eq!(evs[0].stage, OrderTraceStage::SequencerAccepted);
         assert_eq!(evs[1].stage, OrderTraceStage::SequencerPersisted);
+        assert_eq!(evs[2].stage, OrderTraceStage::WalAppended);
 
         // New order: order_id is None at sequencer time (assigned by matching
         // later); request_id and client_order_id carry the correlation.
@@ -891,6 +913,7 @@ mod tests {
         }
         assert_eq!(evs[0].lifecycle, Some(CommandLifecycle::Sequenced));
         assert_eq!(evs[1].lifecycle, Some(CommandLifecycle::WalAppended));
+        assert_eq!(evs[2].lifecycle, Some(CommandLifecycle::WalAppended));
     }
 
     #[test]
@@ -907,7 +930,10 @@ mod tests {
         seq.sequence_and_append(cancel).unwrap();
 
         let evs = emitter.events.lock().clone();
-        assert_eq!(evs.len(), 2);
+        assert_eq!(evs.len(), 3);
+        assert_eq!(evs[0].stage, OrderTraceStage::SequencerAccepted);
+        assert_eq!(evs[1].stage, OrderTraceStage::SequencerPersisted);
+        assert_eq!(evs[2].stage, OrderTraceStage::WalAppended);
         for ev in &evs {
             assert_eq!(ev.order_id.as_deref(), Some("ord-target"));
             assert_eq!(ev.request_id.as_deref(), Some("req-cxl"));
