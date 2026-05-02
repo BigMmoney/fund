@@ -32,6 +32,7 @@
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -420,7 +421,7 @@ pub(crate) struct OrderFilter {
     pub(crate) limit: Option<usize>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct OrderSummary {
     pub(crate) order_id: String,
     pub(crate) client_order_id: Option<String>,
@@ -453,7 +454,7 @@ impl From<&OrderTraceState> for OrderSummary {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct TimelinePage {
     pub(crate) order_id: String,
     pub(crate) current_stage: OrderTraceStage,
