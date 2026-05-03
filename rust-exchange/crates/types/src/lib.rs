@@ -14,6 +14,14 @@ pub use order_trace::{
     OrderTraceEvent, OrderTraceStage, TraceEmitter, ORDER_TRACE_SCHEMA_VERSION,
 };
 
+pub mod backoffice;
+pub use backoffice::{
+    AdminAuditRow, ApprovalRequest, ApprovalRequestId, ApprovalRequestStatus, AuditApprovalSummary,
+    AuditDecision, AuditOutcome, BackofficeAction, BackofficeActionVerdict, BackofficeRole,
+    Employee, EmployeeId, EmployeeStatus, Grant, GrantId, GrantScope, GrantStatus, MfaMethod,
+    ResourceRef, RoleLevel, BACKOFFICE_SCHEMA_VERSION,
+};
+
 /// A user or system account with a balance tracked in the ledger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
