@@ -3227,6 +3227,92 @@ async fn main() {
     let admin_rate_limiter = Arc::new(FixedWindowRateLimiter::new(Duration::from_secs(1)));
     let _rl_config = RateLimitConfig::default();
 
+    // ── Backoffice RBAC (Step 1E activation) ────────────────────────────
+    // Construct the four RBAC stores under the configured data dir, then
+    // build an AuthzService over them. If `BACKOFFICE_BOOTSTRAP_ADMIN` is
+    // set AND the employee store is empty, seed that subject as an Active
+    // employee with a SuperAdminBreakGlass / Act / Global grant valid for
+    // 30 days. This unblocks first-boot use of the admin surface without
+    // requiring a separate CLI; subsequent restarts are no-ops.
+    let admin_data_dir = std::path::PathBuf::from(&cfg().wal.data_dir).join("admin");
+    if let Err(e) = std::fs::create_dir_all(&admin_data_dir) {
+        panic!(
+            "failed to create RBAC data dir at '{}': {e}",
+            admin_data_dir.display()
+        );
+    }
+    let admin_employees_store = Arc::new(
+        admin_rbac_store::AdminEmployeeStore::open_jsonl(
+            admin_data_dir.join("employees.jsonl"),
+        )
+        .unwrap_or_else(|e| panic!("failed to open admin employee store: {e}")),
+    );
+    let admin_grants_store = Arc::new(
+        admin_rbac_store::AdminGrantStore::open_jsonl(admin_data_dir.join("grants.jsonl"))
+            .unwrap_or_else(|e| panic!("failed to open admin grant store: {e}")),
+    );
+    let admin_approvals_store = Arc::new(
+        admin_rbac_store::ApprovalRequestStore::open_jsonl(
+            admin_data_dir.join("approval_requests.jsonl"),
+        )
+        .unwrap_or_else(|e| panic!("failed to open admin approval-request store: {e}")),
+    );
+    let admin_rbac_audit_store = Arc::new(
+        admin_rbac_audit::AdminRbacAuditStore::open_jsonl(
+            admin_data_dir.join("rbac_audit.jsonl"),
+        )
+        .unwrap_or_else(|e| panic!("failed to open admin RBAC audit store: {e}")),
+    );
+    let authz_service = Arc::new(admin_authz::AuthzService::new(
+        admin_employees_store.clone(),
+        admin_grants_store.clone(),
+    ));
+    if let Ok(bootstrap_subject) = std::env::var("BACKOFFICE_BOOTSTRAP_ADMIN") {
+        let bootstrap_subject = bootstrap_subject.trim().to_string();
+        if !bootstrap_subject.is_empty() && admin_employees_store.get(&bootstrap_subject).is_none()
+        {
+            let now = chrono::Utc::now();
+            if let Err(e) = admin_employees_store.create(types::Employee {
+                schema_version: types::BACKOFFICE_SCHEMA_VERSION,
+                employee_id: bootstrap_subject.clone(),
+                display_name: format!("bootstrap admin: {bootstrap_subject}"),
+                status: types::EmployeeStatus::Active,
+                created_at: now,
+                updated_at: now,
+                last_mfa_method: Some(types::MfaMethod::Webauthn),
+                last_login_at: None,
+            }) {
+                tracing::error!(
+                    error = %e,
+                    "BACKOFFICE_BOOTSTRAP_ADMIN seeding failed at employee insert"
+                );
+            } else if let Err(e) = admin_grants_store.create(types::Grant {
+                schema_version: types::BACKOFFICE_SCHEMA_VERSION,
+                grant_id: format!("g-bootstrap-{}", uuid::Uuid::new_v4()),
+                employee_id: bootstrap_subject.clone(),
+                role: types::BackofficeRole::SuperAdminBreakGlass,
+                level: types::RoleLevel::Act,
+                scope: types::GrantScope::Global,
+                status: types::GrantStatus::Active,
+                granted_by: "system:bootstrap".into(),
+                granted_at: now,
+                expires_at: now + chrono::Duration::days(30),
+                reason: "BACKOFFICE_BOOTSTRAP_ADMIN env var seed at first boot".into(),
+                approval_request_id: None,
+            }) {
+                tracing::error!(
+                    error = %e,
+                    "BACKOFFICE_BOOTSTRAP_ADMIN seeding failed at grant insert"
+                );
+            } else {
+                tracing::warn!(
+                    subject = %bootstrap_subject,
+                    "BACKOFFICE_BOOTSTRAP_ADMIN: seeded SuperAdminBreakGlass grant valid for 30 days. Replace with a normal grant via /admin/employees/{{id}}/roles before TTL expiry."
+                );
+            }
+        }
+    }
+
     let stop_order_store = Arc::new(
         StopOrderStore::open_jsonl(stop_orders_wal_path())
             .unwrap_or_else(|e| panic!("failed to initialize stop order store: {e}")),
@@ -3628,13 +3714,30 @@ async fn main() {
     // bootstrap_runtime) so that bootstrap-time emits like
     // recovery_completed have a live subscriber. We only mount the REST
     // routes here, where the rest of the route assembly happens.
-    // Step 4: monitor RBAC integration is wired in 1E once admin
-    // employees are seeded; for now keep the legacy admin-sees-all
-    // behaviour by passing `None` as the authz service.
+    // Step 1E: monitor RBAC is now active. Admin principals must hold a
+    // grant satisfying `BackofficeAction::MonitorAccess` (auditor_readonly
+    // / support_l1 / trading_ops / risk_ops / finance_ops /
+    // super_admin_break_glass per the v1 matrix) to see beyond their
+    // own subject. Customer (User) principals are unaffected.
     let monitor_routes = monitor_http::build_monitor_routes(
         trace_projector.clone(),
         with_principal(),
-        None,
+        Some(authz_service.clone()),
+    );
+
+    // Mount the RBAC management surface + maker-checker approval flow.
+    let admin_rbac_routes = admin_rbac_http::build_admin_rbac_routes(
+        admin_employees_store.clone(),
+        admin_grants_store.clone(),
+        authz_service.clone(),
+        admin_rbac_audit_store.clone(),
+        with_principal(),
+    );
+    let admin_approvals_routes = admin_approvals_http::build_admin_approvals_routes(
+        admin_approvals_store.clone(),
+        authz_service.clone(),
+        admin_rbac_audit_store.clone(),
+        with_principal(),
     );
 
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
@@ -4142,6 +4245,8 @@ async fn main() {
         .or(pricing_admin_routes)
         .or(governance_admin_routes)
         .or(liquidation_admin_routes)
+        .or(admin_rbac_routes)
+        .or(admin_approvals_routes)
         .boxed();
     let user_group = account_routes
         .or(market_routes)
