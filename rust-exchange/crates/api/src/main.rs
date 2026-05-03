@@ -45,6 +45,7 @@ mod accounts;
 mod admin;
 mod admin_audit;
 mod admin_authz;
+mod admin_rbac_audit;
 mod admin_rbac_http;
 mod admin_rbac_store;
 mod api_trace;

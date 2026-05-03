@@ -31,10 +31,12 @@ use serde::Serialize;
 use warp::{filters::BoxedFilter, Filter, Rejection};
 
 use types::{
-    AuthenticatedPrincipal, BackofficeAction, BackofficeActionVerdict, Employee, GrantScope,
+    AuditDecision, AuditOutcome, AuthenticatedPrincipal, BackofficeAction, BackofficeActionVerdict,
+    Employee, GrantScope, MfaMethod, ResourceRef,
 };
 
 use crate::admin_authz::AuthzService;
+use crate::admin_rbac_audit::{AdminRbacAuditStore, DecisionRecord};
 use crate::admin_rbac_store::{AdminEmployeeStore, AdminGrantStore};
 
 #[derive(Debug, Serialize)]
@@ -72,11 +74,13 @@ fn with_arc<T: Clone + Send + Sync>(
 /// Build the v1 read-only RBAC routes wrapped under `auth`. Caller
 /// supplies the principal-extracting filter (production passes
 /// `crate::security::with_principal()`; tests pass a stub that
-/// injects a fixed principal).
+/// injects a fixed principal). The `audit` store records one row
+/// per authorization decision (success or denial) per design §6.
 pub(crate) fn build_admin_rbac_routes<F>(
     employees: Arc<AdminEmployeeStore>,
     grants: Arc<AdminGrantStore>,
     authz: Arc<AuthzService>,
+    audit: Arc<AdminRbacAuditStore>,
     auth: F,
 ) -> BoxedFilter<(warp::reply::Json,)>
 where
@@ -100,6 +104,7 @@ where
         .and(with_arc(authz))
         .and(with_arc(employees))
         .and(with_arc(grants))
+        .and(with_arc(audit))
         .and_then(handle_list_employees)
         .boxed();
 
@@ -134,15 +139,58 @@ pub(crate) async fn handle_list_employees(
     authz: Arc<AuthzService>,
     employees: Arc<AdminEmployeeStore>,
     grants: Arc<AdminGrantStore>,
+    audit: Arc<AdminRbacAuditStore>,
 ) -> Result<warp::reply::Json, Rejection> {
-    if authz.is_allowed(
+    let verdict = authz.is_allowed(
         &principal.subject,
         BackofficeAction::EmployeesList,
         &GrantScope::Global,
-    ) != BackofficeActionVerdict::Allow
-    {
+    );
+    let resource = ResourceRef {
+        kind: "endpoint".into(),
+        id: "/admin/employees".into(),
+    };
+    if verdict != BackofficeActionVerdict::Allow {
+        let _ = audit.record(DecisionRecord {
+            principal: &principal,
+            remote_ip: "",
+            user_agent: "",
+            mfa_method: MfaMethod::Webauthn,
+            action: BackofficeAction::EmployeesList,
+            resource,
+            scope: GrantScope::Global,
+            reason: "list employees endpoint",
+            decision: AuditDecision::DeniedAuthz,
+            decision_reason: Some(format!("verdict={verdict:?}")),
+            approval_request_id: None,
+            approval: None,
+            break_glass_session_id: None,
+            incident_reference: None,
+            outcome: AuditOutcome::Failure,
+            outcome_detail: None,
+        });
         return Err(warp::reject::not_found());
     }
+    // Authorized — record the success row BEFORE the side effect (the
+    // list response itself, design §9 rule 6).
+    let _ = audit.record(DecisionRecord {
+        principal: &principal,
+        remote_ip: "",
+        user_agent: "",
+        mfa_method: MfaMethod::Webauthn,
+        action: BackofficeAction::EmployeesList,
+        resource,
+        scope: GrantScope::Global,
+        reason: "list employees endpoint",
+        decision: AuditDecision::Committed,
+        decision_reason: None,
+        approval_request_id: None,
+        approval: None,
+        break_glass_session_id: None,
+        incident_reference: None,
+        outcome: AuditOutcome::Success,
+        outcome_detail: None,
+    });
     let list = employees.list();
     let total = list.len();
     let entries: Vec<EmployeeListEntry> = list
@@ -223,11 +271,17 @@ mod tests {
         }
     }
 
-    fn make_pieces() -> (Arc<AdminEmployeeStore>, Arc<AdminGrantStore>, Arc<AuthzService>) {
+    fn make_pieces() -> (
+        Arc<AdminEmployeeStore>,
+        Arc<AdminGrantStore>,
+        Arc<AuthzService>,
+        Arc<AdminRbacAuditStore>,
+    ) {
         let employees = Arc::new(AdminEmployeeStore::new(Arc::new(InMemoryWal::new())).unwrap());
         let grants = Arc::new(AdminGrantStore::new(Arc::new(InMemoryWal::new())).unwrap());
         let authz = Arc::new(AuthzService::new(employees.clone(), grants.clone()));
-        (employees, grants, authz)
+        let audit = Arc::new(AdminRbacAuditStore::new(Arc::new(InMemoryWal::new())));
+        (employees, grants, authz, audit)
     }
 
     fn stub_principal(subject: &'static str, role: PrincipalRole) -> impl Filter<Extract = (AuthenticatedPrincipal,), Error = Rejection> + Clone {
@@ -256,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn me_permissions_returns_empty_for_unknown_employee() {
-        let (_employees, grants, authz) = make_pieces();
+        let (_employees, grants, authz, _audit) = make_pieces();
         let principal = AuthenticatedPrincipal {
             subject: "ghost".into(),
             role: PrincipalRole::Admin,
@@ -277,7 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn me_permissions_returns_grants_and_allow_verdicts() {
-        let (employees, grants, authz) = make_pieces();
+        let (employees, grants, authz, _audit) = make_pieces();
         employees.create(employee("alice", EmployeeStatus::Active)).unwrap();
         grants
             .create(grant(
@@ -306,8 +360,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_employees_denied_without_permission() {
-        let (employees, grants, authz) = make_pieces();
+    async fn list_employees_denied_without_permission_writes_audit_row() {
+        let (employees, grants, authz, audit) = make_pieces();
         employees.create(employee("alice", EmployeeStatus::Active)).unwrap();
         // Alice has trading_ops, NOT auditor or break_glass — so
         // EmployeesList is denied.
@@ -325,12 +379,21 @@ mod tests {
             role: PrincipalRole::Admin,
             session_id: None,
         };
-        expect_not_found(handle_list_employees(principal, authz, employees, grants).await);
+        expect_not_found(
+            handle_list_employees(principal, authz, employees, grants, audit.clone()).await,
+        );
+        // Step 2: every authz decision (including denials) writes one
+        // audit row.
+        let rows = audit.entries().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].employee_id, "alice");
+        assert_eq!(rows[0].decision, AuditDecision::DeniedAuthz);
+        assert_eq!(rows[0].outcome, AuditOutcome::Failure);
     }
 
     #[tokio::test]
-    async fn list_employees_allowed_for_auditor() {
-        let (employees, grants, authz) = make_pieces();
+    async fn list_employees_allowed_for_auditor_writes_success_audit_row() {
+        let (employees, grants, authz, audit) = make_pieces();
         employees.create(employee("aud", EmployeeStatus::Active)).unwrap();
         employees.create(employee("alice", EmployeeStatus::Active)).unwrap();
         employees.create(employee("bob", EmployeeStatus::Suspended)).unwrap();
@@ -357,7 +420,9 @@ mod tests {
             role: PrincipalRole::Admin,
             session_id: None,
         };
-        let reply = handle_list_employees(principal, authz, employees, grants).await.unwrap();
+        let reply = handle_list_employees(principal, authz, employees, grants, audit.clone())
+            .await
+            .unwrap();
         let json = body_json(reply).await;
         assert_eq!(json["total"].as_u64().unwrap(), 3);
         let arr = json["employees"].as_array().unwrap();
@@ -368,11 +433,17 @@ mod tests {
         // alice has one active grant (trading_ops); bob has none; aud has one.
         assert_eq!(arr[0]["active_grants"].as_array().unwrap().len(), 1);
         assert_eq!(arr[2]["active_grants"].as_array().unwrap().len(), 0);
+        // Step 2: success path also writes an audit row, BEFORE the side
+        // effect (the response body) per design §9 rule 6.
+        let rows = audit.entries().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].decision, AuditDecision::Committed);
+        assert_eq!(rows[0].outcome, AuditOutcome::Success);
     }
 
     #[tokio::test]
     async fn build_admin_rbac_routes_smoke_warp_test() {
-        let (employees, grants, authz) = make_pieces();
+        let (employees, grants, authz, audit) = make_pieces();
         employees.create(employee("aud", EmployeeStatus::Active)).unwrap();
         grants
             .create(grant(
@@ -387,6 +458,7 @@ mod tests {
             employees,
             grants,
             authz,
+            audit,
             stub_principal("aud", PrincipalRole::Admin),
         );
 
