@@ -43,6 +43,7 @@ use warp::{
 
 mod accounts;
 mod admin;
+mod admin_approvals_http;
 mod admin_audit;
 mod admin_authz;
 mod admin_rbac_audit;
