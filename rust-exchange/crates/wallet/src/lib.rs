@@ -16,10 +16,14 @@
 //! covers Bitcoin's 21M-coin × 1e8 satoshi supply with room to spare
 //! for arithmetic without overflow concerns.
 
+pub mod address_book;
 pub mod types;
+pub mod withdrawal_store;
 
+pub use address_book::AddressBookStore;
 pub use types::{
     AddressStatus, ChainId, FeeUrgency, SanctionsCheckResult, SanctionsHit, SanctionsScreenStatus,
     WalletTier, WithdrawalAddress, WithdrawalAddressId, WithdrawalRecord, WithdrawalRejectReason,
     WithdrawalStatus, WALLET_SCHEMA_VERSION,
 };
+pub use withdrawal_store::{is_valid_transition, WithdrawalStore};
