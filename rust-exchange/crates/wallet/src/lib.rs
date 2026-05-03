@@ -17,10 +17,12 @@
 //! for arithmetic without overflow concerns.
 
 pub mod address_book;
+pub mod chain;
 pub mod types;
 pub mod withdrawal_store;
 
 pub use address_book::AddressBookStore;
+pub use chain::{ChainAdapter, ChainError, DepositEvent, InMemoryChainAdapter, SignedTx, UnsignedTx};
 pub use types::{
     AddressStatus, ChainId, FeeUrgency, SanctionsCheckResult, SanctionsHit, SanctionsScreenStatus,
     WalletTier, WithdrawalAddress, WithdrawalAddressId, WithdrawalRecord, WithdrawalRejectReason,
