@@ -3118,8 +3118,17 @@ fn spawn_monitor_consumer(
         let _ = writer.flush().await;
     });
 
+    // Subscribe synchronously *here* (not inside the spawned task) so the
+    // broadcast channel exists before any caller publishes. Without this,
+    // events emitted between the moment the publisher first calls
+    // `event_bus.publish(...)` and the moment the spawned task gets
+    // scheduled and reaches `event_bus.subscribe(...)` are dropped on the
+    // floor (broadcast doesn't replay). In particular this matters for
+    // bootstrap-time events like `recovery_completed` (Step 9) — those
+    // need spawn_monitor_consumer to have run before bootstrap_runtime
+    // emits them.
+    let mut rx = event_bus.subscribe("order.trace");
     tokio::spawn(async move {
-        let mut rx = event_bus.subscribe("order.trace");
         tracing::info!("monitor trace consumer started");
         loop {
             match rx.recv().await {
@@ -3179,6 +3188,15 @@ async fn main() {
     let event_bus_for_projection = event_bus.clone();
     let event_bus_for_trading = event_bus.clone();
     let event_bus_for_ws_routes = event_bus.clone();
+
+    // Order Flow Monitor: construct the projector and start the consumer
+    // task BEFORE bootstrap_runtime so the broadcast subscriber exists
+    // by the time bootstrap publishes recovery_completed (and any future
+    // pre-runtime trace events). Without this ordering, the cold-boot
+    // recovery aggregate is silently dropped.
+    let trace_projector = monitor::OrderTraceProjector::new();
+    spawn_monitor_consumer(event_bus_for_monitor, trace_projector.clone());
+
     let app = bootstrap_runtime(event_bus).await;
     let AppBootstrap {
         ledger,
@@ -3600,20 +3618,15 @@ async fn main() {
 
     let openapi_routes = openapi::build_openapi_routes();
 
-    // ── Order Flow Monitor (observer-only) ──────────────────────────────
-    // The projector is a per-process in-memory aggregator of trace events
-    // emitted by future per-stage emit sites (Steps 4–9 of the implementation
-    // ladder in docs/MONITOR_DESIGN.md §7). In this commit no producers
-    // exist, so the consumer task receives nothing at runtime — it is
-    // started here so the scaffold is fully wired and reviewable as one
-    // unit. Observer-only: the consumer never blocks the request path; if
-    // the JSONL channel is full, events are dropped on the floor.
-    let trace_projector = monitor::OrderTraceProjector::new();
+    // ── Order Flow Monitor — REST routes ────────────────────────────────
+    // The projector + consumer task are constructed earlier (before
+    // bootstrap_runtime) so that bootstrap-time emits like
+    // recovery_completed have a live subscriber. We only mount the REST
+    // routes here, where the rest of the route assembly happens.
     let monitor_routes = monitor_http::build_monitor_routes(
         trace_projector.clone(),
         with_principal(),
     );
-    spawn_monitor_consumer(event_bus_for_monitor, trace_projector);
 
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,
