@@ -18,14 +18,18 @@
 
 pub mod address_book;
 pub mod chain;
+pub mod sanctions;
 pub mod types;
+pub mod velocity;
 pub mod withdrawal_store;
 
 pub use address_book::AddressBookStore;
 pub use chain::{ChainAdapter, ChainError, DepositEvent, InMemoryChainAdapter, SignedTx, UnsignedTx};
+pub use sanctions::{SanctionsError, SanctionsProvider, StubSanctionsProvider};
 pub use types::{
     AddressStatus, ChainId, FeeUrgency, SanctionsCheckResult, SanctionsHit, SanctionsScreenStatus,
     WalletTier, WithdrawalAddress, WithdrawalAddressId, WithdrawalRecord, WithdrawalRejectReason,
     WithdrawalStatus, WALLET_SCHEMA_VERSION,
 };
+pub use velocity::{from_records as build_velocity_tracker, VelocityTracker};
 pub use withdrawal_store::{is_valid_transition, WithdrawalStore};
