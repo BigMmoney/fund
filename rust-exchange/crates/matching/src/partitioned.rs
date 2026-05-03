@@ -3471,6 +3471,45 @@ fn emit_matching_outcome_for_new_order(
     event_bus.publish(Event::OrderTrace(ev));
 }
 
+/// Emit a `matching_*` trace event for the RESTING (maker) side of a
+/// match. Called once per fill at the fill construction site so the
+/// resting order's timeline reflects each chunk. Stage selection:
+/// - `resting.remaining_amount == 0` → `matching_filled` (the maker is
+///   fully done; this is the binding moment for the resting side's
+///   terminal state in the projector).
+/// - otherwise → `matching_partially_filled`.
+///
+/// The incoming (taker) side gets its own event from
+/// `emit_matching_outcome_for_new_order` at the end of process_new_order;
+/// this helper only handles the maker side.
+fn emit_matching_outcome_for_resting(
+    event_bus: &eventbus::EventBus,
+    resting: &RestingOrder,
+) {
+    let stage = if resting.remaining_amount == 0 {
+        OrderTraceStage::MatchingFilled
+    } else {
+        OrderTraceStage::MatchingPartiallyFilled
+    };
+    let mut ev = OrderTraceEvent::new(stage, resting.order_id.clone());
+    ev.request_id = Some(resting.request_id.clone());
+    ev.command_seq = resting.command_seq;
+    ev.user_id = Some(resting.user_id.clone());
+    ev.session_id = resting.session_id.clone();
+    ev.market_id = Some(resting.market_id.clone());
+    ev.outcome = Some(resting.outcome);
+    ev.side = Some(resting.side);
+    ev.price = Some(resting.price);
+    ev.amount = Some(resting.original_amount);
+    ev.remaining_amount = Some(resting.remaining_amount);
+    ev.filled_amount = Some(
+        resting
+            .original_amount
+            .saturating_sub(resting.remaining_amount),
+    );
+    event_bus.publish(Event::OrderTrace(ev));
+}
+
 /// Emit one `ledger_settled` trace event for a single side of a trade
 /// fill — i.e. one row in the order's timeline marking that the ledger
 /// commits associated with this match (fee collection, cash/position
@@ -4765,6 +4804,13 @@ fn match_incoming(
             executed_amount,
             resting_fee,
         );
+        // Observer: emit a matching_* event for the RESTING (maker) side
+        // so its timeline shows the per-fill progression and a final
+        // matching_filled when its remaining_amount hits 0. Without this,
+        // the maker's current_stage stalls at the original
+        // matching_resting from when it was placed and `terminal` never
+        // flips, even after the order is fully consumed.
+        emit_matching_outcome_for_resting(event_bus, &resting);
         outcome.fills.push(buy_fill);
         outcome.fills.push(sell_fill);
 
