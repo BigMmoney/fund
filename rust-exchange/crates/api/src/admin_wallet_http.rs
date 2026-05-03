@@ -23,14 +23,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::Serialize;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use warp::{filters::BoxedFilter, Filter, Rejection};
 
 use types::{
     AuditDecision, AuditOutcome, AuthenticatedPrincipal, BackofficeAction, BackofficeActionVerdict,
     GrantScope, MfaMethod, ResourceRef,
 };
-use wallet::{ChainAdapter, ChainId, WithdrawalRecord, WithdrawalStore};
+use wallet::{
+    ChainAdapter, ChainId, WithdrawalRecord, WithdrawalStatus, WithdrawalStore, WALLET_SCHEMA_VERSION,
+};
 
 use crate::admin_authz::AuthzService;
 use crate::admin_rbac_audit::{AdminRbacAuditStore, DecisionRecord};
@@ -126,14 +129,162 @@ where
 
     let queue = warp::path!("admin" / "wallet" / "queue")
         .and(warp::get())
-        .and(auth)
-        .and(with_arc(withdrawals))
-        .and(with_arc(authz))
-        .and(with_arc(audit))
+        .and(auth.clone())
+        .and(with_arc(withdrawals.clone()))
+        .and(with_arc(authz.clone()))
+        .and(with_arc(audit.clone()))
         .and_then(handle_queue)
         .boxed();
 
-    balances.or(queue).unify().boxed()
+    let test_withdrawal = warp::path!("admin" / "wallet" / "test-withdrawal")
+        .and(warp::post())
+        .and(auth)
+        .and(warp::body::json())
+        .and(with_arc(withdrawals))
+        .and(with_arc(authz))
+        .and(with_arc(audit))
+        .and_then(handle_test_withdrawal)
+        .boxed();
+
+    balances.or(queue).unify().or(test_withdrawal).unify().boxed()
+}
+
+/// Body for `POST /admin/wallet/test-withdrawal`. Operator-facing
+/// helper that creates a synthetic withdrawal record in the wallet
+/// store and immediately auto-approves it so the hot-wallet worker
+/// picks it up. Strictly for end-to-end pipeline testing — production
+/// withdrawals come from the customer-facing `/withdraw` endpoint
+/// (separate migration track).
+#[derive(Debug, Deserialize)]
+pub(crate) struct TestWithdrawalBody {
+    pub user_id: String,
+    pub chain: ChainId,
+    pub destination_address: String,
+    pub amount: i128,
+    #[serde(default)]
+    pub estimated_fee: Option<i128>,
+    #[serde(default)]
+    pub confirmations_required: Option<u32>,
+    pub reason: String,
+}
+
+pub(crate) async fn handle_test_withdrawal(
+    principal: AuthenticatedPrincipal,
+    body: TestWithdrawalBody,
+    withdrawals: Arc<WithdrawalStore>,
+    authz: Arc<AuthzService>,
+    audit: Arc<AdminRbacAuditStore>,
+) -> Result<warp::reply::Json, Rejection> {
+    // Reuse the WithdrawalsApprove permission as the v1 gate for
+    // creating test withdrawals: only roles that can already commit
+    // withdrawals through maker-checker may exercise this endpoint.
+    let resource = ResourceRef {
+        kind: "endpoint".into(),
+        id: "/admin/wallet/test-withdrawal".into(),
+    };
+    let verdict = authz.is_allowed(
+        &principal.subject,
+        BackofficeAction::WithdrawalsApprove,
+        &GrantScope::Global,
+    );
+    if verdict == BackofficeActionVerdict::Deny {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            "no WithdrawalsApprove grant",
+        ));
+        return Err(warp::reject::not_found());
+    }
+    if body.reason.trim().len() < 16 {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            "reason too short (min 16 non-whitespace chars)",
+        ));
+        return Err(warp::reject::not_found());
+    }
+    if body.amount <= 0 {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            "amount must be > 0",
+        ));
+        return Err(warp::reject::not_found());
+    }
+    let now = Utc::now();
+    let withdrawal_id = format!("wd-test-{}", uuid::Uuid::new_v4());
+    let record = WithdrawalRecord {
+        schema_version: WALLET_SCHEMA_VERSION,
+        withdrawal_id: withdrawal_id.clone(),
+        user_id: body.user_id.clone(),
+        chain: body.chain,
+        address_id: "test-address".into(),
+        destination_address: body.destination_address.clone(),
+        amount: body.amount,
+        estimated_fee: body.estimated_fee.unwrap_or(1_000_000_i128),
+        actual_fee: None,
+        status: WithdrawalStatus::Submitted,
+        submitted_at: now,
+        updated_at: now,
+        approved_at: None,
+        broadcast_at: None,
+        confirmed_at: None,
+        settled_at: None,
+        tx_hash: None,
+        confirmations: 0,
+        confirmations_required: body.confirmations_required.unwrap_or(25),
+        approval_request_id: None,
+        rejection_reason: None,
+        notes: Some(format!("test withdrawal created by {}", principal.subject)),
+    };
+    if let Err(e) = withdrawals.create(record) {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            &format!("withdrawal store create failed: {e}"),
+        ));
+        return Err(warp::reject::not_found());
+    }
+    // Walk to Approved synchronously so the worker picks it up on
+    // its next tick. Production has the validate/queue/MC layers
+    // doing this; this is a test convenience.
+    for next in [
+        WithdrawalStatus::Validated,
+        WithdrawalStatus::Queued,
+        WithdrawalStatus::Approved,
+    ] {
+        if let Err(e) = withdrawals.advance_status(&withdrawal_id, next) {
+            let _ = audit.record(deny_record(
+                &principal,
+                BackofficeAction::WithdrawalsApprove,
+                resource,
+                &body.reason,
+                &format!("advance_status to {:?} failed: {e}", next),
+            ));
+            return Err(warp::reject::not_found());
+        }
+    }
+    let _ = audit.record(success_record(
+        &principal,
+        BackofficeAction::WithdrawalsApprove,
+        resource,
+        &body.reason,
+    ));
+    Ok(warp::reply::json(&serde_json::json!({
+        "status": "approved",
+        "withdrawal_id": withdrawal_id,
+        "user_id": body.user_id,
+        "chain": body.chain,
+        "amount": body.amount,
+    })))
 }
 
 pub(crate) async fn handle_balances(

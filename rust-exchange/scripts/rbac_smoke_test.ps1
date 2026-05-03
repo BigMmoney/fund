@@ -80,6 +80,12 @@ Ok "wiped $DataDir"
 Section "3. Boot api with BACKOFFICE_BOOTSTRAP_ADMIN=$BootstrapAdmin"
 $env:INTERNAL_AUTH_SHARED_SECRET = $Script:Secret
 $env:BACKOFFICE_BOOTSTRAP_ADMIN = $BootstrapAdmin
+# Seed hot wallet balance so the worker can sign + broadcast the
+# test withdrawal driven by phase 11.
+$env:WALLET_ETH_HOT_ADDRESS = "0xhot"
+$env:WALLET_ETH_SEED_WEI = "1000000000"
+# Tighter worker tick so the smoke doesn't have to wait 5+ seconds.
+$env:WALLET_WORKER_TICK_MS = "500"
 $logDir = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 if (-not (Start-ExchangeService -StdoutLog (Join-Path $logDir "rbac_smoke_stdout.log") -StderrLog (Join-Path $logDir "rbac_smoke_stderr.log") -WaitTimeoutSeconds 60)) {
@@ -203,8 +209,51 @@ try {
         Warn "resume got status=$($resp.StatusCode); expected 404"
     }
 
-    # ── 11. Wallet endpoints ──────────────────────────────────────────
-    Section "11. GET /admin/wallet/balances"
+    # ── 11. Test withdrawal end-to-end ─────────────────────────────────
+    Section "11. POST /admin/wallet/test-withdrawal (drives worker pipeline)"
+    $twBody = @{
+        user_id              = "smoke-customer"
+        chain                = "eth"
+        destination_address  = "0xdest"
+        amount               = 1000
+        estimated_fee        = 100
+        confirmations_required = 1
+        reason               = "smoke test withdrawal end-to-end pipeline check"
+    } | ConvertTo-Json -Compress
+    $resp = Invoke-AdminRequest -Method "POST" -Path "/admin/wallet/test-withdrawal" -BodyJson $twBody -Silent
+    if ($resp.StatusCode -ne 200) {
+        Fail "test-withdrawal status=$($resp.StatusCode) body=$($resp.Body)"
+        exit 1
+    }
+    $tw = $resp.ParsedJson
+    Ok "test-withdrawal accepted: id=$($tw.withdrawal_id) status=$($tw.status)"
+
+    # Allow up to ~3 worker ticks (15s) for Approved -> Broadcast.
+    Start-Sleep -Seconds 6
+
+    # Read the withdrawal-store JSONL directly to observe state. The
+    # worker has had time to advance Approved -> Broadcast (the
+    # in-memory adapter signs and broadcasts synchronously).
+    $wdJsonl = Join-Path $RustRoot "data/wallet/withdrawals.jsonl"
+    if (Test-Path $wdJsonl) {
+        $idEsc = [regex]::Escape($tw.withdrawal_id)
+        $lines = Get-Content $wdJsonl
+        $matchingLines = @($lines | Where-Object { $_ -match $idEsc })
+        $hasBroadcast = @($matchingLines | Where-Object { $_ -match '"status":"broadcast"' }).Count
+        $hasApproved  = @($matchingLines | Where-Object { $_ -match '"status":"approved"' }).Count
+        $hasSigning   = @($matchingLines | Where-Object { $_ -match '"status":"signing"' }).Count
+        Info "withdrawal $($tw.withdrawal_id): rows=$($matchingLines.Count) approved=$hasApproved signing=$hasSigning broadcast=$hasBroadcast"
+        if ($hasBroadcast -ge 1) {
+            Ok "worker advanced withdrawal to broadcast"
+        } else {
+            Warn "worker did not advance withdrawal to broadcast within 6s"
+        }
+    } else {
+        Warn "withdrawal jsonl not found at $wdJsonl"
+    }
+
+    # ── 12. Wallet endpoints ──────────────────────────────────────────
+    Section "13. GET /admin/wallet/balances"
     $resp = Invoke-AdminRequest -Method "GET" -Path "/admin/wallet/balances" -Silent
     if ($resp.StatusCode -ne 200) {
         Fail "balances status=$($resp.StatusCode) body=$($resp.Body)"
@@ -216,7 +265,7 @@ try {
     if ($null -eq $eth) { Fail "no eth chain in balances response"; exit 1 }
     Ok "eth balance: hot=$($eth.hot_balance), outstanding=$($eth.outstanding_reservations) (count=$($eth.outstanding_count))"
 
-    Section "12. GET /admin/wallet/queue"
+    Section "14. GET /admin/wallet/queue"
     $resp = Invoke-AdminRequest -Method "GET" -Path "/admin/wallet/queue" -Silent
     if ($resp.StatusCode -ne 200) {
         Fail "queue status=$($resp.StatusCode) body=$($resp.Body)"
