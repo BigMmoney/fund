@@ -32,7 +32,8 @@ use types::{
     GrantScope, MfaMethod, ResourceRef,
 };
 use wallet::{
-    ChainAdapter, ChainId, WithdrawalRecord, WithdrawalStatus, WithdrawalStore, WALLET_SCHEMA_VERSION,
+    ChainAdapter, ChainId, InMemoryChainAdapter, WithdrawalRecord, WithdrawalStatus,
+    WithdrawalStore, WALLET_SCHEMA_VERSION,
 };
 
 use crate::admin_authz::AuthzService;
@@ -102,8 +103,17 @@ fn with_arc<T: Clone + Send + Sync>(
     warp::any().map(move || value.clone())
 }
 
+/// Optional per-chain `InMemoryChainAdapter` references for the
+/// test-only `POST /admin/wallet/test-confirm` endpoint. When the
+/// adapter for a chain is `None`, the endpoint returns 404 — used in
+/// production deployments where the chain adapter is a real ETH/BTC
+/// client and confirmations come from the live chain.
+pub(crate) type TestAdapters = HashMap<ChainId, Arc<InMemoryChainAdapter>>;
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_admin_wallet_routes<F>(
     runtime: WalletRuntime,
+    test_adapters: TestAdapters,
     withdrawals: Arc<WithdrawalStore>,
     authz: Arc<AuthzService>,
     audit: Arc<AdminRbacAuditStore>,
@@ -117,6 +127,7 @@ where
         + 'static,
 {
     let runtime = Arc::new(runtime);
+    let test_adapters = Arc::new(test_adapters);
     let balances = warp::path!("admin" / "wallet" / "balances")
         .and(warp::get())
         .and(auth.clone())
@@ -138,15 +149,115 @@ where
 
     let test_withdrawal = warp::path!("admin" / "wallet" / "test-withdrawal")
         .and(warp::post())
-        .and(auth)
+        .and(auth.clone())
         .and(warp::body::json())
-        .and(with_arc(withdrawals))
-        .and(with_arc(authz))
-        .and(with_arc(audit))
+        .and(with_arc(withdrawals.clone()))
+        .and(with_arc(authz.clone()))
+        .and(with_arc(audit.clone()))
         .and_then(handle_test_withdrawal)
         .boxed();
 
-    balances.or(queue).unify().or(test_withdrawal).unify().boxed()
+    let test_confirm = warp::path!("admin" / "wallet" / "test-confirm")
+        .and(warp::post())
+        .and(auth)
+        .and(warp::body::json())
+        .and(with_arc(test_adapters))
+        .and(with_arc(authz))
+        .and(with_arc(audit))
+        .and_then(handle_test_confirm)
+        .boxed();
+
+    balances
+        .or(queue)
+        .unify()
+        .or(test_withdrawal)
+        .unify()
+        .or(test_confirm)
+        .unify()
+        .boxed()
+}
+
+/// Body for `POST /admin/wallet/test-confirm`. Bumps the in-memory
+/// chain adapter's confirmation depth for `tx_hash` so the next
+/// hot-wallet worker tick advances `Broadcast` -> `Confirmed`.
+/// Returns 404 when the chain isn't backed by an in-memory adapter
+/// (i.e. production with a real RPC client).
+#[derive(Debug, Deserialize)]
+pub(crate) struct TestConfirmBody {
+    pub chain: ChainId,
+    pub tx_hash: String,
+    pub confirmations: u32,
+    pub reason: String,
+}
+
+pub(crate) async fn handle_test_confirm(
+    principal: AuthenticatedPrincipal,
+    body: TestConfirmBody,
+    test_adapters: Arc<TestAdapters>,
+    authz: Arc<AuthzService>,
+    audit: Arc<AdminRbacAuditStore>,
+) -> Result<warp::reply::Json, Rejection> {
+    let resource = ResourceRef {
+        kind: "endpoint".into(),
+        id: "/admin/wallet/test-confirm".into(),
+    };
+    let verdict = authz.is_allowed(
+        &principal.subject,
+        BackofficeAction::WithdrawalsApprove,
+        &GrantScope::Global,
+    );
+    if verdict == BackofficeActionVerdict::Deny {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            "no WithdrawalsApprove grant",
+        ));
+        return Err(warp::reject::not_found());
+    }
+    if body.reason.trim().len() < 16 {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            "reason too short",
+        ));
+        return Err(warp::reject::not_found());
+    }
+    let Some(adapter) = test_adapters.get(&body.chain) else {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            "chain has no in-memory adapter (production deploy?)",
+        ));
+        return Err(warp::reject::not_found());
+    };
+    if let Err(e) = adapter.set_confirmations(&body.tx_hash, body.confirmations) {
+        let _ = audit.record(deny_record(
+            &principal,
+            BackofficeAction::WithdrawalsApprove,
+            resource,
+            &body.reason,
+            &format!("set_confirmations failed: {e}"),
+        ));
+        return Err(warp::reject::not_found());
+    }
+    let _ = audit.record(success_record(
+        &principal,
+        BackofficeAction::WithdrawalsApprove,
+        resource,
+        &body.reason,
+    ));
+    Ok(warp::reply::json(&serde_json::json!({
+        "status": "ok",
+        "chain": body.chain,
+        "tx_hash": body.tx_hash,
+        "confirmations": body.confirmations,
+    })))
 }
 
 /// Body for `POST /admin/wallet/test-withdrawal`. Operator-facing
@@ -676,7 +787,14 @@ mod tests {
                 session_id: None,
             })
         });
-        let routes = build_admin_wallet_routes(runtime, withdrawals, authz, audit, auth);
+        let routes = build_admin_wallet_routes(
+            runtime,
+            HashMap::new(),
+            withdrawals,
+            authz,
+            audit,
+            auth,
+        );
 
         let resp = warp::test::request()
             .method("GET")

@@ -3793,8 +3793,15 @@ async fn main() {
     // Suppress dead_code on the not-yet-wired stores. Future commits
     // (7-final + 8) consume them.
     let _ = &wallet_address_book;
+    // Test-only adapter map: lets POST /admin/wallet/test-confirm bump
+    // confirmation depth on the in-memory adapter. Empty in
+    // production deploys with real RPC adapters; the endpoint then
+    // returns 404 for any tx_hash on those chains.
+    let mut wallet_test_adapters: admin_wallet_http::TestAdapters = std::collections::HashMap::new();
+    wallet_test_adapters.insert(wallet::ChainId::Eth, wallet_eth_adapter.clone());
     let admin_wallet_routes = admin_wallet_http::build_admin_wallet_routes(
         wallet_runtime,
+        wallet_test_adapters,
         wallet_withdrawals.clone(),
         authz_service.clone(),
         admin_rbac_audit_store.clone(),

@@ -248,6 +248,37 @@ try {
         } else {
             Warn "worker did not advance withdrawal to broadcast within 6s"
         }
+
+        # Pull tx_hash from the latest broadcast row so we can drive
+        # the in-memory adapter's confirmation count.
+        $broadcastLine = @($matchingLines | Where-Object { $_ -match '"status":"broadcast"' })[-1]
+        if ($broadcastLine -match '"tx_hash":"([^"]+)"') {
+            $txHash = $Matches[1]
+            Info "tx_hash=$txHash — driving confirmations to threshold"
+            $cfBody = @{
+                chain         = "eth"
+                tx_hash       = $txHash
+                confirmations = 25
+                reason        = "smoke test confirms threshold met for worker advance"
+            } | ConvertTo-Json -Compress
+            $cf = Invoke-AdminRequest -Method "POST" -Path "/admin/wallet/test-confirm" -BodyJson $cfBody -Silent
+            if ($cf.StatusCode -eq 200) {
+                Ok "test-confirm accepted: confirmations bumped to 25"
+                # Wait one worker tick (500 ms) plus margin.
+                Start-Sleep -Seconds 2
+                $lines2 = Get-Content $wdJsonl
+                $hasConfirmed = @($lines2 | Where-Object { $_ -match $idEsc -and $_ -match '"status":"confirmed"' }).Count
+                if ($hasConfirmed -ge 1) {
+                    Ok "worker advanced withdrawal to confirmed"
+                } else {
+                    Warn "worker did not advance to confirmed within 2s after confirmations bump"
+                }
+            } else {
+                Warn "test-confirm status=$($cf.StatusCode) body=$($cf.Body)"
+            }
+        } else {
+            Warn "could not parse tx_hash from broadcast row"
+        }
     } else {
         Warn "withdrawal jsonl not found at $wdJsonl"
     }
