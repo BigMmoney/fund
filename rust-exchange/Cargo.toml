@@ -10,6 +10,7 @@ members = [
     "crates/risk",
     "crates/matching",
     "crates/api",
+    "crates/wallet",
 ]
 resolver = "2"
 
