@@ -3801,6 +3801,53 @@ async fn main() {
         with_principal(),
     );
 
+    // Step 8 part 3: spawn the in-process hot-wallet worker. One task
+    // per chain. Tick interval defaults to 5 s; override via
+    // `WALLET_WORKER_TICK_MS`. The worker drives Approved -->
+    // Broadcast --> Confirmed via the ChainAdapter; settlement
+    // (Confirmed --> Settled with the ledger debit) is a separate
+    // future task.
+    let wallet_worker_tick_ms: u64 = std::env::var("WALLET_WORKER_TICK_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5_000);
+    let wallet_worker_eth = Arc::new(wallet::HotWalletWorker::new(
+        wallet::ChainId::Eth,
+        wallet_eth_adapter.clone(),
+        wallet_withdrawals.clone(),
+        wallet_eth_hot_address.clone(),
+    ));
+    {
+        let worker = wallet_worker_eth.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_millis(wallet_worker_tick_ms));
+            tracing::info!(
+                tick_ms = wallet_worker_tick_ms,
+                "hot wallet worker started for eth"
+            );
+            loop {
+                interval.tick().await;
+                let report = worker.tick();
+                if report.signed_count
+                    + report.broadcast_count
+                    + report.confirmed_count
+                    + report.failed_count
+                    > 0
+                {
+                    tracing::info!(
+                        chain = "eth",
+                        signed = report.signed_count,
+                        broadcast = report.broadcast_count,
+                        confirmed = report.confirmed_count,
+                        failed = report.failed_count,
+                        "hot wallet worker tick"
+                    );
+                }
+            }
+        });
+    }
+
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,
     ));
