@@ -50,6 +50,7 @@ mod admin_rbac_audit;
 mod admin_rbac_http;
 mod admin_rbac_store;
 mod admin_trading_ops_http;
+mod admin_wallet_http;
 mod api_trace;
 mod beta_controls;
 mod bootstrap;
@@ -3753,6 +3754,53 @@ async fn main() {
         with_principal(),
     );
 
+    // Step 7G: Wallet — instantiate stores + a per-chain runtime. v1
+    // ships an in-memory ETH stub adapter so the operator surface is
+    // observable end-to-end without any chain RPC wiring. The real
+    // ETH adapter lands in 7E behind a feature flag. The hot wallet
+    // address comes from `WALLET_ETH_HOT_ADDRESS` if set, else a
+    // deterministic placeholder.
+    let wallet_data_dir = std::path::PathBuf::from(&cfg().wal.data_dir).join("wallet");
+    if let Err(e) = std::fs::create_dir_all(&wallet_data_dir) {
+        panic!(
+            "failed to create wallet data dir at '{}': {e}",
+            wallet_data_dir.display()
+        );
+    }
+    let wallet_address_book = Arc::new(
+        wallet::AddressBookStore::open_jsonl(wallet_data_dir.join("addresses.jsonl"))
+            .unwrap_or_else(|e| panic!("failed to open address book: {e}")),
+    );
+    let wallet_withdrawals = Arc::new(
+        wallet::WithdrawalStore::open_jsonl(wallet_data_dir.join("withdrawals.jsonl"))
+            .unwrap_or_else(|e| panic!("failed to open withdrawal store: {e}")),
+    );
+    let wallet_eth_hot_address = std::env::var("WALLET_ETH_HOT_ADDRESS")
+        .unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".into());
+    let wallet_eth_seed_balance: i128 = std::env::var("WALLET_ETH_SEED_WEI")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let wallet_eth_adapter = Arc::new(wallet::InMemoryChainAdapter::new(wallet::ChainId::Eth));
+    if wallet_eth_seed_balance > 0 {
+        wallet_eth_adapter.seed_balance(&wallet_eth_hot_address, wallet_eth_seed_balance);
+    }
+    let wallet_runtime = admin_wallet_http::WalletRuntime::empty().with_chain(
+        wallet::ChainId::Eth,
+        wallet_eth_adapter.clone(),
+        wallet_eth_hot_address.clone(),
+    );
+    // Suppress dead_code on the not-yet-wired stores. Future commits
+    // (7-final + 8) consume them.
+    let _ = &wallet_address_book;
+    let admin_wallet_routes = admin_wallet_http::build_admin_wallet_routes(
+        wallet_runtime,
+        wallet_withdrawals.clone(),
+        authz_service.clone(),
+        admin_rbac_audit_store.clone(),
+        with_principal(),
+    );
+
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,
     ));
@@ -4261,6 +4309,7 @@ async fn main() {
         .or(admin_rbac_routes)
         .or(admin_approvals_routes)
         .or(admin_trading_ops_routes)
+        .or(admin_wallet_routes)
         .boxed();
     let user_group = account_routes
         .or(market_routes)

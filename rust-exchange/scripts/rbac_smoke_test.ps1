@@ -203,6 +203,27 @@ try {
         Warn "resume got status=$($resp.StatusCode); expected 404"
     }
 
+    # ── 11. Wallet endpoints ──────────────────────────────────────────
+    Section "11. GET /admin/wallet/balances"
+    $resp = Invoke-AdminRequest -Method "GET" -Path "/admin/wallet/balances" -Silent
+    if ($resp.StatusCode -ne 200) {
+        Fail "balances status=$($resp.StatusCode) body=$($resp.Body)"
+        exit 1
+    }
+    $bal = $resp.ParsedJson
+    if ($bal.chains.Count -lt 1) { Fail "no chains in balances response"; exit 1 }
+    $eth = $bal.chains | Where-Object { $_.chain -eq "eth" } | Select-Object -First 1
+    if ($null -eq $eth) { Fail "no eth chain in balances response"; exit 1 }
+    Ok "eth balance: hot=$($eth.hot_balance), outstanding=$($eth.outstanding_reservations) (count=$($eth.outstanding_count))"
+
+    Section "12. GET /admin/wallet/queue"
+    $resp = Invoke-AdminRequest -Method "GET" -Path "/admin/wallet/queue" -Silent
+    if ($resp.StatusCode -ne 200) {
+        Fail "queue status=$($resp.StatusCode) body=$($resp.Body)"
+        exit 1
+    }
+    Ok "queue total=$($resp.ParsedJson.total)"
+
     # ── Verdict ────────────────────────────────────────────────────────
     Section "Verdict"
     Write-Host "  Backoffice RBAC smoke test: PASS" -ForegroundColor Green

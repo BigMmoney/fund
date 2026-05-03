@@ -13,6 +13,7 @@ persistence = { path = "../persistence" }
 projections = { path = "../projections" }
 risk = { path = "../risk" }
 sequencer = { path = "../sequencer" }
+wallet = { path = "../wallet" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
