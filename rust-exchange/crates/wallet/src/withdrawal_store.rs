@@ -105,6 +105,20 @@ impl WithdrawalStore {
         out
     }
 
+    /// All withdrawals currently at `target` status, oldest first by
+    /// `submitted_at`. Used by the hot-wallet worker to scan for
+    /// `Approved` and `Broadcast` records to drive forward.
+    pub fn by_status(&self, target: WithdrawalStatus) -> Vec<WithdrawalRecord> {
+        let mut out: Vec<WithdrawalRecord> = self
+            .by_id
+            .iter()
+            .filter(|e| e.value().status == target)
+            .map(|e| e.value().clone())
+            .collect();
+        out.sort_by(|a, b| a.submitted_at.cmp(&b.submitted_at));
+        out
+    }
+
     /// All withdrawals currently in the queue layer (Queued or
     /// AwaitingApproval), oldest first — the natural order operators
     /// process them in.

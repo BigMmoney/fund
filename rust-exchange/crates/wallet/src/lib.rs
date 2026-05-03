@@ -22,6 +22,7 @@ pub mod sanctions;
 pub mod types;
 pub mod velocity;
 pub mod withdrawal_store;
+pub mod worker;
 
 pub use address_book::AddressBookStore;
 pub use chain::{ChainAdapter, ChainError, DepositEvent, InMemoryChainAdapter, SignedTx, UnsignedTx};
@@ -33,3 +34,4 @@ pub use types::{
 };
 pub use velocity::{from_records as build_velocity_tracker, VelocityTracker};
 pub use withdrawal_store::{is_valid_transition, WithdrawalStore};
+pub use worker::{HotWalletWorker, WorkerTickReport};
