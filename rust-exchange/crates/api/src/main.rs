@@ -44,6 +44,7 @@ use warp::{
 mod accounts;
 mod admin;
 mod admin_audit;
+mod admin_rbac_store;
 mod api_trace;
 mod beta_controls;
 mod bootstrap;
