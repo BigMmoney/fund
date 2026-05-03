@@ -49,6 +49,7 @@ mod admin_authz;
 mod admin_rbac_audit;
 mod admin_rbac_http;
 mod admin_rbac_store;
+mod admin_trading_ops_http;
 mod api_trace;
 mod beta_controls;
 mod bootstrap;
@@ -3740,6 +3741,18 @@ async fn main() {
         with_principal(),
     );
 
+    // Step 5: Trading Ops actions (market halt/resume) wired through
+    // RBAC + maker-checker. trading_ops requires a previously-approved
+    // approval request; super_admin_break_glass commits single-actor.
+    let admin_trading_ops_routes = admin_trading_ops_http::build_admin_trading_ops_routes(
+        partitioned_engine.clone(),
+        sequencer.clone(),
+        admin_approvals_store.clone(),
+        authz_service.clone(),
+        admin_rbac_audit_store.clone(),
+        with_principal(),
+    );
+
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,
     ));
@@ -4247,6 +4260,7 @@ async fn main() {
         .or(liquidation_admin_routes)
         .or(admin_rbac_routes)
         .or(admin_approvals_routes)
+        .or(admin_trading_ops_routes)
         .boxed();
     let user_group = account_routes
         .or(market_routes)

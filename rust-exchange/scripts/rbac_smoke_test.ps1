@@ -163,6 +163,46 @@ try {
     if ($hasList -lt 1) { Warn "no employees_list audit row" } else { Ok "employees_list rows=$hasList" }
     if ($hasPending -lt 1) { Warn "no pending_approval audit row" } else { Ok "pending_approval rows=$hasPending" }
 
+    # ── 9. Trading Ops: market halt via break-glass single-actor ───────
+    Section "9. POST /admin/trading-ops/markets/btc-usdt/halt (break-glass)"
+    $haltBody = @{
+        outcome = 0
+        reason  = "smoke test halting btc-usdt under break-glass single-actor path"
+    } | ConvertTo-Json -Compress
+    $resp = Invoke-AdminRequest -Method "POST" -Path "/admin/trading-ops/markets/btc-usdt/halt" -BodyJson $haltBody -Silent
+    if ($resp.StatusCode -ne 200) {
+        Fail "halt status=$($resp.StatusCode) body=$($resp.Body)"
+        exit 1
+    }
+    $haltResp = $resp.ParsedJson
+    Ok "halt accepted: state=$($haltResp.state), request_id=$($haltResp.request_id)"
+
+    # Audit row for the halt commit.
+    $afterHaltLines = Get-Content $AuditFile
+    $haltAuditRows = @($afterHaltLines | Where-Object { $_ -match '"market_halt"' })
+    if ($haltAuditRows.Count -lt 1) {
+        Warn "no market_halt audit row written"
+    } else {
+        Ok "market_halt audit rows=$($haltAuditRows.Count)"
+    }
+
+    # ── 10. Trading Ops: market resume ─────────────────────────────────
+    Section "10. POST /admin/trading-ops/markets/btc-usdt/resume (break-glass)"
+    $resumeBody = @{
+        outcome = 0
+        reason  = "smoke test resuming btc-usdt under break-glass after halt verification"
+    } | ConvertTo-Json -Compress
+    # Note: MarketResume is RequiresApproval for super_admin_break_glass per the
+    # v1 matrix (a deliberate design choice — resume should always have a
+    # second pair of eyes). The smoke test has only one admin so this should
+    # 404 due to "no committed approval found".
+    $resp = Invoke-AdminRequest -Method "POST" -Path "/admin/trading-ops/markets/btc-usdt/resume" -BodyJson $resumeBody -Silent
+    if ($resp.StatusCode -eq 404) {
+        Ok "resume correctly rejected (404 — needs maker-checker approval)"
+    } else {
+        Warn "resume got status=$($resp.StatusCode); expected 404"
+    }
+
     # ── Verdict ────────────────────────────────────────────────────────
     Section "Verdict"
     Write-Host "  Backoffice RBAC smoke test: PASS" -ForegroundColor Green
