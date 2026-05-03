@@ -25,9 +25,13 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use serde::Deserialize;
-use types::{AuthenticatedPrincipal, OrderTraceStage, PrincipalRole};
+use types::{
+    AuthenticatedPrincipal, BackofficeAction, BackofficeActionVerdict, GrantScope, OrderTraceStage,
+    PrincipalRole,
+};
 use warp::{filters::BoxedFilter, Filter, Rejection};
 
+use crate::admin_authz::AuthzService;
 use crate::monitor::{OrderFilter, OrderTraceProjector};
 
 pub(crate) const LIST_LIMIT_DEFAULT: usize = 100;
@@ -65,9 +69,19 @@ fn with_projector(
 /// Returns a `BoxedFilter` so the type collapses early — see Group 2c
 /// `feat(api): harden order validation and box warp routes` for the
 /// motivation (long warp chains otherwise blow up cargo type-check).
+/// Build the monitor REST routes. `authz` is optional: when `Some`, an
+/// admin principal must additionally satisfy `BackofficeAction::
+/// MonitorAccess` per the RBAC matrix (Step 4 integration). When
+/// `None`, falls back to the legacy admin-sees-all behaviour for
+/// existing test scaffolds and pre-RBAC deployments.
+///
+/// Customer (`PrincipalRole::User`) access is unaffected: customer
+/// principals always see only their own subject's orders, regardless
+/// of `authz` presence.
 pub(crate) fn build_monitor_routes<F>(
     projector: Arc<OrderTraceProjector>,
     auth: F,
+    authz: Option<Arc<AuthzService>>,
 ) -> BoxedFilter<(warp::reply::Json,)>
 where
     F: Filter<Extract = (AuthenticatedPrincipal,), Error = Rejection>
@@ -81,6 +95,7 @@ where
         .and(with_projector(projector.clone()))
         .and(auth.clone())
         .and(warp::query::<ListOrdersQuery>())
+        .and(with_optional_authz(authz.clone()))
         .and_then(handle_list_orders)
         .boxed();
 
@@ -88,6 +103,7 @@ where
         .and(warp::get())
         .and(with_projector(projector.clone()))
         .and(auth.clone())
+        .and(with_optional_authz(authz.clone()))
         .and_then(handle_get_order)
         .boxed();
 
@@ -96,21 +112,67 @@ where
         .and(with_projector(projector))
         .and(auth)
         .and(warp::query::<TimelineQuery>())
+        .and(with_optional_authz(authz))
         .and_then(handle_get_timeline)
         .boxed();
 
     timeline.or(get).unify().or(list).unify().boxed()
 }
 
+fn with_optional_authz(
+    authz: Option<Arc<AuthzService>>,
+) -> impl Filter<Extract = (Option<Arc<AuthzService>>,), Error = Infallible> + Clone {
+    warp::any().map(move || authz.clone())
+}
+
+/// Returns true when an admin principal is permitted to use the
+/// monitor admin surface. Without an `authz` service (legacy mode),
+/// any admin role grants access. With `authz`, the admin must also
+/// satisfy `BackofficeAction::MonitorAccess`. Unknown employees in
+/// authz get `Deny`, which falls through to "no access" — operators
+/// must be seeded as `Active` employees with a MonitorAccess-bearing
+/// role before the monitor admin surface unlocks for them.
+fn admin_monitor_access(
+    principal: &AuthenticatedPrincipal,
+    authz: Option<&Arc<AuthzService>>,
+) -> bool {
+    if !matches!(principal.role, PrincipalRole::Admin) {
+        return false;
+    }
+    match authz {
+        None => true,
+        Some(svc) => {
+            svc.is_allowed(
+                &principal.subject,
+                BackofficeAction::MonitorAccess,
+                &GrantScope::Global,
+            ) != BackofficeActionVerdict::Deny
+        }
+    }
+}
+
 pub(crate) async fn handle_list_orders(
     projector: Arc<OrderTraceProjector>,
     principal: AuthenticatedPrincipal,
     q: ListOrdersQuery,
+    authz: Option<Arc<AuthzService>>,
 ) -> Result<warp::reply::Json, Rejection> {
     // Non-admin: force the user_id filter to the principal regardless of
-    // any value the client supplied. Admin: pass through the filter as-is.
+    // any value the client supplied. Admin: pass through the filter
+    // *iff* RBAC allows MonitorAccess (or RBAC is disabled).
     let user_id = match principal.role {
-        PrincipalRole::Admin => q.user_id,
+        PrincipalRole::Admin => {
+            if !admin_monitor_access(&principal, authz.as_ref()) {
+                // RBAC denies: behave as if the admin were a non-employee
+                // user — fall back to forcing user_id=subject. The subject
+                // is unlikely to own any orders, so the response is
+                // effectively empty without leaking the existence of
+                // others' orders.
+                Some(principal.subject.clone())
+            } else {
+                q.user_id
+            }
+        }
         PrincipalRole::User => Some(principal.subject.clone()),
     };
     let updated_since = q
@@ -138,11 +200,12 @@ pub(crate) async fn handle_get_order(
     order_id: String,
     projector: Arc<OrderTraceProjector>,
     principal: AuthenticatedPrincipal,
+    authz: Option<Arc<AuthzService>>,
 ) -> Result<warp::reply::Json, Rejection> {
     let summary = projector
         .get_order(&order_id)
         .ok_or_else(warp::reject::not_found)?;
-    if !is_visible(&principal, summary.user_id.as_deref()) {
+    if !is_visible(&principal, summary.user_id.as_deref(), authz.as_ref()) {
         // Mask existence to non-owner non-admin principals.
         return Err(warp::reject::not_found());
     }
@@ -154,12 +217,13 @@ pub(crate) async fn handle_get_timeline(
     projector: Arc<OrderTraceProjector>,
     principal: AuthenticatedPrincipal,
     q: TimelineQuery,
+    authz: Option<Arc<AuthzService>>,
 ) -> Result<warp::reply::Json, Rejection> {
     let limit = Some(clamp_limit(q.limit, TIMELINE_LIMIT_DEFAULT, TIMELINE_LIMIT_MAX));
     let summary = projector
         .get_order(&order_id)
         .ok_or_else(warp::reject::not_found)?;
-    if !is_visible(&principal, summary.user_id.as_deref()) {
+    if !is_visible(&principal, summary.user_id.as_deref(), authz.as_ref()) {
         return Err(warp::reject::not_found());
     }
     let page = projector
@@ -168,8 +232,17 @@ pub(crate) async fn handle_get_timeline(
     Ok(warp::reply::json(&page))
 }
 
-fn is_visible(principal: &AuthenticatedPrincipal, owner: Option<&str>) -> bool {
-    matches!(principal.role, PrincipalRole::Admin) || owner == Some(principal.subject.as_str())
+fn is_visible(
+    principal: &AuthenticatedPrincipal,
+    owner: Option<&str>,
+    authz: Option<&Arc<AuthzService>>,
+) -> bool {
+    if matches!(principal.role, PrincipalRole::Admin)
+        && admin_monitor_access(principal, authz)
+    {
+        return true;
+    }
+    owner == Some(principal.subject.as_str())
 }
 
 fn clamp_limit(raw: Option<usize>, default: usize, max: usize) -> usize {
@@ -237,7 +310,7 @@ mod tests {
             user_id: Some("alice".into()),
             ..Default::default()
         };
-        let reply = handle_list_orders(p, admin, q).await.expect("ok");
+        let reply = handle_list_orders(p, admin, q, None).await.expect("ok");
         let json = json_body(reply).await;
         let orders = json["orders"].as_array().unwrap();
         assert_eq!(orders.len(), 2, "alice has two orders (ord-a, ord-c)");
@@ -250,7 +323,7 @@ mod tests {
     async fn list_orders_admin_no_filter_sees_all() {
         let p = seed_projector();
         let admin = principal("root", PrincipalRole::Admin);
-        let reply = handle_list_orders(p, admin, ListOrdersQuery::default())
+        let reply = handle_list_orders(p, admin, ListOrdersQuery::default(), None)
             .await
             .expect("ok");
         let json = json_body(reply).await;
@@ -265,7 +338,7 @@ mod tests {
             user_id: Some("bob".into()), // attempted spoof
             ..Default::default()
         };
-        let reply = handle_list_orders(p, alice, q).await.expect("ok");
+        let reply = handle_list_orders(p, alice, q, None).await.expect("ok");
         let json = json_body(reply).await;
         let orders = json["orders"].as_array().unwrap();
         assert_eq!(orders.len(), 2);
@@ -282,7 +355,7 @@ mod tests {
             stage: Some(OrderTraceStage::MatchingResting),
             ..Default::default()
         };
-        let reply = handle_list_orders(p, admin, q).await.expect("ok");
+        let reply = handle_list_orders(p, admin, q, None).await.expect("ok");
         let json = json_body(reply).await;
         let orders = json["orders"].as_array().unwrap();
         assert_eq!(orders.len(), 1);
@@ -301,7 +374,7 @@ mod tests {
     async fn get_order_owner_can_read() {
         let p = seed_projector();
         let alice = principal("alice", PrincipalRole::User);
-        let reply = handle_get_order("ord-a".into(), p, alice).await.expect("ok");
+        let reply = handle_get_order("ord-a".into(), p, alice, None).await.expect("ok");
         let json = json_body(reply).await;
         assert_eq!(json["order_id"].as_str().unwrap(), "ord-a");
         assert_eq!(json["user_id"].as_str().unwrap(), "alice");
@@ -311,14 +384,14 @@ mod tests {
     async fn get_order_non_owner_sees_404_not_403() {
         let p = seed_projector();
         let bob = principal("bob", PrincipalRole::User);
-        expect_not_found(handle_get_order("ord-a".into(), p, bob).await);
+        expect_not_found(handle_get_order("ord-a".into(), p, bob, None).await);
     }
 
     #[tokio::test]
     async fn get_order_admin_sees_other_users() {
         let p = seed_projector();
         let admin = principal("root", PrincipalRole::Admin);
-        let reply = handle_get_order("ord-b".into(), p, admin)
+        let reply = handle_get_order("ord-b".into(), p, admin, None)
             .await
             .expect("ok");
         let json = json_body(reply).await;
@@ -330,14 +403,14 @@ mod tests {
     async fn get_order_unknown_id_404() {
         let p = seed_projector();
         let admin = principal("root", PrincipalRole::Admin);
-        expect_not_found(handle_get_order("nope".into(), p, admin).await);
+        expect_not_found(handle_get_order("nope".into(), p, admin, None).await);
     }
 
     #[tokio::test]
     async fn get_timeline_owner_returns_events() {
         let p = seed_projector();
         let alice = principal("alice", PrincipalRole::User);
-        let reply = handle_get_timeline("ord-a".into(), p, alice, TimelineQuery::default())
+        let reply = handle_get_timeline("ord-a".into(), p, alice, TimelineQuery::default(), None)
             .await
             .expect("ok");
         let json = json_body(reply).await;
@@ -351,8 +424,104 @@ mod tests {
         let p = seed_projector();
         let bob = principal("bob", PrincipalRole::User);
         expect_not_found(
-            handle_get_timeline("ord-a".into(), p, bob, TimelineQuery::default()).await,
+            handle_get_timeline("ord-a".into(), p, bob, TimelineQuery::default(), None).await,
         );
+    }
+
+    // ── RBAC integration (Step 4) ────────────────────────────────
+
+    fn make_authz_with(
+        employee_id: &str,
+        role: types::BackofficeRole,
+    ) -> Arc<crate::admin_authz::AuthzService> {
+        use crate::admin_rbac_store::{AdminEmployeeStore, AdminGrantStore};
+        use persistence::InMemoryWal;
+        use types::{
+            Employee, EmployeeStatus, Grant, GrantScope, GrantStatus, MfaMethod, RoleLevel,
+            BACKOFFICE_SCHEMA_VERSION,
+        };
+        let employees = Arc::new(AdminEmployeeStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        let grants = Arc::new(AdminGrantStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        employees
+            .create(Employee {
+                schema_version: BACKOFFICE_SCHEMA_VERSION,
+                employee_id: employee_id.into(),
+                display_name: employee_id.into(),
+                status: EmployeeStatus::Active,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                last_mfa_method: Some(MfaMethod::Webauthn),
+                last_login_at: Some(chrono::Utc::now()),
+            })
+            .unwrap();
+        grants
+            .create(Grant {
+                schema_version: BACKOFFICE_SCHEMA_VERSION,
+                grant_id: "g-1".into(),
+                employee_id: employee_id.into(),
+                role,
+                level: RoleLevel::Read,
+                scope: GrantScope::Global,
+                status: GrantStatus::Active,
+                granted_by: "secadmin".into(),
+                granted_at: chrono::Utc::now(),
+                expires_at: chrono::Utc::now() + chrono::Duration::days(30),
+                reason: "test grant".into(),
+                approval_request_id: None,
+            })
+            .unwrap();
+        Arc::new(crate::admin_authz::AuthzService::new(employees, grants))
+    }
+
+    fn make_empty_authz() -> Arc<crate::admin_authz::AuthzService> {
+        use crate::admin_rbac_store::{AdminEmployeeStore, AdminGrantStore};
+        use persistence::InMemoryWal;
+        let employees = Arc::new(AdminEmployeeStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        let grants = Arc::new(AdminGrantStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        Arc::new(crate::admin_authz::AuthzService::new(employees, grants))
+    }
+
+    #[tokio::test]
+    async fn list_orders_admin_with_rbac_grant_sees_all() {
+        let p = seed_projector();
+        let admin = principal("aud", PrincipalRole::Admin);
+        let authz = make_authz_with("aud", types::BackofficeRole::AuditorReadonly);
+        let reply = handle_list_orders(p, admin, ListOrdersQuery::default(), Some(authz))
+            .await
+            .expect("ok");
+        let json = json_body(reply).await;
+        assert_eq!(json["orders"].as_array().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn list_orders_admin_without_rbac_grant_falls_back_to_self() {
+        let p = seed_projector();
+        let admin = principal("ghost-admin", PrincipalRole::Admin);
+        let authz = make_empty_authz();
+        let reply = handle_list_orders(
+            p,
+            admin,
+            ListOrdersQuery {
+                user_id: Some("alice".into()), // attempted spoof
+                ..Default::default()
+            },
+            Some(authz),
+        )
+        .await
+        .expect("ok");
+        let json = json_body(reply).await;
+        // user_id forced to "ghost-admin"; no orders match.
+        assert_eq!(json["orders"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_order_admin_without_rbac_grant_cannot_see_others() {
+        let p = seed_projector();
+        let admin = principal("ghost-admin", PrincipalRole::Admin);
+        let authz = make_empty_authz();
+        // ord-a is alice's; ghost-admin is not alice and lacks
+        // MonitorAccess.
+        expect_not_found(handle_get_order("ord-a".into(), p, admin, Some(authz)).await);
     }
 
     #[tokio::test]
@@ -367,7 +536,7 @@ mod tests {
                 session_id: None,
             })
         });
-        let routes = build_monitor_routes(p, auth);
+        let routes = build_monitor_routes(p, auth, None);
 
         let resp = warp::test::request()
             .method("GET")

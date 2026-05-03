@@ -3628,9 +3628,13 @@ async fn main() {
     // bootstrap_runtime) so that bootstrap-time emits like
     // recovery_completed have a live subscriber. We only mount the REST
     // routes here, where the rest of the route assembly happens.
+    // Step 4: monitor RBAC integration is wired in 1E once admin
+    // employees are seeded; for now keep the legacy admin-sees-all
+    // behaviour by passing `None` as the authz service.
     let monitor_routes = monitor_http::build_monitor_routes(
         trace_projector.clone(),
         with_principal(),
+        None,
     );
 
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(

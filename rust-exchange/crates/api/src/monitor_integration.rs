@@ -185,7 +185,7 @@ async fn end_to_end_pipeline_through_rest_handler_admin_view() {
             session_id: None,
         })
     });
-    let routes = monitor_http::build_monitor_routes(projector.clone(), admin);
+    let routes = monitor_http::build_monitor_routes(projector.clone(), admin, None);
 
     // Admin: list returns both orders.
     let resp = warp::test::request()
@@ -253,7 +253,7 @@ async fn end_to_end_pipeline_through_rest_handler_non_admin_cannot_see_others() 
             session_id: None,
         })
     });
-    let routes = monitor_http::build_monitor_routes(projector.clone(), bob_principal);
+    let routes = monitor_http::build_monitor_routes(projector.clone(), bob_principal, None);
 
     // Bob lists orders — should only see ord-bob, not ord-alice.
     let resp = warp::test::request()
