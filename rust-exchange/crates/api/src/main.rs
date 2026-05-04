@@ -3903,12 +3903,21 @@ async fn main() {
     // A future commit can rebuild from `wallet_withdrawals` history at
     // boot via `wallet::build_velocity_tracker`.
     let customer_wallet_velocity = Arc::new(wallet::VelocityTracker::with_default_window());
+    // Cool-down between whitelisting an address and being able to use
+    // it as a withdrawal destination. Defaults to 24h per design §4.2;
+    // smoke harnesses set `WALLET_CUSTOMER_COOLDOWN_SECS=0` to drive
+    // the full add → submit path in a single run.
+    let customer_wallet_cooldown_secs: u64 = std::env::var("WALLET_CUSTOMER_COOLDOWN_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(24 * 60 * 60);
     let customer_wallet_runtime = customer_wallet_http::CustomerWalletRuntime::new(
         wallet_address_book.clone(),
         wallet_withdrawals.clone(),
         customer_wallet_sanctions,
         customer_wallet_velocity,
-    );
+    )
+    .with_cooldown(std::time::Duration::from_secs(customer_wallet_cooldown_secs));
     let customer_wallet_routes =
         customer_wallet_http::build_customer_wallet_routes(customer_wallet_runtime, with_principal());
 

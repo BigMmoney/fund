@@ -68,6 +68,8 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "types",
+ "uuid",
+ "wallet",
  "warp",
 ]
 
@@ -2125,6 +2127,21 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
+]
+
+[[package]]
+name = "wallet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dashmap",
+ "parking_lot",
+ "persistence",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]

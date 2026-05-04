@@ -116,7 +116,6 @@ impl CustomerWalletRuntime {
         }
     }
 
-    #[cfg(test)]
     pub fn with_cooldown(mut self, cooldown: Duration) -> Self {
         self.cooldown = cooldown;
         self

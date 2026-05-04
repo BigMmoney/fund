@@ -86,6 +86,9 @@ $env:WALLET_ETH_HOT_ADDRESS = "0xhot"
 $env:WALLET_ETH_SEED_WEI = "1000000000"
 # Tighter worker tick so the smoke doesn't have to wait 5+ seconds.
 $env:WALLET_WORKER_TICK_MS = "500"
+# Bypass the 24h customer-side address cool-down so /v2/wallet/withdraw
+# can use a freshly-whitelisted address inside this single smoke run.
+$env:WALLET_CUSTOMER_COOLDOWN_SECS = "0"
 $logDir = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 if (-not (Start-ExchangeService -StdoutLog (Join-Path $logDir "rbac_smoke_stdout.log") -StderrLog (Join-Path $logDir "rbac_smoke_stderr.log") -WaitTimeoutSeconds 60)) {
@@ -299,6 +302,110 @@ try {
         Warn "withdrawal jsonl not found at $wdJsonl"
     }
 
+    # ── 11b. Customer-side /v2/wallet/* end-to-end ────────────────────
+    Section "11b. POST /v2/wallet/addresses + /v2/wallet/withdraw (customer flow)"
+    $custSubject = "smoke-customer-v2"
+    # Pre-fund this customer so the settlement worker can debit.
+    $custDepositOk = Test-Deposit -UserId $custSubject -Amount 5000 -OpId "smoke-v2-deposit-$(Get-Random)"
+    if ($custDepositOk) { Ok "$custSubject funded with 5000 USDC subunits" } else { Warn "$custSubject deposit failed" }
+
+    # 1. Whitelist destination on /v2/wallet/addresses
+    $addrBody = @{
+        chain   = "eth"
+        address = "0xv2dest"
+        label   = "smoke v2 dest"
+    } | ConvertTo-Json -Compress
+    $addrResp = Invoke-ExchangeRequestAs -Method "POST" -Path "/v2/wallet/addresses" -BodyJson $addrBody -Subject $custSubject -Role "user" -Silent
+    if ($addrResp.StatusCode -ne 200) {
+        Fail "/v2/wallet/addresses status=$($addrResp.StatusCode) body=$($addrResp.Body)"
+        exit 1
+    }
+    $addrId = $addrResp.ParsedJson.address_id
+    Ok "address whitelisted: id=$addrId status=$($addrResp.ParsedJson.status)"
+
+    # 2. Submit withdrawal on /v2/wallet/withdraw — auto-walk to Approved
+    $custWdBody = @{
+        chain               = "eth"
+        destination_address = "0xv2dest"
+        amount              = 1000
+        client_reference    = "smoke-v2-ref-$(Get-Random)"
+    } | ConvertTo-Json -Compress
+    $custWdResp = Invoke-ExchangeRequestAs -Method "POST" -Path "/v2/wallet/withdraw" -BodyJson $custWdBody -Subject $custSubject -Role "user" -Silent
+    if ($custWdResp.StatusCode -ne 200) {
+        Fail "/v2/wallet/withdraw status=$($custWdResp.StatusCode) body=$($custWdResp.Body)"
+        exit 1
+    }
+    $custWdId = $custWdResp.ParsedJson.withdrawal_id
+    Ok "withdrawal submitted: id=$custWdId status=$($custWdResp.ParsedJson.status)"
+
+    # 3. Owner-only status poll
+    $statusResp = Invoke-ExchangeRequestAs -Method "GET" -Path "/v2/wallet/withdrawals/$custWdId" -Subject $custSubject -Role "user" -Silent
+    if ($statusResp.StatusCode -ne 200) {
+        Fail "owner status poll status=$($statusResp.StatusCode) body=$($statusResp.Body)"
+        exit 1
+    }
+    Ok "owner can read status: $($statusResp.ParsedJson.status)"
+
+    # 4. Non-owner is masked as 404
+    $maskResp = Invoke-ExchangeRequestAs -Method "GET" -Path "/v2/wallet/withdrawals/$custWdId" -Subject "smoke-stranger" -Role "user" -Silent
+    if ($maskResp.StatusCode -eq 200) {
+        Fail "non-owner read returned 200 — owner-only enforcement violated"
+        exit 1
+    }
+    Ok "non-owner correctly masked (status=$($maskResp.StatusCode))"
+
+    # 5. Wait for hot-wallet worker + bump confirmations + wait for settlement.
+    Start-Sleep -Seconds 3
+    if (Test-Path $wdJsonl) {
+        $custIdEsc = [regex]::Escape($custWdId)
+        $custLines = Get-Content $wdJsonl
+        $custMatching = @($custLines | Where-Object { $_ -match $custIdEsc })
+        $custBroadcast = @($custMatching | Where-Object { $_ -match '"status":"broadcast"' }).Count
+        if ($custBroadcast -ge 1) {
+            Ok "/v2 worker advanced to broadcast"
+            $custBcLine = @($custMatching | Where-Object { $_ -match '"status":"broadcast"' })[-1]
+            if ($custBcLine -match '"tx_hash":"([^"]+)"') {
+                $custTxHash = $Matches[1]
+                $custCfBody = @{
+                    chain         = "eth"
+                    tx_hash       = $custTxHash
+                    confirmations = 25
+                    reason        = "smoke v2 confirms threshold met"
+                } | ConvertTo-Json -Compress
+                $cfV2 = Invoke-AdminRequest -Method "POST" -Path "/admin/wallet/test-confirm" -BodyJson $custCfBody -Silent
+                if ($cfV2.StatusCode -eq 200) {
+                    Start-Sleep -Seconds 3
+                    $custLines2 = Get-Content $wdJsonl
+                    $custSettled = @($custLines2 | Where-Object { $_ -match $custIdEsc -and $_ -match '"status":"settled"' }).Count
+                    if ($custSettled -ge 1) {
+                        Ok "/v2 settlement worker advanced to settled"
+                    } else {
+                        Warn "/v2 did not advance to settled within 3s"
+                    }
+                } else {
+                    Warn "/v2 test-confirm status=$($cfV2.StatusCode)"
+                }
+            } else {
+                Warn "/v2 could not parse tx_hash from broadcast row"
+            }
+        } else {
+            Warn "/v2 worker did not advance to broadcast within 3s"
+        }
+    }
+
+    # 6. Negative: ad-hoc destination (not whitelisted) must be rejected.
+    $adhocBody = @{
+        chain               = "eth"
+        destination_address = "0xnever-whitelisted"
+        amount              = 100
+    } | ConvertTo-Json -Compress
+    $adhocResp = Invoke-ExchangeRequestAs -Method "POST" -Path "/v2/wallet/withdraw" -BodyJson $adhocBody -Subject $custSubject -Role "user" -Silent
+    if ($adhocResp.StatusCode -eq 200) {
+        Fail "ad-hoc destination accepted — design §11 rule 1 violated"
+        exit 1
+    }
+    Ok "ad-hoc destination correctly rejected (status=$($adhocResp.StatusCode))"
+
     # ── 12. Wallet endpoints ──────────────────────────────────────────
     Section "13. GET /admin/wallet/balances"
     $resp = Invoke-AdminRequest -Method "GET" -Path "/admin/wallet/balances" -Silent
@@ -341,5 +448,6 @@ try {
     Section "9. Stop api"
     Stop-ExchangeService
     Remove-Item env:BACKOFFICE_BOOTSTRAP_ADMIN -ErrorAction SilentlyContinue
+    Remove-Item env:WALLET_CUSTOMER_COOLDOWN_SECS -ErrorAction SilentlyContinue
 }
 exit 0
