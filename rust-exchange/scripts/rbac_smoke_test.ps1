@@ -209,6 +209,15 @@ try {
         Warn "resume got status=$($resp.StatusCode); expected 404"
     }
 
+    # ── 10b. Pre-fund the test customer so settlement can debit ───────
+    Section "10b. Seed test customer cash for settlement"
+    $depositOk = Test-Deposit -UserId "smoke-customer" -Amount 5000 -OpId "smoke-deposit-$(Get-Random)"
+    if ($depositOk) {
+        Ok "smoke-customer funded with 5000 USDC subunits"
+    } else {
+        Warn "smoke-customer deposit failed — settlement phase may not commit"
+    }
+
     # ── 11. Test withdrawal end-to-end ─────────────────────────────────
     Section "11. POST /admin/wallet/test-withdrawal (drives worker pipeline)"
     $twBody = @{
@@ -264,14 +273,21 @@ try {
             $cf = Invoke-AdminRequest -Method "POST" -Path "/admin/wallet/test-confirm" -BodyJson $cfBody -Silent
             if ($cf.StatusCode -eq 200) {
                 Ok "test-confirm accepted: confirmations bumped to 25"
-                # Wait one worker tick (500 ms) plus margin.
-                Start-Sleep -Seconds 2
+                # Wait for hot-wallet worker tick + settlement worker tick
+                # (each 500 ms) plus margin.
+                Start-Sleep -Seconds 3
                 $lines2 = Get-Content $wdJsonl
                 $hasConfirmed = @($lines2 | Where-Object { $_ -match $idEsc -and $_ -match '"status":"confirmed"' }).Count
+                $hasSettled = @($lines2 | Where-Object { $_ -match $idEsc -and $_ -match '"status":"settled"' }).Count
                 if ($hasConfirmed -ge 1) {
                     Ok "worker advanced withdrawal to confirmed"
                 } else {
-                    Warn "worker did not advance to confirmed within 2s after confirmations bump"
+                    Warn "worker did not advance to confirmed within 3s after confirmations bump"
+                }
+                if ($hasSettled -ge 1) {
+                    Ok "settlement worker advanced withdrawal to settled"
+                } else {
+                    Warn "settlement worker did not advance to settled within 3s"
                 }
             } else {
                 Warn "test-confirm status=$($cf.StatusCode) body=$($cf.Body)"

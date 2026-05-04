@@ -51,6 +51,7 @@ mod admin_rbac_http;
 mod admin_rbac_store;
 mod admin_trading_ops_http;
 mod admin_wallet_http;
+mod admin_wallet_settlement;
 mod api_trace;
 mod beta_controls;
 mod bootstrap;
@@ -3849,6 +3850,37 @@ async fn main() {
                         confirmed = report.confirmed_count,
                         failed = report.failed_count,
                         "hot wallet worker tick"
+                    );
+                }
+            }
+        });
+    }
+
+    // Step 8 part 6: settlement worker. Drives Confirmed -> Settled
+    // via the existing ledger crate. Single in-process task; idempotent
+    // per withdrawal_id via op_id `wd-settle-{withdrawal_id}`.
+    let wallet_settlement_worker = Arc::new(admin_wallet_settlement::SettlementWorker::new(
+        ledger.clone(),
+        wallet_withdrawals.clone(),
+        admin_wallet_settlement::SettlementWorker::default_settlement_account(),
+    ));
+    {
+        let worker = wallet_settlement_worker.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_millis(wallet_worker_tick_ms));
+            tracing::info!(
+                tick_ms = wallet_worker_tick_ms,
+                "wallet settlement worker started"
+            );
+            loop {
+                interval.tick().await;
+                let report = worker.tick();
+                if report.settled_count + report.failed_count > 0 {
+                    tracing::info!(
+                        settled = report.settled_count,
+                        failed = report.failed_count,
+                        "wallet settlement worker tick"
                     );
                 }
             }
