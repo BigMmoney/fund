@@ -161,6 +161,14 @@ pub enum WithdrawalStatus {
     Confirmed,
     /// Internal ledger debit committed; flow is done.
     Settled,
+    /// On-chain tx confirmed but the customer-side ledger debit
+    /// failed (e.g. balance went negative between submit and settle —
+    /// or the per-chain divisor pushed amount past i64). The funds
+    /// have already left the hot wallet, so this is an OPERATIONAL
+    /// alert — the record stays here until an operator reconciles.
+    /// Distinct from Rejected because the on-chain side already
+    /// committed; you cannot just "release the reservation" (H6).
+    SettlementStuck,
     /// Failed at any stage; reason recorded; ledger reservation
     /// released. Terminal — not re-attemptable under the same
     /// withdrawal_id.

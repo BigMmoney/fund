@@ -59,6 +59,7 @@ mod capacity;
 mod config;
 mod control;
 mod custody;
+mod customer_wallet_audit;
 mod customer_wallet_http;
 mod dto;
 mod failpoint;
@@ -3886,12 +3887,32 @@ async fn main() {
             loop {
                 interval.tick().await;
                 let report = worker.tick();
-                if report.settled_count + report.failed_count > 0 {
+                if report.settled_count + report.failed_count + report.stuck_count > 0 {
                     tracing::info!(
                         settled = report.settled_count,
                         failed = report.failed_count,
+                        stuck = report.stuck_count,
                         "wallet settlement worker tick"
                     );
+                }
+            }
+        });
+    }
+
+    // Cool-down sweep task: flips PendingCooldown -> Active for any
+    // address whose cool-down window has elapsed. Without this, a
+    // freshly-whitelisted address would stay in PendingCooldown
+    // forever (the handler still allows submit once the window has
+    // passed, but the listing endpoint and operator dashboards see a
+    // stale status). Tick every 60s; cheap operation.
+    {
+        let book = wallet_address_book.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                if let Err(e) = book.sweep_cooldowns() {
+                    tracing::warn!(error = %e, "address-book cool-down sweep failed");
                 }
             }
         });
@@ -3928,16 +3949,49 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(24 * 60 * 60);
+    // H4: customer-wallet audit log (data/wallet/customer_audit.jsonl).
+    // Captures every add/submit/poll outcome — success and failure —
+    // independent of WithdrawalStore (which only sees what passed
+    // validation).
+    let customer_wallet_audit = Arc::new(
+        customer_wallet_audit::CustomerWalletAuditStore::open_jsonl(
+            wallet_data_dir.join("customer_audit.jsonl"),
+        )
+        .unwrap_or_else(|e| panic!("failed to open customer wallet audit store: {e}")),
+    );
     let customer_wallet_runtime = customer_wallet_http::CustomerWalletRuntime::new(
         wallet_address_book.clone(),
         wallet_withdrawals.clone(),
         customer_wallet_sanctions,
         customer_wallet_velocity,
         ledger.clone(),
+        customer_wallet_audit.clone(),
     )
     .with_cooldown(std::time::Duration::from_secs(customer_wallet_cooldown_secs));
-    let customer_wallet_routes =
+    let customer_wallet_routes_inner =
         customer_wallet_http::build_customer_wallet_routes(customer_wallet_runtime, with_principal());
+    // H5: per-IP rate-limit pre-filter so an attacker can't probe
+    // sanctioned-address space brute-force or DoS the sanctions
+    // provider through /v2/wallet/addresses. Re-uses the workspace
+    // ip_rate_limiter; on breach the request is rejected before any
+    // sanctions / store call runs.
+    let customer_wallet_ip_rate = ip_rate_limiter.clone();
+    let customer_wallet_routes = remote_ip()
+        .and_then(move |remote: Option<SocketAddr>| {
+            let limiter = customer_wallet_ip_rate.clone();
+            async move {
+                let ip_key = remote
+                    .map(|v| v.ip().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                limiter
+                    .check(&format!("ip:{ip_key}"), RateLimitConfig::default().ip_limit)
+                    .map_err(|_| warp::reject::custom(customer_wallet_http::WalletError::RateLimited))?;
+                Ok::<(), Rejection>(())
+            }
+        })
+        .untuple_one()
+        .and(customer_wallet_routes_inner)
+        .boxed();
 
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,

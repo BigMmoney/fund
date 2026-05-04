@@ -60,6 +60,13 @@ pub fn is_valid_transition(current: WithdrawalStatus, next: WithdrawalStatus) ->
         (Confirmed, Settled) => true,
         (Confirmed, Broadcast) => true,
         (Confirmed, Rejected) => true,
+        // H6: settlement worker can flip Confirmed -> SettlementStuck
+        // when the ledger debit fails after the on-chain broadcast.
+        // Operators reconcile manually then move SettlementStuck ->
+        // Settled (or Rejected for hopeless cases).
+        (Confirmed, SettlementStuck) => true,
+        (SettlementStuck, Settled) => true,
+        (SettlementStuck, Rejected) => true,
         // Settled and terminal Rejected are sinks.
         _ => false,
     }

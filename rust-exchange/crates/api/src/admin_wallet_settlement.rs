@@ -25,6 +25,11 @@ use wallet::{ChainId, WithdrawalStatus, WithdrawalStore};
 pub struct SettlementTickReport {
     pub settled_count: usize,
     pub failed_count: usize,
+    /// H6: number of records flipped from Confirmed -> SettlementStuck
+    /// during this tick. Each one indicates the on-chain broadcast
+    /// already happened but the customer-side ledger debit failed —
+    /// it MUST page operations.
+    pub stuck_count: usize,
 }
 
 pub struct SettlementWorker {
@@ -73,8 +78,11 @@ impl SettlementWorker {
             let amount: i64 = match i64::try_from(record.amount) {
                 Ok(v) => v,
                 Err(_) => {
-                    self.fail(&record.withdrawal_id, "amount exceeds i64::MAX for ledger");
-                    report.failed_count += 1;
+                    self.mark_stuck(
+                        &record.withdrawal_id,
+                        "amount exceeds i64::MAX for ledger",
+                    );
+                    report.stuck_count += 1;
                     continue;
                 }
             };
@@ -128,11 +136,16 @@ impl SettlementWorker {
                         }
                         continue;
                     }
-                    self.fail(
+                    // H6: real ledger failure (e.g. balance went negative
+                    // between submit and settle). The on-chain tx already
+                    // happened; we cannot just leave the record at
+                    // Confirmed and pretend the issue is transient.
+                    // Move to SettlementStuck and surface as an alert.
+                    self.mark_stuck(
                         &record.withdrawal_id,
                         &format!("ledger transfer failed: {msg}"),
                     );
-                    report.failed_count += 1;
+                    report.stuck_count += 1;
                 }
             }
         }
@@ -141,15 +154,26 @@ impl SettlementWorker {
         report
     }
 
-    fn fail(&self, withdrawal_id: &str, note: &str) {
-        // Don't flip out of Confirmed on transient ledger errors —
-        // operators may need to top up the customer's balance and
-        // retry. We just leave a note in the next status update via
-        // a no-op self-transition; for v1, log only.
+    /// H6: flip Confirmed -> SettlementStuck and emit a warn-level log
+    /// + (future) a Prometheus counter so on-call gets paged. The
+    /// on-chain side already broadcast — leaving the record at
+    /// Confirmed silently was the bug this fixes.
+    fn mark_stuck(&self, withdrawal_id: &str, note: &str) {
+        if let Some(mut record) = self.withdrawals.get(withdrawal_id) {
+            record.status = WithdrawalStatus::SettlementStuck;
+            record.notes = Some(note.to_string());
+            if let Err(e) = self.withdrawals.update(record) {
+                tracing::error!(
+                    withdrawal_id,
+                    error = %e,
+                    "failed to flip withdrawal to SettlementStuck"
+                );
+            }
+        }
         tracing::warn!(
             withdrawal_id,
             note,
-            "settlement worker failed; record stays at Confirmed"
+            "wallet.settlement.stuck — operator action required"
         );
     }
 }
@@ -253,18 +277,21 @@ mod tests {
     }
 
     #[test]
-    fn tick_leaves_record_at_confirmed_when_ledger_balance_insufficient() {
+    fn tick_flips_to_settlement_stuck_when_ledger_balance_insufficient() {
+        // H6 regression: previously the worker just logged and left
+        // the record at Confirmed forever. Now it must flip to
+        // SettlementStuck so operators get paged.
         let (_ledger, store, worker) = make_pieces();
-        // No deposit — user has 0; settlement should fail.
         confirmed(&store, "wd-broke", "broke", 1_000);
         let r = worker.tick();
         assert_eq!(r.settled_count, 0);
-        assert_eq!(r.failed_count, 1);
-        // Record stays at Confirmed for retry.
+        assert_eq!(r.stuck_count, 1);
         assert_eq!(
             store.get("wd-broke").unwrap().status,
-            WithdrawalStatus::Confirmed
+            WithdrawalStatus::SettlementStuck
         );
+        let stuck_note = store.get("wd-broke").unwrap().notes.unwrap();
+        assert!(stuck_note.contains("ledger transfer failed"));
     }
 
     #[test]
