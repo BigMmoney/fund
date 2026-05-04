@@ -3902,7 +3902,16 @@ async fn main() {
     // Acceptable for v1 since this path is not yet customer-default.
     // A future commit can rebuild from `wallet_withdrawals` history at
     // boot via `wallet::build_velocity_tracker`.
-    let customer_wallet_velocity = Arc::new(wallet::VelocityTracker::with_default_window());
+    // Rebuild the rolling-window velocity tracker from existing
+    // withdrawal history at boot. Without this, the first 24h after
+    // a restart under-counts every customer's velocity and the per-day
+    // cap effectively doesn't exist (C4). `build_velocity_tracker`
+    // skips Rejected records since those never represented real flow.
+    let customer_wallet_velocity = wallet::build_velocity_tracker(
+        std::time::Duration::from_secs(24 * 60 * 60),
+        wallet_withdrawals.all().iter(),
+        |r| r.status != wallet::WithdrawalStatus::Rejected,
+    );
     // Cool-down between whitelisting an address and being able to use
     // it as a withdrawal destination. Defaults to 24h per design §4.2;
     // smoke harnesses set `WALLET_CUSTOMER_COOLDOWN_SECS=0` to drive
@@ -3916,6 +3925,7 @@ async fn main() {
         wallet_withdrawals.clone(),
         customer_wallet_sanctions,
         customer_wallet_velocity,
+        ledger.clone(),
     )
     .with_cooldown(std::time::Duration::from_secs(customer_wallet_cooldown_secs));
     let customer_wallet_routes =

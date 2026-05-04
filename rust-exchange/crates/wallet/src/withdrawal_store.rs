@@ -142,6 +142,14 @@ impl WithdrawalStore {
         self.by_id.len()
     }
 
+    /// Snapshot of every cached withdrawal. Used at boot to rebuild
+    /// the per-user-per-chain rolling-window velocity tracker. Order
+    /// is unspecified; callers that need deterministic order should
+    /// sort.
+    pub fn all(&self) -> Vec<WithdrawalRecord> {
+        self.by_id.iter().map(|e| e.value().clone()).collect()
+    }
+
     /// Insert a brand-new withdrawal record. Initial status MUST be
     /// `Submitted` (created from the customer-facing /withdraw
     /// handler). Returns `Err` if the id is already in use OR if the

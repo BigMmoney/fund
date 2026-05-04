@@ -124,7 +124,9 @@ impl VelocityTracker {
     }
 
     /// Convenience: would `prospective_amount` push the user's chain
-    /// total over `cap`?
+    /// total over `cap`? Read-only; for write-then-check use
+    /// `try_record` to avoid the TOCTOU race between two concurrent
+    /// submissions.
     pub fn would_exceed(
         &self,
         user_id: &str,
@@ -135,6 +137,35 @@ impl VelocityTracker {
     ) -> bool {
         let current = self.total(user_id, chain, now);
         current.saturating_add(prospective_amount) > cap
+    }
+
+    /// Atomic check-and-record under a single mutex acquisition. If the
+    /// prospective amount would push the rolling total above `cap`,
+    /// returns `Err(current_total)` and does NOT record. Otherwise
+    /// inserts the entry and returns Ok.
+    ///
+    /// Use this in any handler path where two concurrent submissions
+    /// could race past `would_exceed` — the cap would silently breach
+    /// because both would observe pre-insert state.
+    pub fn try_record(
+        &self,
+        user_id: &str,
+        chain: ChainId,
+        amount: i128,
+        cap: i128,
+        at: DateTime<Utc>,
+    ) -> Result<(), i128> {
+        let mut state = self.state.lock();
+        let bucket = state
+            .entry((user_id.to_string(), chain))
+            .or_insert_with(CustomerChainBucket::new);
+        let cutoff = at - chrono::Duration::from_std(self.window).unwrap_or_default();
+        bucket.evict_older_than(cutoff);
+        if bucket.total.saturating_add(amount) > cap {
+            return Err(bucket.total);
+        }
+        bucket.insert(VelocityEntry { at, amount });
+        Ok(())
     }
 
     /// Number of distinct (user, chain) buckets currently tracked.
@@ -263,6 +294,51 @@ mod tests {
         });
         // Only wd-a (100) and wd-c (300) should count; wd-b is rejected.
         assert_eq!(tracker.total("alice", ChainId::Eth, ts(300)), 400);
+    }
+
+    #[test]
+    fn try_record_atomic_check_and_insert_under_cap() {
+        let t = VelocityTracker::new(Duration::from_secs(3600));
+        assert!(t.try_record("alice", ChainId::Eth, 400, 1000, ts(0)).is_ok());
+        assert!(t.try_record("alice", ChainId::Eth, 600, 1000, ts(0)).is_ok());
+        assert_eq!(t.total("alice", ChainId::Eth, ts(0)), 1000);
+    }
+
+    #[test]
+    fn try_record_rejects_breach_and_does_not_insert() {
+        let t = VelocityTracker::new(Duration::from_secs(3600));
+        t.try_record("alice", ChainId::Eth, 800, 1000, ts(0)).unwrap();
+        let err = t
+            .try_record("alice", ChainId::Eth, 300, 1000, ts(0))
+            .unwrap_err();
+        // Returned current total = 800 (pre-insert).
+        assert_eq!(err, 800);
+        // Not inserted.
+        assert_eq!(t.total("alice", ChainId::Eth, ts(0)), 800);
+    }
+
+    #[test]
+    fn try_record_concurrent_submissions_cannot_breach_cap() {
+        use std::sync::Arc;
+        use std::thread;
+        let t = Arc::new(VelocityTracker::new(Duration::from_secs(3600)));
+        // Cap = 1000. Twenty threads each try to record 100. Only ten
+        // should win; the rest must be rejected. With check-then-act
+        // (would_exceed + record) this would race past 1000.
+        let mut handles = vec![];
+        for _ in 0..20 {
+            let t = t.clone();
+            handles.push(thread::spawn(move || {
+                t.try_record("alice", ChainId::Eth, 100, 1000, ts(0))
+            }));
+        }
+        let oks: usize = handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .filter(|r| r.is_ok())
+            .count();
+        assert_eq!(oks, 10);
+        assert_eq!(t.total("alice", ChainId::Eth, ts(0)), 1000);
     }
 
     #[test]

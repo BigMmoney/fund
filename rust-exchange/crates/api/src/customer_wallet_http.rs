@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use ledger::LedgerService;
 use serde::{Deserialize, Serialize};
 use warp::{filters::BoxedFilter, Filter, Rejection};
 
@@ -95,6 +96,11 @@ pub(crate) struct CustomerWalletRuntime {
     pub withdrawals: Arc<WithdrawalStore>,
     pub sanctions: Arc<dyn SanctionsProvider>,
     pub velocity: Arc<VelocityTracker>,
+    /// Used for the at-submit balance pre-check (C2). Without this,
+    /// `handle_submit_withdraw` would auto-walk to Approved for a
+    /// customer with zero cash and the settlement worker would
+    /// discover the problem only AFTER the on-chain broadcast.
+    pub ledger: Arc<LedgerService>,
     pub cooldown: Duration,
     pub velocity_cap_wei: i128,
 }
@@ -105,12 +111,14 @@ impl CustomerWalletRuntime {
         withdrawals: Arc<WithdrawalStore>,
         sanctions: Arc<dyn SanctionsProvider>,
         velocity: Arc<VelocityTracker>,
+        ledger: Arc<LedgerService>,
     ) -> Self {
         Self {
             addresses,
             withdrawals,
             sanctions,
             velocity,
+            ledger,
             cooldown: Duration::from_secs(DEFAULT_COOLDOWN_SECS as u64),
             velocity_cap_wei: DEFAULT_VELOCITY_CAP_WEI,
         }
@@ -260,17 +268,39 @@ pub(crate) async fn handle_submit_withdraw(
     if screen.status == SanctionsScreenStatus::Hit {
         return Err(warp::reject::not_found());
     }
-    // 3. Velocity check (design §5.3).
-    if runtime.velocity.would_exceed(
-        &principal.subject,
-        body.chain,
-        body.amount,
-        runtime.velocity_cap_wei,
-        now,
-    ) {
+    // 3. Balance pre-check (C2). Without this, the auto-walk to
+    //    Approved followed by the hot-wallet broadcast can pay out
+    //    funds for a customer whose cash account would go negative —
+    //    the settlement debit only fires after the on-chain tx, by
+    //    which point the money has already left the hot wallet.
+    let estimated_fee: i128 = 1_000_000;
+    let required = body.amount.saturating_add(estimated_fee);
+    let required_i64: i64 = match i64::try_from(required) {
+        Ok(v) => v,
+        Err(_) => return Err(warp::reject::not_found()),
+    };
+    if runtime.ledger.cash_available_balance(&principal.subject) < required_i64 {
         return Err(warp::reject::not_found());
     }
-    // 4. Create record + auto-walk to Approved. Maker-checker for
+    // 4. Atomic velocity check-and-record (C3). The previous
+    //    would_exceed + later record() pair raced: two concurrent
+    //    submissions could both pass the check and both insert,
+    //    silently breaching the cap. try_record holds the bucket
+    //    mutex across both operations.
+    if runtime
+        .velocity
+        .try_record(
+            &principal.subject,
+            body.chain,
+            body.amount,
+            runtime.velocity_cap_wei,
+            now,
+        )
+        .is_err()
+    {
+        return Err(warp::reject::not_found());
+    }
+    // 5. Create record + auto-walk to Approved. Maker-checker for
     //    above-threshold amounts is a v1 follow-up; auto-approve in
     //    this commit so the smoke harness can drive a real flow.
     let withdrawal_id = format!("wd-cust-{}", uuid::Uuid::new_v4());
@@ -301,7 +331,7 @@ pub(crate) async fn handle_submit_withdraw(
     if runtime.withdrawals.create(record).is_err() {
         return Err(warp::reject::not_found());
     }
-    // 5. Walk Submitted → Validated → Queued → Approved.
+    // 6. Walk Submitted → Validated → Queued → Approved.
     for next in [
         WithdrawalStatus::Validated,
         WithdrawalStatus::Queued,
@@ -325,10 +355,7 @@ pub(crate) async fn handle_submit_withdraw(
             return Err(warp::reject::not_found());
         }
     }
-    // 6. Record the velocity contribution AFTER the create succeeded.
-    runtime
-        .velocity
-        .record(&principal.subject, body.chain, body.amount, now);
+    // Velocity contribution was already recorded atomically in step 4.
     Ok(warp::reply::json(&SubmitWithdrawResponse {
         status: "approved".into(),
         withdrawal_id,
@@ -359,8 +386,9 @@ pub(crate) async fn handle_withdrawal_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eventbus::EventBus;
     use persistence::InMemoryWal;
-    use types::PrincipalRole;
+    use types::{LedgerDelta, PrincipalRole};
     use wallet::StubSanctionsProvider;
     use warp::Reply;
 
@@ -372,14 +400,38 @@ mod tests {
         }
     }
 
+    fn make_ledger() -> Arc<LedgerService> {
+        Arc::new(LedgerService::with_wal_store(
+            EventBus::new(),
+            Arc::new(InMemoryWal::<LedgerDelta>::new()),
+        ))
+    }
+
+    /// Seeded with `seed_user_cash` for "alice" so the C2 balance
+    /// pre-check passes by default. Tests that want a broke user can
+    /// pass a different subject.
     fn make_runtime() -> Arc<CustomerWalletRuntime> {
+        // Seed must comfortably cover amount + estimated_fee (1_000_000)
+        // for the happy-path tests; C2 broke-customer cases use a
+        // different subject that is NOT funded.
+        make_runtime_funded(&[("alice", 100_000_000)])
+    }
+
+    fn make_runtime_funded(seed: &[(&str, i64)]) -> Arc<CustomerWalletRuntime> {
         let addresses = Arc::new(AddressBookStore::new(Arc::new(InMemoryWal::new())).unwrap());
         let withdrawals = Arc::new(WithdrawalStore::new(Arc::new(InMemoryWal::new())).unwrap());
         let sanctions: Arc<dyn SanctionsProvider> = Arc::new(StubSanctionsProvider::new());
         let velocity = Arc::new(VelocityTracker::with_default_window());
-        let runtime = CustomerWalletRuntime::new(addresses, withdrawals, sanctions, velocity)
-            // Tiny cool-down for tests; real default is 24h.
-            .with_cooldown(Duration::from_secs(0));
+        let ledger = make_ledger();
+        for (user, amount) in seed {
+            ledger
+                .process_deposit(user, *amount, format!("seed-{user}-{amount}"))
+                .expect("seed deposit");
+        }
+        let runtime =
+            CustomerWalletRuntime::new(addresses, withdrawals, sanctions, velocity, ledger)
+                // Tiny cool-down for tests; real default is 24h.
+                .with_cooldown(Duration::from_secs(0));
         Arc::new(runtime)
     }
 
@@ -421,6 +473,7 @@ mod tests {
             runtime.withdrawals.clone(),
             provider,
             runtime.velocity.clone(),
+            runtime.ledger.clone(),
         ));
         let body = AddAddressBody {
             chain: ChainId::Eth,
@@ -528,8 +581,12 @@ mod tests {
         let withdrawals = Arc::new(WithdrawalStore::new(Arc::new(InMemoryWal::new())).unwrap());
         let sanctions = Arc::new(StubSanctionsProvider::new());
         let velocity = Arc::new(VelocityTracker::with_default_window());
+        let ledger = make_ledger();
+        ledger
+            .process_deposit("alice", 100_000_000, "seed-alice-sanctions-test".to_string())
+            .unwrap();
         let runtime = Arc::new(
-            CustomerWalletRuntime::new(addresses, withdrawals, sanctions.clone(), velocity)
+            CustomerWalletRuntime::new(addresses, withdrawals, sanctions.clone(), velocity, ledger)
                 .with_cooldown(Duration::from_secs(0)),
         );
         // Whitelist clean.
@@ -556,6 +613,77 @@ mod tests {
         };
         let r = handle_submit_withdraw(principal("alice"), body, runtime).await;
         assert!(r.is_err());
+    }
+
+    #[tokio::test]
+    async fn submit_blocked_when_customer_balance_below_amount_plus_fee() {
+        // C2 regression: a broke customer must not get auto-Approved.
+        // Seed a different funded user so make_runtime's "alice" is
+        // funded but our broke subject is not.
+        let runtime = make_runtime();
+        // Whitelist a destination for the broke user.
+        let _ = handle_add_address(
+            principal("broke"),
+            AddAddressBody {
+                chain: ChainId::Eth,
+                address: "0xclean".into(),
+                label: "x".into(),
+            },
+            runtime.clone(),
+        )
+        .await
+        .unwrap();
+        runtime.addresses.sweep_cooldowns().unwrap();
+        // Submit — must reject because broke has zero cash.
+        let body = SubmitWithdrawBody {
+            chain: ChainId::Eth,
+            destination_address: "0xclean".into(),
+            amount: 1_000,
+            client_reference: None,
+        };
+        let r = handle_submit_withdraw(principal("broke"), body, runtime.clone()).await;
+        assert!(r.is_err(), "broke customer was auto-Approved — C2 regressed");
+        // No record should have been created (and no velocity row).
+        assert_eq!(
+            runtime.velocity.total("broke", ChainId::Eth, Utc::now()),
+            0,
+            "velocity recorded for a rejected submit — C3 regressed"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_does_not_record_velocity_on_balance_reject() {
+        // Combined C2+C3 regression: the velocity contribution must
+        // NOT be recorded if the balance check rejects the submit.
+        // This is the bug the original "record after create" ordering
+        // could mask.
+        let runtime = make_runtime();
+        let _ = handle_add_address(
+            principal("broke2"),
+            AddAddressBody {
+                chain: ChainId::Eth,
+                address: "0xclean".into(),
+                label: "x".into(),
+            },
+            runtime.clone(),
+        )
+        .await
+        .unwrap();
+        runtime.addresses.sweep_cooldowns().unwrap();
+        for _ in 0..5 {
+            let _ = handle_submit_withdraw(
+                principal("broke2"),
+                SubmitWithdrawBody {
+                    chain: ChainId::Eth,
+                    destination_address: "0xclean".into(),
+                    amount: 100,
+                    client_reference: None,
+                },
+                runtime.clone(),
+            )
+            .await;
+        }
+        assert_eq!(runtime.velocity.total("broke2", ChainId::Eth, Utc::now()), 0);
     }
 
     #[tokio::test]
@@ -609,6 +737,7 @@ impl Clone for CustomerWalletRuntime {
             withdrawals: self.withdrawals.clone(),
             sanctions: self.sanctions.clone(),
             velocity: self.velocity.clone(),
+            ledger: self.ledger.clone(),
             cooldown: self.cooldown,
             velocity_cap_wei: self.velocity_cap_wei,
         }
