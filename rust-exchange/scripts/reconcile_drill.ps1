@@ -115,7 +115,7 @@ try {
         $bcLine = (Get-Content $wdJsonl | Where-Object { $_ -match $idEsc -and $_ -match '"status":"broadcast"' })[-1]
         if ($bcLine -match '"tx_hash":"([^"]+)"') {
             $txHash = $Matches[1]
-            $cfBody = @{ chain = "eth"; tx_hash = $txHash; confirmations = 25; reason = "drill" } | ConvertTo-Json -Compress
+            $cfBody = @{ chain = "eth"; tx_hash = $txHash; confirmations = 25; reason = "reconciliation drill: drive Broadcast->Confirmed for INV-4" } | ConvertTo-Json -Compress
             $cf = Invoke-AdminRequest -Method "POST" -Path "/admin/wallet/test-confirm" -BodyJson $cfBody -Silent
             if ($cf.StatusCode -ne 200) { Warn "test-confirm status=$($cf.StatusCode)" }
             Start-Sleep -Seconds 3
@@ -134,13 +134,16 @@ try {
         Record-Fail "INV-1" "ledger jsonl not found anywhere under data/"
     } else {
         Info "scanning $ledgerJsonl"
-        # Naive but correct: every entry contributes -amount to debit
-        # account and +amount to credit account; sum across all
-        # accounts must be zero.
+        # Each line is `<crc-hex>\t<json>`; strip the CRC prefix before
+        # parsing. Every entry contributes -amount to its debit account
+        # and +amount to its credit account; Σ across accounts == 0.
         $accountTotals = @{}
         foreach ($line in Get-Content $ledgerJsonl) {
+            $jsonPart = $line
+            $tabIdx = $line.IndexOf("`t")
+            if ($tabIdx -ge 0) { $jsonPart = $line.Substring($tabIdx + 1) }
             try {
-                $delta = $line | ConvertFrom-Json -ErrorAction Stop
+                $delta = $jsonPart | ConvertFrom-Json -ErrorAction Stop
             } catch { continue }
             if ($delta.entries) {
                 foreach ($e in $delta.entries) {
@@ -211,7 +214,10 @@ try {
         $cutoff = (Get-Date).ToUniversalTime().AddHours(-24)
         $velByUser = @{}
         foreach ($line in Get-Content $wdJsonl) {
-            try { $rec = $line | ConvertFrom-Json } catch { continue }
+            $jsonPart = $line
+            $tabIdx = $line.IndexOf("`t")
+            if ($tabIdx -ge 0) { $jsonPart = $line.Substring($tabIdx + 1) }
+            try { $rec = $jsonPart | ConvertFrom-Json } catch { continue }
             if ($rec.status -eq "rejected") { continue }
             if (-not $rec.submitted_at) { continue }
             $ts = [DateTimeOffset]::Parse($rec.submitted_at).UtcDateTime

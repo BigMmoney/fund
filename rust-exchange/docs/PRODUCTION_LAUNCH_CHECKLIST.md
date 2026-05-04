@@ -58,7 +58,7 @@
 |---|---|---|---|---|---|
 | P0-REC-1 | Cold-boot WAL replay reaches the same `(command_seq, ledger_root)` as the source node | b.greifen | 🟢 Verified | Existing recovery tests + `recovery_completed` Order Flow Monitor event | `96cf916` (and ancestors) |
 | P0-REC-2 | `data/` directory backed up off-host every 5 min in production | b.greifen (artifacts), UNASSIGNED (S3 bucket + IAM provisioning) | 🟡 In progress | k8s `CronJob` at `deploy/k8s/base/backup-cronjob.yaml` (5-min cadence, tarball + SHA256 manifest, S3 sync, LATEST pointer); systemd alternative at `scripts/exchange-backup.{service,timer}` for non-k8s hosts | bundle-P0 |
-| P0-REC-3 | Daily reconciliation runbook complete and tested in staging | b.greifen (drill script), UNASSIGNED (staging dry-run) | 🟡 In progress | `scripts/reconcile_drill.ps1` boots a clean api, drives load, runs INV-1/3/4 + velocity sanity, reports PASS/FAIL with per-violation detail | bundle-P0 |
+| P0-REC-3 | Daily reconciliation runbook complete and tested in staging | b.greifen (drill script + local pass), UNASSIGNED (staging dry-run sign-off) | 🟡 In progress | `scripts/reconcile_drill.ps1` boots a clean api, drives load, runs INV-1/3/4 + velocity sanity. **Local execution: PASS** — INV-1 Σ==0 across 13 accounts; INV-3 no duplicate op_ids across 10 entries; INV-4 every Settled record has its `wd-settle-{id}` ledger entry; velocity 24h sums clean. Staging dry-run still required for sign-off. | bundle-P0 + drill-pass-2026-05-04 |
 
 ---
 
