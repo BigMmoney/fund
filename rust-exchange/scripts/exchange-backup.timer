@@ -1,0 +1,11 @@
+[Unit]
+Description=Trigger rust-exchange data backup every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=10s
+Unit=exchange-backup.service
+
+[Install]
+WantedBy=timers.target

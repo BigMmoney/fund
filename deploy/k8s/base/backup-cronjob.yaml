@@ -1,0 +1,100 @@
+# 5-minute off-host backup of the exchange's data/ directory (gate
+# P0-REC-2). Each run produces a tarball + sha256 manifest under
+# s3://${BACKUP_BUCKET}/${YYYYMMDD}/${HHMM}/data.tar.gz so the
+# RECONCILIATION_AND_RECOVERY_RUNBOOK.md §4.2 restore path is real.
+#
+# Tunables (env-driven, no per-cluster patch needed):
+#   BACKUP_BUCKET            target S3 bucket (must exist and be IAM-
+#                            restricted to this ServiceAccount)
+#   BACKUP_RETENTION_DAYS    lifecycle policy on the bucket — default 30
+#
+# Required platform pre-reqs:
+# - The deployment's PVC (data) is mountable read-only by this Job.
+#   Use a PVC with ReadWriteMany OR snapshot the volume first; for
+#   single-node setups the existing ReadWriteOnce PVC is fine because
+#   Kubernetes lets one node run both the api Pod (RW) and a parallel
+#   read-only Pod via subpath.
+# - The ServiceAccount has IAM roles for putting objects to the bucket
+#   (see deploy/k8s/base/serviceaccount.yaml; production overlay must
+#   add an IRSA annotation for AWS or workload-identity for GCP).
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exchange-backup
+  namespace: exchange
+spec:
+  schedule: "*/5 * * * *"        # every 5 minutes (RPO = 5 min)
+  concurrencyPolicy: Forbid       # no overlapping runs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 240  # cap each run at 4 minutes
+      template:
+        metadata:
+          labels:
+            app: exchange-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: exchange
+          containers:
+            - name: backup
+              image: amazon/aws-cli:2.17.43
+              env:
+                - name: BACKUP_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: exchange-backup-config
+                      key: bucket
+                - name: AWS_REGION
+                  valueFrom:
+                    configMapKeyRef:
+                      name: exchange-backup-config
+                      key: region
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  ts=$(date -u +%Y%m%d/%H%M)
+                  workdir=$(mktemp -d)
+                  trap 'rm -rf "$workdir"' EXIT
+
+                  # Snapshot data/ into a tarball. We copy first so
+                  # the upload doesn't see partial writes mid-tar.
+                  cp -a /data/. "$workdir/data"
+                  tar -czf "$workdir/data.tar.gz" -C "$workdir" data
+
+                  # Manifest: SHA256 of every file in the tarball.
+                  # Operators verify this on restore via
+                  # `sha256sum -c MANIFEST.sha256`.
+                  (cd "$workdir/data" && find . -type f -print0 \
+                    | xargs -0 sha256sum) > "$workdir/MANIFEST.sha256"
+
+                  aws s3 cp "$workdir/data.tar.gz"      "s3://${BACKUP_BUCKET}/${ts}/data.tar.gz"
+                  aws s3 cp "$workdir/MANIFEST.sha256"  "s3://${BACKUP_BUCKET}/${ts}/MANIFEST.sha256"
+
+                  # Touch a "latest" pointer so restore scripts can
+                  # find the most recent backup without listing.
+                  echo "${ts}" | aws s3 cp - "s3://${BACKUP_BUCKET}/LATEST"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: exchange-data
+                readOnly: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exchange-backup-config
+  namespace: exchange
+data:
+  # Override per-environment via overlay.
+  bucket: "exchange-prod-backup"
+  region: "us-east-1"

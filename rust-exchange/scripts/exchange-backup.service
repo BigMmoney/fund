@@ -1,0 +1,44 @@
+# systemd unit for hosts NOT running on Kubernetes (gate P0-REC-2).
+# Pair with exchange-backup.timer below for the 5-minute cadence.
+#
+# Install:
+#   sudo cp scripts/exchange-backup.service /etc/systemd/system/
+#   sudo cp scripts/exchange-backup.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now exchange-backup.timer
+#
+# Required env file at /etc/exchange/backup.env:
+#   BACKUP_BUCKET=exchange-prod-backup
+#   AWS_REGION=us-east-1
+#   AWS_ACCESS_KEY_ID=...        (or use IAM instance profile)
+#   AWS_SECRET_ACCESS_KEY=...
+
+[Unit]
+Description=rust-exchange data/ off-host backup
+After=exchange-api.service
+Wants=exchange-api.service
+
+[Service]
+Type=oneshot
+User=exchange
+Group=exchange
+EnvironmentFile=/etc/exchange/backup.env
+WorkingDirectory=/opt/exchange
+ExecStart=/bin/bash -c '\
+  set -euo pipefail; \
+  ts=$(date -u +%%Y%%m%%d/%%H%%M); \
+  workdir=$(mktemp -d); \
+  trap "rm -rf \"$workdir\"" EXIT; \
+  cp -a data/. "$workdir/data"; \
+  tar -czf "$workdir/data.tar.gz" -C "$workdir" data; \
+  (cd "$workdir/data" && find . -type f -print0 | xargs -0 sha256sum) > "$workdir/MANIFEST.sha256"; \
+  aws s3 cp "$workdir/data.tar.gz"     "s3://${BACKUP_BUCKET}/${ts}/data.tar.gz"; \
+  aws s3 cp "$workdir/MANIFEST.sha256" "s3://${BACKUP_BUCKET}/${ts}/MANIFEST.sha256"; \
+  echo "${ts}" | aws s3 cp - "s3://${BACKUP_BUCKET}/LATEST"; \
+'
+TimeoutSec=240
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/exchange/data
+PrivateTmp=true

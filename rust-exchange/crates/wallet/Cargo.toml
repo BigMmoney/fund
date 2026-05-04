@@ -13,13 +13,18 @@ anyhow.workspace = true
 dashmap.workspace = true
 parking_lot.workspace = true
 persistence = { path = "../persistence" }
+# P0-SEC-6 / P0-FUND-1: feature-gated HTTP client. `blocking` keeps
+# the SanctionsProvider trait sync (no async runtime requirement).
+ureq = { version = "2.10", features = ["json", "tls"], optional = true }
 
 [features]
 default = []
-# P0-FUND-1: real ETH chain adapter behind a feature flag. Disabled
-# by default so the test build keeps using InMemoryChainAdapter and
-# CI doesn't need the ethers/alloy dependency surface.
-eth-rpc = []
+# P0-FUND-1: real ETH chain adapter behind a feature flag. Read-side
+# (balance / confirmations) talks JSON-RPC over HTTPS via ureq.
+# Signing + broadcast remain stubbed until the KMS-sealed key + RPC
+# URL are provisioned.
+eth-rpc = ["dep:ureq"]
 # P0-SEC-6: real Chainalysis sanctions provider behind a feature flag.
-# Disabled by default so tests use StubSanctionsProvider.
-chainalysis = []
+# Hits public.chainalysis.com/api/v1/address/{addr}; treats network
+# failures as `SanctionsScreenStatus::Error` (soft block).
+chainalysis = ["dep:ureq"]

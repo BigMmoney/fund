@@ -36,18 +36,18 @@
 
 | ID | Gate | Owner | Status | Acceptance | Evidence |
 |---|---|---|---|---|---|
-| P0-SEC-1 | HMAC shared secret rotated from `dev-secret-*` to a 32+-byte production secret stored in KMS / sealed env | UNASSIGNED | 🔴 Open | `INTERNAL_AUTH_SHARED_SECRET` source documented; rotation runbook linked | — |
+| P0-SEC-1 | HMAC shared secret rotated from `dev-secret-*` to a 32+-byte production secret stored in KMS / sealed env | b.greifen (code), UNASSIGNED (KMS provisioning) | 🟡 In progress | `wallet::SecretLoader` trait + `EnvSecretLoader` (default) + `KmsSecretLoader` scaffold landed; `loader_from_env` selects via `WALLET_SECRET_BACKEND`; `Secret` redacts in Debug + zeroize on drop. Provisioning runbook: `docs/KMS_SECRETS_RUNBOOK.md` | bundle-P0 |
 | P0-SEC-2 | `INTERNAL_AUTH_MAX_SKEW_SECONDS` set to a per-environment value (production: 30 s, staging: 120 s) | b.greifen | 🟢 Verified | `internal_auth_max_skew_seconds()` reads env at process start; clamped to [1, 3600]; default 30 s | bundle-P0 |
 | P0-SEC-3 | Per-IP rate limit active on `/v2/wallet/*` | b.greifen | 🟢 Verified | `customer_wallet_routes` wraps `ip_rate_limiter`; `RateLimited` returns 429 | `4c44082` |
 | P0-SEC-4 | No-self-approval enforced and audited on every maker-checker action | b.greifen | 🟢 Verified | Smoke phase 7 confirms self-approve does not commit + `denied_self_approval` audit row | smoke + `data/admin/rbac_audit.jsonl` |
-| P0-SEC-5 | Backoffice bootstrap admin documented and rotated for production | UNASSIGNED | 🔴 Open | `BACKOFFICE_BOOTSTRAP_ADMIN` set to a real principal; first-boot grant audited | — |
-| P0-SEC-6 | Real sanctions provider (Chainalysis / TRM) wired behind feature flag with provisioned API keys | b.greifen (scaffold), UNASSIGNED (HTTP body + keys) | 🟡 In progress | Feature `--features chainalysis` builds; `wallet::ChainalysisProvider` impls `SanctionsProvider` and returns `Error` (soft-block) until HTTP body and API key are wired | bundle-P0 |
+| P0-SEC-5 | Backoffice bootstrap admin documented and rotated for production | b.greifen (docs), UNASSIGNED (operational drill) | 🟡 In progress | Contract documented in `docs/IDP_INTEGRATION.md` §2 incl. demotion procedure; `bootstrap_admin_seed` audit row already emitted on first boot | bundle-P0 |
+| P0-SEC-6 | Real sanctions provider (Chainalysis / TRM) wired behind feature flag with provisioned API keys | b.greifen (code), UNASSIGNED (API key) | 🟡 In progress | `--features chainalysis` ships the real HTTP body — `ureq` GET to `public.chainalysis.com/api/v1/address/{addr}` with retry + transport fall-through to `Error`. Loaded via `SecretLoader`; `unreachable_endpoint_returns_error_status` test verifies fail-closed | bundle-P0 |
 
 ### Funds movement
 
 | ID | Gate | Owner | Status | Acceptance | Evidence |
 |---|---|---|---|---|---|
-| P0-FUND-1 | Real ETH chain adapter wired behind feature flag | b.greifen (scaffold), UNASSIGNED (RPC body + keys) | 🟡 In progress | `--features eth-rpc` builds; `wallet::EthRpcAdapter` impls `ChainAdapter` returning `ChainError::Rpc(scaffold message)` until ethers/alloy + KMS-sealed key are provisioned | bundle-P0 |
+| P0-FUND-1 | Real ETH chain adapter wired behind feature flag | b.greifen (read paths), UNASSIGNED (signing + KMS key + RPC URL provisioning) | 🟡 In progress | `--features eth-rpc` ships read-side: `eth_getBalance`, `eth_getTransactionByHash`, `eth_blockNumber`, `eth_feeHistory`-equivalent fee estimate; multi-RPC failover with linear backoff. Write-side (build/sign/broadcast) returns explicit "not yet wired" until KMS-sealed key lands. `unreachable_rpc_returns_rpc_error` test passes | bundle-P0 |
 | P0-FUND-2 | Per-chain settlement accounts (`SYS:WALLET:HOT:eth` etc.) replace single `SYS:ONCHAIN_VAULT:USDC` | b.greifen | 🟢 Verified | `SettlementWorker::with_chains` takes a per-chain `ChainSpec` map; `per_chain_settlement_account_isolation` test verifies ETH credits land on `SYS:WALLET:HOT:eth` and BTC on `SYS:WALLET:HOT:btc`; legacy account untouched | bundle-P0 |
 | P0-FUND-3 | Per-chain ledger-unit divisor (wei → micro-eth) so amounts can exceed i64 | b.greifen | 🟢 Verified | `ChainSpec::to_ledger_units(amount)` returns `(quotient_i64, remainder)`; overflow surfaces as `SettlementStuck`; `divisor_overflow_is_marked_stuck_not_settled` test passes | bundle-P0 |
 | P0-FUND-4 | Maker-checker for above-threshold customer withdrawals (`WALLET_CUSTOMER_MC_THRESHOLD`) | b.greifen | 🟢 Verified | `CustomerWalletRuntime::with_mc_threshold`; submit > threshold parks at `AwaitingApproval` with response `status="awaiting_approval"`; `submit_above_mc_threshold_creates_awaiting_approval_record` test passes | bundle-P0 |
@@ -57,8 +57,8 @@
 | ID | Gate | Owner | Status | Acceptance | Evidence |
 |---|---|---|---|---|---|
 | P0-REC-1 | Cold-boot WAL replay reaches the same `(command_seq, ledger_root)` as the source node | b.greifen | 🟢 Verified | Existing recovery tests + `recovery_completed` Order Flow Monitor event | `96cf916` (and ancestors) |
-| P0-REC-2 | `data/` directory backed up off-host every 5 min in production | UNASSIGNED | 🔴 Open | Backup cron + restore runbook | RECONCILIATION_AND_RECOVERY_RUNBOOK.md §4 |
-| P0-REC-3 | Daily reconciliation runbook complete and tested in staging | UNASSIGNED | 🔴 Open | RECONCILIATION_AND_RECOVERY_RUNBOOK.md §3 dry-run signed off | — |
+| P0-REC-2 | `data/` directory backed up off-host every 5 min in production | b.greifen (artifacts), UNASSIGNED (S3 bucket + IAM provisioning) | 🟡 In progress | k8s `CronJob` at `deploy/k8s/base/backup-cronjob.yaml` (5-min cadence, tarball + SHA256 manifest, S3 sync, LATEST pointer); systemd alternative at `scripts/exchange-backup.{service,timer}` for non-k8s hosts | bundle-P0 |
+| P0-REC-3 | Daily reconciliation runbook complete and tested in staging | b.greifen (drill script), UNASSIGNED (staging dry-run) | 🟡 In progress | `scripts/reconcile_drill.ps1` boots a clean api, drives load, runs INV-1/3/4 + velocity sanity, reports PASS/FAIL with per-violation detail | bundle-P0 |
 
 ---
 

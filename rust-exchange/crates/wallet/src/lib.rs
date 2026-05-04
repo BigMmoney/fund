@@ -19,6 +19,7 @@
 pub mod address_book;
 pub mod chain;
 pub mod sanctions;
+pub mod secrets;
 pub mod types;
 pub mod velocity;
 pub mod withdrawal_store;
@@ -32,7 +33,7 @@ pub mod chainalysis;
 #[cfg(feature = "eth-rpc")]
 pub use eth_rpc::{EthAdapterConfig, EthRpcAdapter};
 #[cfg(feature = "chainalysis")]
-pub use chainalysis::{ChainalysisConfig, ChainalysisProvider};
+pub use chainalysis::ChainalysisProvider;
 
 pub use address_book::AddressBookStore;
 pub use chain::{ChainAdapter, ChainError, DepositEvent, InMemoryChainAdapter, SignedTx, UnsignedTx};
@@ -42,6 +43,7 @@ pub use types::{
     SanctionsScreenStatus, WalletTier, WithdrawalAddress, WithdrawalAddressId, WithdrawalRecord,
     WithdrawalRejectReason, WithdrawalStatus, WALLET_SCHEMA_VERSION,
 };
+pub use secrets::{loader_from_env, EnvSecretLoader, KmsSecretLoader, Secret, SecretError, SecretLoader};
 pub use velocity::{from_records as build_velocity_tracker, VelocityTracker};
 pub use withdrawal_store::{is_valid_transition, WithdrawalStore};
 pub use worker::{HotWalletWorker, WorkerTickReport};
