@@ -100,13 +100,14 @@ function Invoke-AdminRequest {
     
     $url = "$Script:ExchangeBaseUrl$Path"
     if ($Query) { $url += "?$Query" }
-    
-    $curlArgs = @("-s", "-w", "\n%{http_code}") + $curlHeaders
+
+    # See Invoke-ExchangeRequestAs for why -X is required here too.
+    $curlArgs = @("-s", "-w", "\n%{http_code}", "-X", $Method) + $curlHeaders
     if ($tempFile) {
         $curlArgs += @("--data-binary", "@$tempFile")
     }
     $curlArgs += @($url)
-    
+
     try {
         $curlOutput = & curl.exe $curlArgs 2>&1
         $lines = $curlOutput -split "`n"
@@ -213,27 +214,32 @@ function Invoke-ExchangeRequestAs {
     
     $url = "$Script:ExchangeBaseUrl$Path"
     if ($Query) { $url += "?$Query" }
-    
-    $curlArgs = @("-s", "-w", "\n%{http_code}") + $curlHeaders
+
+    # Always force the HTTP method explicitly. Without -X, curl
+    # defaults to GET when there is no body (or POST when there is),
+    # so a DELETE/PATCH/PUT request with no body would silently go
+    # out as GET — failing on the server with MethodNotAllowed (500
+    # in handle_rejection) and breaking HMAC sig verification too.
+    $curlArgs = @("-s", "-w", "\n%{http_code}", "-X", $Method) + $curlHeaders
     if ($tempFile) {
         $curlArgs += @("--data-binary", "@$tempFile")
     }
     $curlArgs += @($url)
-    
+
     try {
         $curlOutput = & curl.exe $curlArgs 2>&1
-        
+
         # Parse: last line is status code
         $lines = $curlOutput -split "`n"
         $statusCode = [int]$lines[-1].Trim()
         $responseBody = ($lines[0..($lines.Length-2)] -join "`n").Trim()
-        
+
         # Try parse JSON
         $parsedJson = $null
         try {
             $parsedJson = $responseBody | ConvertFrom-Json -ErrorAction SilentlyContinue
         } catch {}
-        
+
         if (-not $Silent) {
             Write-Host "  [$statusCode] $Method $Path" -ForegroundColor $(if ($statusCode -ge 200 -and $statusCode -lt 300) { "Green" } elseif ($statusCode -lt 500) { "Yellow" } else { "Red" })
         }

@@ -305,9 +305,12 @@ try {
     # ── 11b. Customer-side /v2/wallet/* end-to-end ────────────────────
     Section "11b. POST /v2/wallet/addresses + /v2/wallet/withdraw (customer flow)"
     $custSubject = "smoke-customer-v2"
-    # Pre-fund this customer so the settlement worker can debit.
-    $custDepositOk = Test-Deposit -UserId $custSubject -Amount 5000 -OpId "smoke-v2-deposit-$(Get-Random)"
-    if ($custDepositOk) { Ok "$custSubject funded with 5000 USDC subunits" } else { Warn "$custSubject deposit failed" }
+    # Pre-fund this customer. The /v2 path now applies a fixed
+    # 1_000_000 estimated_fee at submit-time (C2 balance pre-check),
+    # so the seed must comfortably exceed amount + 1_000_000 even for
+    # a 1000-unit smoke withdrawal.
+    $custDepositOk = Test-Deposit -UserId $custSubject -Amount 100000000 -OpId "smoke-v2-deposit-$(Get-Random)"
+    if ($custDepositOk) { Ok "$custSubject funded with 100M USDC subunits" } else { Warn "$custSubject deposit failed" }
 
     # 1. Whitelist destination on /v2/wallet/addresses
     $addrBody = @{
@@ -400,11 +403,109 @@ try {
         amount              = 100
     } | ConvertTo-Json -Compress
     $adhocResp = Invoke-ExchangeRequestAs -Method "POST" -Path "/v2/wallet/withdraw" -BodyJson $adhocBody -Subject $custSubject -Role "user" -Silent
+    # C1: ad-hoc destination must surface as 404 address_not_found
+    # (not the previous mystery 500). Also verify the structured
+    # error envelope.
     if ($adhocResp.StatusCode -eq 200) {
         Fail "ad-hoc destination accepted — design §11 rule 1 violated"
         exit 1
     }
-    Ok "ad-hoc destination correctly rejected (status=$($adhocResp.StatusCode))"
+    if ($adhocResp.StatusCode -ne 404) {
+        Warn "ad-hoc destination got status=$($adhocResp.StatusCode); expected 404"
+    } else {
+        Ok "ad-hoc destination correctly rejected with 404"
+    }
+    if ($adhocResp.Body -match '"error_code":"address_not_found"') {
+        Ok "structured error envelope present (error_code=address_not_found)"
+    } else {
+        Warn "structured error envelope missing in body: $($adhocResp.Body)"
+    }
+
+    # ── 11c. Idempotency + audit + list/remove endpoints ──────────────
+    Section "11c. H2 idempotency + H4 audit log + list/remove endpoints"
+
+    # H2: same client_reference twice must return the same withdrawal_id
+    # AND must not create a second WithdrawalStore record.
+    $dedupRef = "smoke-dedup-$(Get-Random)"
+    $idemBody = @{
+        chain               = "eth"
+        destination_address = "0xv2dest"
+        amount              = 500
+        client_reference    = $dedupRef
+    } | ConvertTo-Json -Compress
+    $idem1 = Invoke-ExchangeRequestAs -Method "POST" -Path "/v2/wallet/withdraw" -BodyJson $idemBody -Subject $custSubject -Role "user" -Silent
+    $idem2 = Invoke-ExchangeRequestAs -Method "POST" -Path "/v2/wallet/withdraw" -BodyJson $idemBody -Subject $custSubject -Role "user" -Silent
+    if ($idem1.StatusCode -eq 200 -and $idem2.StatusCode -eq 200) {
+        $id1 = $idem1.ParsedJson.withdrawal_id
+        $id2 = $idem2.ParsedJson.withdrawal_id
+        if ($id1 -eq $id2) {
+            Ok "H2 idempotency: duplicate client_reference returned same id ($id1)"
+        } else {
+            Fail "H2 idempotency violated: id1=$id1 id2=$id2"
+            exit 1
+        }
+    } else {
+        Warn "idempotency probe statuses=$($idem1.StatusCode)/$($idem2.StatusCode)"
+    }
+
+    # New endpoint: GET /v2/wallet/withdrawals (caller's records only)
+    $listResp = Invoke-ExchangeRequestAs -Method "GET" -Path "/v2/wallet/withdrawals" -Subject $custSubject -Role "user" -Silent
+    if ($listResp.StatusCode -eq 200) {
+        $count = ($listResp.ParsedJson | Measure-Object).Count
+        Ok "GET /v2/wallet/withdrawals returned $count records"
+    } else {
+        Warn "list withdrawals status=$($listResp.StatusCode)"
+    }
+
+    # New endpoint: GET /v2/wallet/addresses
+    $addrListResp = Invoke-ExchangeRequestAs -Method "GET" -Path "/v2/wallet/addresses" -Subject $custSubject -Role "user" -Silent
+    if ($addrListResp.StatusCode -eq 200) {
+        $aCount = ($addrListResp.ParsedJson | Measure-Object).Count
+        Ok "GET /v2/wallet/addresses returned $aCount records"
+    } else {
+        Warn "list addresses status=$($addrListResp.StatusCode)"
+    }
+
+    # New endpoint: DELETE /v2/wallet/addresses/{id} — owner only.
+    if ($addrId) {
+        $delOther = Invoke-ExchangeRequestAs -Method "DELETE" -Path "/v2/wallet/addresses/$addrId" -Subject "smoke-stranger" -Role "user" -Silent
+        if ($delOther.StatusCode -eq 404) {
+            Ok "DELETE by non-owner correctly masked as 404"
+        } else {
+            Warn "DELETE by non-owner got status=$($delOther.StatusCode); expected 404"
+        }
+        $delOwn = Invoke-ExchangeRequestAs -Method "DELETE" -Path "/v2/wallet/addresses/$addrId" -Subject $custSubject -Role "user" -Silent
+        if ($delOwn.StatusCode -eq 200) {
+            Ok "DELETE by owner accepted"
+        } else {
+            Warn "DELETE by owner got status=$($delOwn.StatusCode)"
+        }
+    }
+
+    # H4: customer audit log file must exist and contain rows for
+    # the operations exercised above (add, submit ok, sanctions/balance
+    # rejects from earlier phases, list, remove).
+    $custAuditFile = Join-Path $RustRoot "data/wallet/customer_audit.jsonl"
+    if (Test-Path $custAuditFile) {
+        $auditLines = Get-Content $custAuditFile
+        $auditCount = ($auditLines | Measure-Object).Count
+        $hasSubmit = @($auditLines | Where-Object { $_ -match '"action":"submit_withdraw"' }).Count
+        $hasAddAddr = @($auditLines | Where-Object { $_ -match '"action":"add_address"' }).Count
+        $hasReject = @($auditLines | Where-Object { $_ -match '"outcome":"address_not_found"' -or $_ -match '"outcome":"duplicate_request"' }).Count
+        Info "audit rows=$auditCount submit=$hasSubmit add=$hasAddAddr reject_or_dedup=$hasReject"
+        if ($auditCount -ge 4) {
+            Ok "H4 customer audit log has $auditCount rows"
+        } else {
+            Warn "H4 customer audit log only has $auditCount rows; expected ≥4"
+        }
+        if ($hasSubmit -ge 1 -and $hasAddAddr -ge 1) {
+            Ok "audit captures both add_address and submit_withdraw actions"
+        } else {
+            Warn "audit missing expected actions (add=$hasAddAddr, submit=$hasSubmit)"
+        }
+    } else {
+        Warn "H4 customer audit jsonl not found at $custAuditFile"
+    }
 
     # ── 12. Wallet endpoints ──────────────────────────────────────────
     Section "13. GET /admin/wallet/balances"
