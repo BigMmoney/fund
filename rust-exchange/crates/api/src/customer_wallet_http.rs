@@ -46,6 +46,105 @@ use wallet::{
 const DEFAULT_COOLDOWN_SECS: i64 = 24 * 60 * 60;
 const DEFAULT_VELOCITY_CAP_WEI: i128 = 500_000_000_000_000_000_000_i128; // 500 ETH equivalent placeholder
 
+/// Structured rejections for the customer-wallet surface (C1).
+///
+/// Previously every failure reduced to `warp::reject::not_found()`,
+/// which (a) gave the client no way to distinguish a malformed
+/// request from a sanctions hit from a server fault, and (b) on
+/// already-matched routes surfaced as HTTP 500 instead of 404 in the
+/// smoke harness. `WalletError` carries enough information that
+/// `wallet_error_to_reply` can produce a stable JSON error envelope
+/// with the correct status code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WalletError {
+    BadRequest(&'static str),
+    AddressNotFound,
+    AddressNotActive,
+    SanctionsHit,
+    /// Sanctions provider returned `Error` (RPC failure / timeout).
+    /// Per design §11 rule 9 we treat this as a soft-block: the
+    /// caller should retry; we MUST NOT silently let the address
+    /// through (H1).
+    SanctionsUnavailable,
+    VelocityExceeded,
+    InsufficientBalance,
+    AmountTooLarge,
+    /// Reserved for future surface (e.g. admin-impersonation paths).
+    /// Wired through `wallet_error_to_reply` and asserted on by the
+    /// status-mapping test, but no production handler raises it yet.
+    #[allow(dead_code)]
+    Forbidden,
+    Internal(String),
+}
+
+impl warp::reject::Reject for WalletError {}
+
+#[derive(Debug, Serialize)]
+struct WalletErrorBody {
+    error_code: &'static str,
+    message: String,
+}
+
+/// Map a `WalletError` to a JSON reply with the correct HTTP status.
+/// Wired in `main.rs::handle_rejection`. The status codes are stable
+/// API contract — clients and the React frontend depend on them.
+pub(crate) fn wallet_error_to_reply(err: &WalletError) -> warp::reply::WithStatus<warp::reply::Json> {
+    use warp::http::StatusCode;
+    let (code, message, status) = match err {
+        WalletError::BadRequest(msg) => ("bad_request", (*msg).to_string(), StatusCode::BAD_REQUEST),
+        WalletError::AddressNotFound => (
+            "address_not_found",
+            "destination not whitelisted for this user".into(),
+            StatusCode::NOT_FOUND,
+        ),
+        WalletError::AddressNotActive => (
+            "address_not_active",
+            "destination address is not active (cool-down, suspended, or removed)".into(),
+            StatusCode::CONFLICT,
+        ),
+        WalletError::SanctionsHit => (
+            "sanctions_hit",
+            "destination matched a sanctions list".into(),
+            StatusCode::FORBIDDEN,
+        ),
+        WalletError::SanctionsUnavailable => (
+            "sanctions_unavailable",
+            "sanctions provider is unavailable; retry later".into(),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        WalletError::VelocityExceeded => (
+            "velocity_exceeded",
+            "withdrawal would exceed the per-day cap for this user/chain".into(),
+            StatusCode::CONFLICT,
+        ),
+        WalletError::InsufficientBalance => (
+            "insufficient_balance",
+            "available cash is below amount + estimated_fee".into(),
+            StatusCode::CONFLICT,
+        ),
+        WalletError::AmountTooLarge => (
+            "amount_too_large",
+            "amount exceeds the per-chain ledger ceiling".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        WalletError::Forbidden => (
+            "forbidden",
+            "not the owner of this resource".into(),
+            StatusCode::FORBIDDEN,
+        ),
+        WalletError::Internal(msg) => ("internal", msg.clone(), StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    let body = WalletErrorBody {
+        error_code: code,
+        message,
+    };
+    warp::reply::with_status(warp::reply::json(&body), status)
+}
+
+fn reject(err: WalletError) -> Rejection {
+    warp::reject::custom(err)
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct AddAddressBody {
     pub chain: ChainId,
@@ -193,19 +292,30 @@ pub(crate) async fn handle_add_address(
     runtime: Arc<CustomerWalletRuntime>,
 ) -> Result<warp::reply::Json, Rejection> {
     if body.address.trim().is_empty() {
-        return Err(warp::reject::not_found());
+        return Err(reject(WalletError::BadRequest("address must not be empty")));
     }
-    if body.label.trim().is_empty() || body.label.len() > 256 {
-        return Err(warp::reject::not_found());
+    if body.label.trim().is_empty() {
+        return Err(reject(WalletError::BadRequest("label must not be empty")));
     }
-    // Per design §4.2: synchronously screen at add time; a hit goes
-    // straight to Suspended (NOT PendingCooldown).
-    let screen = runtime
-        .sanctions
-        .screen(body.chain, &body.address);
+    if body.label.chars().count() > 256 {
+        return Err(reject(WalletError::BadRequest(
+            "label must be 256 characters or fewer",
+        )));
+    }
+    // Per design §4.2: synchronously screen at add time. A Hit goes
+    // straight to Suspended (NOT PendingCooldown). Provider Error is
+    // a soft block (H1) — we MUST NOT silently let an un-screened
+    // address into the book.
+    let screen = runtime.sanctions.screen(body.chain, &body.address);
     let status = match screen.status {
         SanctionsScreenStatus::Hit => AddressStatus::Suspended,
-        _ => AddressStatus::PendingCooldown,
+        // Pending = "not yet checked"; in v1 our screen() call is
+        // synchronous so this branch is defensive against future
+        // async providers. Soft-block, do not let into the book.
+        SanctionsScreenStatus::Pending | SanctionsScreenStatus::Error => {
+            return Err(reject(WalletError::SanctionsUnavailable))
+        }
+        SanctionsScreenStatus::Clear => AddressStatus::PendingCooldown,
     };
     let now = Utc::now();
     let cooldown_until = match status {
@@ -229,8 +339,10 @@ pub(crate) async fn handle_add_address(
         sanctions_check: screen,
         added_by: principal.subject.clone(),
     };
-    if runtime.addresses.create(record.clone()).is_err() {
-        return Err(warp::reject::not_found());
+    if let Err(e) = runtime.addresses.create(record.clone()) {
+        return Err(reject(WalletError::Internal(format!(
+            "address store create failed: {e}"
+        ))));
     }
     Ok(warp::reply::json(&AddAddressResponse {
         address_id,
@@ -246,27 +358,31 @@ pub(crate) async fn handle_submit_withdraw(
     runtime: Arc<CustomerWalletRuntime>,
 ) -> Result<warp::reply::Json, Rejection> {
     if body.amount <= 0 {
-        return Err(warp::reject::not_found());
+        return Err(reject(WalletError::BadRequest("amount must be > 0")));
     }
     let now = Utc::now();
     // 1. Resolve destination via address book (design §11 rule 1).
-    let address = match runtime
+    let address = runtime
         .addresses
         .resolve(&principal.subject, body.chain, &body.destination_address)
-    {
-        Some(a) => a,
-        None => return Err(warp::reject::not_found()),
-    };
-    if address.status != AddressStatus::Active && address.cooldown_until > now {
-        return Err(warp::reject::not_found());
-    }
+        .ok_or_else(|| reject(WalletError::AddressNotFound))?;
+    // Status / cool-down gate. Suspended or Removed = hard reject;
+    // PendingCooldown still in window = also reject.
     if address.status == AddressStatus::Suspended || address.status == AddressStatus::Removed {
-        return Err(warp::reject::not_found());
+        return Err(reject(WalletError::AddressNotActive));
+    }
+    if address.status != AddressStatus::Active && address.cooldown_until > now {
+        return Err(reject(WalletError::AddressNotActive));
     }
     // 2. Re-screen at validate time (design §4.2 + §11 rule 9).
+    //    Both Hit AND Error are blocking here (H1).
     let screen = runtime.sanctions.screen(body.chain, &address.address);
-    if screen.status == SanctionsScreenStatus::Hit {
-        return Err(warp::reject::not_found());
+    match screen.status {
+        SanctionsScreenStatus::Hit => return Err(reject(WalletError::SanctionsHit)),
+        SanctionsScreenStatus::Pending | SanctionsScreenStatus::Error => {
+            return Err(reject(WalletError::SanctionsUnavailable))
+        }
+        SanctionsScreenStatus::Clear => {}
     }
     // 3. Balance pre-check (C2). Without this, the auto-walk to
     //    Approved followed by the hot-wallet broadcast can pay out
@@ -275,18 +391,16 @@ pub(crate) async fn handle_submit_withdraw(
     //    which point the money has already left the hot wallet.
     let estimated_fee: i128 = 1_000_000;
     let required = body.amount.saturating_add(estimated_fee);
-    let required_i64: i64 = match i64::try_from(required) {
-        Ok(v) => v,
-        Err(_) => return Err(warp::reject::not_found()),
-    };
+    let required_i64: i64 = i64::try_from(required)
+        .map_err(|_| reject(WalletError::AmountTooLarge))?;
     if runtime.ledger.cash_available_balance(&principal.subject) < required_i64 {
-        return Err(warp::reject::not_found());
+        return Err(reject(WalletError::InsufficientBalance));
     }
     // 4. Atomic velocity check-and-record (C3). The previous
     //    would_exceed + later record() pair raced: two concurrent
-    //    submissions could both pass the check and both insert,
-    //    silently breaching the cap. try_record holds the bucket
-    //    mutex across both operations.
+    //    submissions could both pass the read-only check, both
+    //    insert, and silently breach the cap. try_record holds the
+    //    bucket mutex across both operations.
     if runtime
         .velocity
         .try_record(
@@ -298,7 +412,7 @@ pub(crate) async fn handle_submit_withdraw(
         )
         .is_err()
     {
-        return Err(warp::reject::not_found());
+        return Err(reject(WalletError::VelocityExceeded));
     }
     // 5. Create record + auto-walk to Approved. Maker-checker for
     //    above-threshold amounts is a v1 follow-up; auto-approve in
@@ -328,8 +442,10 @@ pub(crate) async fn handle_submit_withdraw(
         rejection_reason: None,
         notes: body.client_reference.clone(),
     };
-    if runtime.withdrawals.create(record).is_err() {
-        return Err(warp::reject::not_found());
+    if let Err(e) = runtime.withdrawals.create(record) {
+        return Err(reject(WalletError::Internal(format!(
+            "withdrawal store create failed: {e}"
+        ))));
     }
     // 6. Walk Submitted → Validated → Queued → Approved.
     for next in [
@@ -346,13 +462,19 @@ pub(crate) async fn handle_submit_withdraw(
             // advancing to Rejected so the customer sees the failure.
             let mut current = match runtime.withdrawals.get(&withdrawal_id) {
                 Some(r) => r,
-                None => return Err(warp::reject::not_found()),
+                None => {
+                    return Err(reject(WalletError::Internal(
+                        "withdrawal vanished mid-auto-walk".into(),
+                    )))
+                }
             };
             current.status = WithdrawalStatus::Rejected;
             current.rejection_reason = Some(WithdrawalRejectReason::OperatorRejected);
             current.notes = Some("auto-walk to Approved failed".into());
             let _ = runtime.withdrawals.update(current);
-            return Err(warp::reject::not_found());
+            return Err(reject(WalletError::Internal(
+                "auto-walk to Approved failed".into(),
+            )));
         }
     }
     // Velocity contribution was already recorded atomically in step 4.
@@ -370,15 +492,17 @@ pub(crate) async fn handle_withdrawal_status(
     principal: AuthenticatedPrincipal,
     runtime: Arc<CustomerWalletRuntime>,
 ) -> Result<warp::reply::Json, Rejection> {
-    let record = match runtime.withdrawals.get(&withdrawal_id) {
-        Some(r) => r,
-        None => return Err(warp::reject::not_found()),
-    };
+    let record = runtime
+        .withdrawals
+        .get(&withdrawal_id)
+        .ok_or_else(|| reject(WalletError::AddressNotFound))?;
     // Customers see only their own records (design §11 rule 1).
     // Admin would have a separate /admin/wallet/withdrawals endpoint;
-    // not exposed on the customer surface.
+    // not exposed on the customer surface. Non-owners are masked as
+    // not-found rather than 403 to avoid leaking the existence of
+    // another user's withdrawal_id.
     if record.user_id != principal.subject {
-        return Err(warp::reject::not_found());
+        return Err(reject(WalletError::AddressNotFound));
     }
     Ok(warp::reply::json(&record))
 }
@@ -442,6 +566,21 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
+    /// Extract the `WalletError` variant from a handler result so
+    /// tests can assert on it. Panics if the handler returned Ok or
+    /// the rejection wasn't a WalletError. We intentionally don't
+    /// use `Result::unwrap_err` because `warp::reply::Json` doesn't
+    /// implement `Debug`.
+    fn expect_wallet_error<T>(r: Result<T, warp::Rejection>) -> WalletError {
+        match r {
+            Ok(_) => panic!("expected WalletError, got Ok"),
+            Err(rej) => rej
+                .find::<WalletError>()
+                .cloned()
+                .unwrap_or_else(|| panic!("rejection was not a WalletError: {rej:?}")),
+        }
+    }
+
     #[tokio::test]
     async fn add_address_clear_returns_pending_cooldown() {
         let runtime = make_runtime();
@@ -495,7 +634,114 @@ mod tests {
             client_reference: None,
         };
         let r = handle_submit_withdraw(principal("alice"), body, runtime).await;
-        assert!(r.is_err());
+        // C1: ad-hoc destination must surface as AddressNotFound (404),
+        // not a generic 500. Maps to status 404 via wallet_error_to_reply.
+        assert_eq!(expect_wallet_error(r), WalletError::AddressNotFound);
+    }
+
+    #[tokio::test]
+    async fn add_address_when_sanctions_provider_errors_returns_unavailable() {
+        // H1: provider Error must NOT silently let the address into
+        // the book. Previously the `_ => PendingCooldown` arm masked
+        // every non-Hit status as Clear.
+        let addresses = Arc::new(AddressBookStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        let withdrawals = Arc::new(WithdrawalStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        let stub = Arc::new(StubSanctionsProvider::new());
+        stub.add_error(ChainId::Eth, "0xprovider-down");
+        let sanctions: Arc<dyn SanctionsProvider> = stub;
+        let velocity = Arc::new(VelocityTracker::with_default_window());
+        let ledger = make_ledger();
+        let runtime = Arc::new(
+            CustomerWalletRuntime::new(addresses, withdrawals, sanctions, velocity, ledger)
+                .with_cooldown(Duration::from_secs(0)),
+        );
+        let body = AddAddressBody {
+            chain: ChainId::Eth,
+            address: "0xprovider-down".into(),
+            label: "provider down".into(),
+        };
+        let r = handle_add_address(principal("alice"), body, runtime).await;
+        assert_eq!(
+            expect_wallet_error(r),
+            WalletError::SanctionsUnavailable
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_when_sanctions_provider_errors_at_validate_returns_unavailable() {
+        // H1 (validate-time path): even if the address was Clear at
+        // add-time, a provider outage during the validate-time
+        // re-screen must hard-block.
+        let addresses = Arc::new(AddressBookStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        let withdrawals = Arc::new(WithdrawalStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        let stub = Arc::new(StubSanctionsProvider::new());
+        let sanctions: Arc<dyn SanctionsProvider> = stub.clone();
+        let velocity = Arc::new(VelocityTracker::with_default_window());
+        let ledger = make_ledger();
+        ledger
+            .process_deposit("alice", 100_000_000, "seed-h1-validate".to_string())
+            .unwrap();
+        let runtime = Arc::new(
+            CustomerWalletRuntime::new(addresses, withdrawals, sanctions, velocity, ledger)
+                .with_cooldown(Duration::from_secs(0)),
+        );
+        let _ = handle_add_address(
+            principal("alice"),
+            AddAddressBody {
+                chain: ChainId::Eth,
+                address: "0xclean-now-flaky".into(),
+                label: "x".into(),
+            },
+            runtime.clone(),
+        )
+        .await
+        .unwrap();
+        runtime.addresses.sweep_cooldowns().unwrap();
+        // Provider goes down between add and submit.
+        stub.add_error(ChainId::Eth, "0xclean-now-flaky");
+        let r = handle_submit_withdraw(
+            principal("alice"),
+            SubmitWithdrawBody {
+                chain: ChainId::Eth,
+                destination_address: "0xclean-now-flaky".into(),
+                amount: 100,
+                client_reference: None,
+            },
+            runtime,
+        )
+        .await;
+        assert_eq!(
+            expect_wallet_error(r),
+            WalletError::SanctionsUnavailable
+        );
+    }
+
+    #[tokio::test]
+    async fn wallet_error_to_reply_maps_status_codes_correctly() {
+        // C1: the status-code contract is API surface — clients (incl.
+        // the React frontend) depend on it. Lock it in with an
+        // explicit table-driven test.
+        use warp::http::StatusCode;
+        let cases: &[(WalletError, StatusCode, &str)] = &[
+            (WalletError::BadRequest("x"), StatusCode::BAD_REQUEST, "bad_request"),
+            (WalletError::AddressNotFound, StatusCode::NOT_FOUND, "address_not_found"),
+            (WalletError::AddressNotActive, StatusCode::CONFLICT, "address_not_active"),
+            (WalletError::SanctionsHit, StatusCode::FORBIDDEN, "sanctions_hit"),
+            (WalletError::SanctionsUnavailable, StatusCode::SERVICE_UNAVAILABLE, "sanctions_unavailable"),
+            (WalletError::VelocityExceeded, StatusCode::CONFLICT, "velocity_exceeded"),
+            (WalletError::InsufficientBalance, StatusCode::CONFLICT, "insufficient_balance"),
+            (WalletError::AmountTooLarge, StatusCode::BAD_REQUEST, "amount_too_large"),
+            (WalletError::Forbidden, StatusCode::FORBIDDEN, "forbidden"),
+            (WalletError::Internal("oops".into()), StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+        ];
+        for (err, expected_status, expected_code) in cases {
+            let reply = wallet_error_to_reply(err);
+            let response = reply.into_response();
+            assert_eq!(response.status(), *expected_status, "{:?}", err);
+            let bytes = warp::hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(json["error_code"].as_str().unwrap(), *expected_code);
+        }
     }
 
     #[tokio::test]
@@ -571,7 +817,9 @@ mod tests {
             client_reference: None,
         };
         let r = handle_submit_withdraw(principal("alice"), body, runtime).await;
-        assert!(r.is_err());
+        // C1: lower the cap; second submit must surface VelocityExceeded
+        // (HTTP 409), not a generic 404.
+        assert_eq!(expect_wallet_error(r), WalletError::VelocityExceeded);
     }
 
     #[tokio::test]
@@ -612,7 +860,8 @@ mod tests {
             client_reference: None,
         };
         let r = handle_submit_withdraw(principal("alice"), body, runtime).await;
-        assert!(r.is_err());
+        // C1: validate-time sanctions hit → 403 SanctionsHit, not 404.
+        assert_eq!(expect_wallet_error(r), WalletError::SanctionsHit);
     }
 
     #[tokio::test]
@@ -642,7 +891,8 @@ mod tests {
             client_reference: None,
         };
         let r = handle_submit_withdraw(principal("broke"), body, runtime.clone()).await;
-        assert!(r.is_err(), "broke customer was auto-Approved — C2 regressed");
+        // C1+C2: must surface InsufficientBalance (409), not a generic 404.
+        assert_eq!(expect_wallet_error(r), WalletError::InsufficientBalance);
         // No record should have been created (and no velocity row).
         assert_eq!(
             runtime.velocity.total("broke", ChainId::Eth, Utc::now()),
@@ -723,9 +973,10 @@ mod tests {
             .unwrap();
         let json = body_json(r).await;
         assert_eq!(json["user_id"].as_str().unwrap(), "alice");
-        // Non-owner masked as 404.
+        // Non-owner masked as AddressNotFound (404) — matches the
+        // previous behaviour of not leaking another user's IDs.
         let r2 = handle_withdrawal_status(withdrawal_id, principal("bob"), runtime).await;
-        assert!(r2.is_err());
+        assert_eq!(expect_wallet_error(r2), WalletError::AddressNotFound);
     }
 }
 

@@ -1177,6 +1177,14 @@ async fn handle_rejection(rejection: Rejection) -> Result<impl Reply, Infallible
             error.status,
         ));
     }
+    // C1: structured rejections from /v2/wallet/* surface here. Map
+    // them through customer_wallet_http::wallet_error_to_reply so the
+    // status code matches the failure mode (400 / 403 / 404 / 409 /
+    // 503 / 500) instead of collapsing to a generic 404 or 500.
+    if let Some(err) = rejection.find::<customer_wallet_http::WalletError>() {
+        let reply = customer_wallet_http::wallet_error_to_reply(err);
+        return Ok(reply);
+    }
     if rejection.is_not_found() {
         let body = serde_json::json!({"status":"error","code":"NOT_FOUND","message":"not found","error":"not found"});
         return Ok(warp::reply::with_status(
