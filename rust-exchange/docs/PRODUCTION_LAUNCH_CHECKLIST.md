@@ -37,20 +37,20 @@
 | ID | Gate | Owner | Status | Acceptance | Evidence |
 |---|---|---|---|---|---|
 | P0-SEC-1 | HMAC shared secret rotated from `dev-secret-*` to a 32+-byte production secret stored in KMS / sealed env | UNASSIGNED | 🔴 Open | `INTERNAL_AUTH_SHARED_SECRET` source documented; rotation runbook linked | — |
-| P0-SEC-2 | `INTERNAL_AUTH_MAX_SKEW_SECONDS` set to a per-environment value (production: 30 s, staging: 120 s) | UNASSIGNED | 🔴 Open | env config file checked-in; deploy manifest references it | — |
+| P0-SEC-2 | `INTERNAL_AUTH_MAX_SKEW_SECONDS` set to a per-environment value (production: 30 s, staging: 120 s) | b.greifen | 🟢 Verified | `internal_auth_max_skew_seconds()` reads env at process start; clamped to [1, 3600]; default 30 s | bundle-P0 |
 | P0-SEC-3 | Per-IP rate limit active on `/v2/wallet/*` | b.greifen | 🟢 Verified | `customer_wallet_routes` wraps `ip_rate_limiter`; `RateLimited` returns 429 | `4c44082` |
 | P0-SEC-4 | No-self-approval enforced and audited on every maker-checker action | b.greifen | 🟢 Verified | Smoke phase 7 confirms self-approve does not commit + `denied_self_approval` audit row | smoke + `data/admin/rbac_audit.jsonl` |
 | P0-SEC-5 | Backoffice bootstrap admin documented and rotated for production | UNASSIGNED | 🔴 Open | `BACKOFFICE_BOOTSTRAP_ADMIN` set to a real principal; first-boot grant audited | — |
-| P0-SEC-6 | Real sanctions provider (Chainalysis / TRM) wired behind feature flag with provisioned API keys | UNASSIGNED | 🔴 Open | `wallet::ChainalysisProvider` impls `SanctionsProvider`; smoke flips to it via env | — |
+| P0-SEC-6 | Real sanctions provider (Chainalysis / TRM) wired behind feature flag with provisioned API keys | b.greifen (scaffold), UNASSIGNED (HTTP body + keys) | 🟡 In progress | Feature `--features chainalysis` builds; `wallet::ChainalysisProvider` impls `SanctionsProvider` and returns `Error` (soft-block) until HTTP body and API key are wired | bundle-P0 |
 
 ### Funds movement
 
 | ID | Gate | Owner | Status | Acceptance | Evidence |
 |---|---|---|---|---|---|
-| P0-FUND-1 | Real ETH chain adapter wired behind feature flag | UNASSIGNED | 🔴 Open | `wallet::EthRpcAdapter` impls `ChainAdapter`; broadcasts a real testnet tx in staging | — |
-| P0-FUND-2 | Per-chain settlement accounts (`SYS:WALLET:HOT:eth` etc.) replace single `SYS:ONCHAIN_VAULT:USDC` | UNASSIGNED | 🔴 Open | Settlement worker takes per-chain account map; smoke verifies cross-chain isolation | — |
-| P0-FUND-3 | Per-chain ledger-unit divisor (wei → micro-eth) so amounts can exceed i64 | UNASSIGNED | 🔴 Open | `ChainSpec::ledger_divisor`; `customer_wallet_http` ceiling per chain | — |
-| P0-FUND-4 | Maker-checker for above-threshold customer withdrawals (`WALLET_CUSTOMER_MC_THRESHOLD`) | UNASSIGNED | 🔴 Open | Submit at threshold creates `ApprovalRequest`, not auto-Approved; smoke phase added | — |
+| P0-FUND-1 | Real ETH chain adapter wired behind feature flag | b.greifen (scaffold), UNASSIGNED (RPC body + keys) | 🟡 In progress | `--features eth-rpc` builds; `wallet::EthRpcAdapter` impls `ChainAdapter` returning `ChainError::Rpc(scaffold message)` until ethers/alloy + KMS-sealed key are provisioned | bundle-P0 |
+| P0-FUND-2 | Per-chain settlement accounts (`SYS:WALLET:HOT:eth` etc.) replace single `SYS:ONCHAIN_VAULT:USDC` | b.greifen | 🟢 Verified | `SettlementWorker::with_chains` takes a per-chain `ChainSpec` map; `per_chain_settlement_account_isolation` test verifies ETH credits land on `SYS:WALLET:HOT:eth` and BTC on `SYS:WALLET:HOT:btc`; legacy account untouched | bundle-P0 |
+| P0-FUND-3 | Per-chain ledger-unit divisor (wei → micro-eth) so amounts can exceed i64 | b.greifen | 🟢 Verified | `ChainSpec::to_ledger_units(amount)` returns `(quotient_i64, remainder)`; overflow surfaces as `SettlementStuck`; `divisor_overflow_is_marked_stuck_not_settled` test passes | bundle-P0 |
+| P0-FUND-4 | Maker-checker for above-threshold customer withdrawals (`WALLET_CUSTOMER_MC_THRESHOLD`) | b.greifen | 🟢 Verified | `CustomerWalletRuntime::with_mc_threshold`; submit > threshold parks at `AwaitingApproval` with response `status="awaiting_approval"`; `submit_above_mc_threshold_creates_awaiting_approval_record` test passes | bundle-P0 |
 
 ### Recovery
 

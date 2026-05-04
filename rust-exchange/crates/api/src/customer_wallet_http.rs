@@ -256,6 +256,14 @@ pub(crate) struct CustomerWalletRuntime {
     /// later in the settlement worker. v1 is single-divisor; per-
     /// chain refinement is a follow-up.
     pub max_amount_i128: i128,
+    /// P0-FUND-4: maker-checker threshold for customer withdrawals.
+    /// `amount > mc_threshold` creates the record at
+    /// `AwaitingApproval` and stops the auto-walk to `Approved`,
+    /// requiring an admin approval through `/admin/approval-requests`
+    /// before the hot wallet worker can pick it up. `i128::MAX`
+    /// disables MC (auto-approve everything) — pre-P0-FUND-4
+    /// behaviour.
+    pub mc_threshold: i128,
 }
 
 impl CustomerWalletRuntime {
@@ -277,7 +285,13 @@ impl CustomerWalletRuntime {
             cooldown: Duration::from_secs(DEFAULT_COOLDOWN_SECS as u64),
             velocity_cap_wei: DEFAULT_VELOCITY_CAP_WEI,
             max_amount_i128: i64::MAX as i128,
+            mc_threshold: i128::MAX,
         }
+    }
+
+    pub fn with_mc_threshold(mut self, threshold: i128) -> Self {
+        self.mc_threshold = threshold;
+        self
     }
 
     pub fn with_cooldown(mut self, cooldown: Duration) -> Self {
@@ -734,12 +748,27 @@ pub(crate) async fn handle_submit_withdraw(
             "withdrawal store create failed: {e}"
         ))));
     }
-    // 6. Walk Submitted → Validated → Queued → Approved.
-    for next in [
-        WithdrawalStatus::Validated,
-        WithdrawalStatus::Queued,
-        WithdrawalStatus::Approved,
-    ] {
+    // 6. Walk Submitted → Validated → Queued. P0-FUND-4: above the
+    //    maker-checker threshold the walk stops at AwaitingApproval
+    //    and the customer sees status="awaiting_approval"; an admin
+    //    must commit /admin/approval-requests/{id}/approve before the
+    //    hot wallet worker can pick it up. Below threshold continues
+    //    straight to Approved (auto-approval).
+    let above_mc_threshold = body.amount > runtime.mc_threshold;
+    let walk: &[WithdrawalStatus] = if above_mc_threshold {
+        &[
+            WithdrawalStatus::Validated,
+            WithdrawalStatus::Queued,
+            WithdrawalStatus::AwaitingApproval,
+        ]
+    } else {
+        &[
+            WithdrawalStatus::Validated,
+            WithdrawalStatus::Queued,
+            WithdrawalStatus::Approved,
+        ]
+    };
+    for next in walk.iter().copied() {
         if runtime
             .withdrawals
             .advance_status(&withdrawal_id, next)
@@ -768,9 +797,13 @@ pub(crate) async fn handle_submit_withdraw(
     let mut ok_row = audit_base();
     ok_row.outcome = CustomerWalletOutcome::Ok;
     ok_row.withdrawal_id = Some(withdrawal_id.clone());
+    if above_mc_threshold {
+        ok_row.note = Some("awaiting_approval (above mc_threshold)".into());
+    }
     runtime.audit.append(ok_row);
+    let response_status = if above_mc_threshold { "awaiting_approval" } else { "approved" };
     Ok(warp::reply::json(&SubmitWithdrawResponse {
-        status: "approved".into(),
+        status: response_status.into(),
         withdrawal_id,
         chain: body.chain,
         amount: body.amount,
@@ -1287,6 +1320,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn submit_above_mc_threshold_creates_awaiting_approval_record() {
+        // P0-FUND-4: above WALLET_CUSTOMER_MC_THRESHOLD the auto-walk
+        // stops at AwaitingApproval; the customer sees
+        // status="awaiting_approval" and the hot wallet worker does
+        // NOT pick the record up.
+        let runtime = make_runtime();
+        // Lower the threshold to 100 so a 500-unit submit trips it.
+        let runtime = Arc::new(CustomerWalletRuntime {
+            mc_threshold: 100,
+            ..(*runtime).clone()
+        });
+        let _ = handle_add_address(
+            principal("alice"),
+            AddAddressBody {
+                chain: ChainId::Eth,
+                address: "0xclean".into(),
+                label: "x".into(),
+            },
+            runtime.clone(),
+        )
+        .await
+        .unwrap();
+        runtime.addresses.sweep_cooldowns().unwrap();
+        let reply = handle_submit_withdraw(
+            principal("alice"),
+            SubmitWithdrawBody {
+                chain: ChainId::Eth,
+                destination_address: "0xclean".into(),
+                amount: 500, // > threshold of 100
+                client_reference: None,
+            },
+            runtime.clone(),
+        )
+        .await
+        .unwrap();
+        let json = body_json(reply).await;
+        assert_eq!(json["status"].as_str().unwrap(), "awaiting_approval");
+        let id = json["withdrawal_id"].as_str().unwrap();
+        let record = runtime.withdrawals.get(id).unwrap();
+        assert_eq!(record.status, WithdrawalStatus::AwaitingApproval);
+        // A submit AT the threshold (boundary) is still auto-approved.
+        let reply2 = handle_submit_withdraw(
+            principal("alice"),
+            SubmitWithdrawBody {
+                chain: ChainId::Eth,
+                destination_address: "0xclean".into(),
+                amount: 100, // == threshold; not >
+                client_reference: Some("at-threshold".into()),
+            },
+            runtime.clone(),
+        )
+        .await
+        .unwrap();
+        let json2 = body_json(reply2).await;
+        assert_eq!(json2["status"].as_str().unwrap(), "approved");
+    }
+
+    #[tokio::test]
     async fn submit_with_duplicate_client_reference_returns_existing_record() {
         // H2: idempotency. A network retry of the same submit must NOT
         // create a second WithdrawalRecord and must NOT double-charge
@@ -1515,6 +1606,7 @@ impl Clone for CustomerWalletRuntime {
             cooldown: self.cooldown,
             velocity_cap_wei: self.velocity_cap_wei,
             max_amount_i128: self.max_amount_i128,
+            mc_threshold: self.mc_threshold,
         }
     }
 }

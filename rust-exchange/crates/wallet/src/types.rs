@@ -36,6 +36,97 @@ impl std::fmt::Display for ChainId {
     }
 }
 
+/// Per-chain spec consumed by the wallet workers and the customer
+/// HTTP layer (gates **P0-FUND-2** + **P0-FUND-3**).
+///
+/// - `settlement_account` is the ledger system account that receives
+///   the credit side of every settled withdrawal for this chain.
+///   Pre-P0-FUND-2 every chain landed on `SYS:ONCHAIN_VAULT:USDC`,
+///   which made INV-5 reconciliation a relaxed sum across chains.
+///   With per-chain accounts (`SYS:WALLET:HOT:eth` etc.) INV-5 holds
+///   exactly per chain.
+///
+/// - `ledger_divisor` converts the chain's smallest indivisible unit
+///   (wei / satoshi / lamport) down to the ledger's i64 unit. ETH
+///   wei exceeds i64 above ~9.2 ETH; the divisor lets us settle
+///   arbitrary on-chain amounts as long as the QUOTIENT fits i64.
+///   Any remainder is tracked on the withdrawal record for fee
+///   accounting (it cannot just be discarded — that breaks INV-1).
+///
+/// - `confirmations_required` is the on-chain depth at which the hot
+///   wallet worker flips Broadcast → Confirmed. The wallet design
+///   uses 25 for ETH, 6 for BTC.
+#[derive(Debug, Clone)]
+pub struct ChainSpec {
+    pub chain: ChainId,
+    pub settlement_account: String,
+    pub ledger_divisor: i128,
+    pub confirmations_required: u64,
+}
+
+impl ChainSpec {
+    /// Default ETH spec — settlement account `SYS:WALLET:HOT:eth`,
+    /// ledger divisor 1e12 wei → 1 µETH, 25 confirmations.
+    pub fn eth_default() -> Self {
+        Self {
+            chain: ChainId::Eth,
+            settlement_account: "SYS:WALLET:HOT:eth".to_string(),
+            ledger_divisor: 1_000_000_000_000_i128,
+            confirmations_required: 25,
+        }
+    }
+
+    /// Default BTC spec — settlement account `SYS:WALLET:HOT:btc`,
+    /// ledger divisor 1 (satoshis fit in i64 for any realistic amount),
+    /// 6 confirmations.
+    pub fn btc_default() -> Self {
+        Self {
+            chain: ChainId::Btc,
+            settlement_account: "SYS:WALLET:HOT:btc".to_string(),
+            ledger_divisor: 1_i128,
+            confirmations_required: 6,
+        }
+    }
+
+    /// Default SOL spec.
+    pub fn sol_default() -> Self {
+        Self {
+            chain: ChainId::Sol,
+            settlement_account: "SYS:WALLET:HOT:sol".to_string(),
+            ledger_divisor: 1_000_i128,
+            confirmations_required: 32,
+        }
+    }
+
+    /// Pre-P0-FUND-2 compatibility constructor. Used by callers that
+    /// haven't migrated to per-chain accounts yet (notably the v1
+    /// tests). Production must use the `*_default` constructors.
+    pub fn legacy_single_account() -> Self {
+        Self {
+            chain: ChainId::Eth,
+            settlement_account: "SYS:ONCHAIN_VAULT:USDC".to_string(),
+            ledger_divisor: 1_i128,
+            confirmations_required: 25,
+        }
+    }
+
+    /// Convert a chain-unit amount into ledger i64 units, rejecting
+    /// overflow (gate M1 / P0-FUND-3). Returns `(quotient, remainder)`
+    /// so the caller can decide whether the remainder is a fee or an
+    /// error.
+    pub fn to_ledger_units(&self, chain_amount: i128) -> Result<(i64, i128), &'static str> {
+        if chain_amount < 0 {
+            return Err("amount must be non-negative");
+        }
+        let divisor = self.ledger_divisor.max(1);
+        let quotient_i128 = chain_amount / divisor;
+        let remainder = chain_amount % divisor;
+        let quotient_i64 =
+            i64::try_from(quotient_i128).map_err(|_| "amount exceeds i64 ledger ceiling")?;
+        Ok((quotient_i64, remainder))
+    }
+}
+
 // ── Custody tier ─────────────────────────────────────────────────────
 
 /// One of the three custody tiers per design §2. Used by reconciliation

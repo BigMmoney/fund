@@ -202,7 +202,7 @@ impl AuthenticatedWriteReplayGuard {
 fn authenticated_write_replay_guard() -> &'static AuthenticatedWriteReplayGuard {
     AUTHENTICATED_WRITE_REPLAY_GUARD.get_or_init(|| {
         AuthenticatedWriteReplayGuard::new(
-            Duration::from_secs((INTERNAL_AUTH_MAX_SKEW_SECONDS + 5) as u64),
+            Duration::from_secs((crate::internal_auth_max_skew_seconds() + 5) as u64),
             AUTHENTICATED_WRITE_REPLAY_GUARD_MAX_KEYS,
             AUTHENTICATED_WRITE_REPLAY_GUARD_CLEANUP_INTERVAL,
         )
@@ -560,7 +560,7 @@ fn verify_internal_principal(
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing x-request-id"))?;
     let now = Utc::now().timestamp();
-    if (now - timestamp).abs() > INTERNAL_AUTH_MAX_SKEW_SECONDS {
+    if (now - timestamp).abs() > crate::internal_auth_max_skew_seconds() {
         return Err(reject_api(
             StatusCode::UNAUTHORIZED,
             "internal auth timestamp outside allowed skew",
@@ -685,7 +685,7 @@ fn verify_api_key_principal(
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| reject_api(StatusCode::UNAUTHORIZED, "missing x-request-id"))?;
     let now = Utc::now().timestamp();
-    if (now - timestamp).abs() > INTERNAL_AUTH_MAX_SKEW_SECONDS {
+    if (now - timestamp).abs() > crate::internal_auth_max_skew_seconds() {
         return Err(reject_api(
             StatusCode::UNAUTHORIZED,
             "api key timestamp outside allowed skew",

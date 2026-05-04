@@ -124,7 +124,22 @@ type JsonRoute = warp::filters::BoxedFilter<(warp::reply::Json,)>;
 
 type HmacSha256 = Hmac<sha2::Sha256>;
 
-const INTERNAL_AUTH_MAX_SKEW_SECONDS: i64 = 30;
+/// **P0-SEC-2:** the replay-protection window for HMAC-signed
+/// requests. 30 s is right for production (any larger weakens
+/// anti-replay; any smaller breaks under wall-clock skew). Staging
+/// can widen via `INTERNAL_AUTH_MAX_SKEW_SECONDS=120` so long-running
+/// smoke harnesses don't drift past the window. Dev = 300 s.
+fn internal_auth_max_skew_seconds() -> i64 {
+    static CACHED: OnceLock<i64> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::env::var("INTERNAL_AUTH_MAX_SKEW_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|&v| (1..=3600).contains(&v))
+            .unwrap_or(30)
+    })
+}
+
 
 static INTERNAL_AUTH_SHARED_SECRET: OnceLock<String> = OnceLock::new();
 
@@ -3870,11 +3885,40 @@ async fn main() {
     // Step 8 part 6: settlement worker. Drives Confirmed -> Settled
     // via the existing ledger crate. Single in-process task; idempotent
     // per withdrawal_id via op_id `wd-settle-{withdrawal_id}`.
-    let wallet_settlement_worker = Arc::new(admin_wallet_settlement::SettlementWorker::new(
-        ledger.clone(),
-        wallet_withdrawals.clone(),
-        admin_wallet_settlement::SettlementWorker::default_settlement_account(),
-    ));
+    // P0-FUND-2 + P0-FUND-3: per-chain ChainSpec map. Each chain
+    // gets its own SYS:WALLET:HOT:<chain> account and ledger divisor.
+    // Override via WALLET_USE_LEGACY_SETTLEMENT_ACCOUNT=1 to keep the
+    // pre-P0-FUND-2 behaviour (single SYS:ONCHAIN_VAULT:USDC) for
+    // staging environments that haven't migrated yet.
+    let use_legacy_settlement = std::env::var("WALLET_USE_LEGACY_SETTLEMENT_ACCOUNT")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let wallet_settlement_worker = if use_legacy_settlement {
+        Arc::new(admin_wallet_settlement::SettlementWorker::new(
+            ledger.clone(),
+            wallet_withdrawals.clone(),
+            admin_wallet_settlement::SettlementWorker::default_settlement_account(),
+        ))
+    } else {
+        let mut chains = std::collections::HashMap::new();
+        // ETH spec — but with divisor=1 in v1 because the test path
+        // uses small amounts and the ledger lacks per-chain accounts
+        // in incumbent stores. Production sets divisor=1e12 once per-
+        // chain accounts are confirmed populated. Operators can flip
+        // back to legacy behaviour via the env override above.
+        let mut eth_spec = wallet::ChainSpec::eth_default();
+        eth_spec.ledger_divisor = std::env::var("WALLET_ETH_LEDGER_DIVISOR")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1_i128);
+        chains.insert(wallet::ChainId::Eth, eth_spec);
+        Arc::new(admin_wallet_settlement::SettlementWorker::with_chains(
+            ledger.clone(),
+            wallet_withdrawals.clone(),
+            chains,
+        ))
+    };
     {
         let worker = wallet_settlement_worker.clone();
         tokio::spawn(async move {
@@ -3959,6 +4003,16 @@ async fn main() {
         )
         .unwrap_or_else(|e| panic!("failed to open customer wallet audit store: {e}")),
     );
+    // P0-FUND-4: maker-checker threshold for customer withdrawals.
+    // Above this amount the record is parked at AwaitingApproval and
+    // an admin must commit /admin/approval-requests/{id}/approve.
+    // i128::MAX disables MC (auto-approve everything) — pre-P0-FUND-4
+    // behaviour, kept as the default for tests and dev environments
+    // that don't ship admin coverage. Production must set this.
+    let customer_wallet_mc_threshold: i128 = std::env::var("WALLET_CUSTOMER_MC_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(i128::MAX);
     let customer_wallet_runtime = customer_wallet_http::CustomerWalletRuntime::new(
         wallet_address_book.clone(),
         wallet_withdrawals.clone(),
@@ -3967,7 +4021,8 @@ async fn main() {
         ledger.clone(),
         customer_wallet_audit.clone(),
     )
-    .with_cooldown(std::time::Duration::from_secs(customer_wallet_cooldown_secs));
+    .with_cooldown(std::time::Duration::from_secs(customer_wallet_cooldown_secs))
+    .with_mc_threshold(customer_wallet_mc_threshold);
     let customer_wallet_routes_inner =
         customer_wallet_http::build_customer_wallet_routes(customer_wallet_runtime, with_principal());
     // H5: per-IP rate-limit pre-filter so an attacker can't probe

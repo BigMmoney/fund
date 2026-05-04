@@ -13,3 +13,13 @@ anyhow.workspace = true
 dashmap.workspace = true
 parking_lot.workspace = true
 persistence = { path = "../persistence" }
+
+[features]
+default = []
+# P0-FUND-1: real ETH chain adapter behind a feature flag. Disabled
+# by default so the test build keeps using InMemoryChainAdapter and
+# CI doesn't need the ethers/alloy dependency surface.
+eth-rpc = []
+# P0-SEC-6: real Chainalysis sanctions provider behind a feature flag.
+# Disabled by default so tests use StubSanctionsProvider.
+chainalysis = []

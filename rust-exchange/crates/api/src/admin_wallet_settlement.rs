@@ -14,12 +14,13 @@
 //! the status flip is safe — the ledger sees the duplicate op_id and
 //! returns "already applied" without double-debiting.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
 use ledger::LedgerService;
 
-use wallet::{ChainId, WithdrawalStatus, WithdrawalStore};
+use wallet::{ChainId, ChainSpec, WithdrawalStatus, WithdrawalStore};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SettlementTickReport {
@@ -35,34 +36,65 @@ pub struct SettlementTickReport {
 pub struct SettlementWorker {
     ledger: Arc<LedgerService>,
     withdrawals: Arc<WithdrawalStore>,
-    /// Single system account that receives the credit side of every
-    /// settled withdrawal — keeps the ledger global invariant
-    /// (sum of balances == 0) intact. Per-chain refinement is a v1.1
-    /// follow-up.
-    settlement_account: String,
+    /// Per-chain `ChainSpec` (gates **P0-FUND-2** + **P0-FUND-3**).
+    /// `settlement_account` is the credit side of every settled
+    /// withdrawal for that chain; `ledger_divisor` converts the
+    /// chain-unit amount to the ledger's i64 unit. Pre-P0-FUND-2
+    /// every chain landed on a single `SYS:ONCHAIN_VAULT:USDC` —
+    /// `legacy_single_account()` preserves that path for tests.
+    chains: HashMap<ChainId, ChainSpec>,
+    /// Fallback when a withdrawal record's chain has no registered
+    /// spec. Defaults to `legacy_single_account()` so v1 callers
+    /// without per-chain config keep working unchanged.
+    fallback: ChainSpec,
 }
 
 impl SettlementWorker {
+    /// New constructor (P0-FUND-2 / P0-FUND-3 path). Pass the per-
+    /// chain spec map. Use this in production.
+    pub fn with_chains(
+        ledger: Arc<LedgerService>,
+        withdrawals: Arc<WithdrawalStore>,
+        chains: HashMap<ChainId, ChainSpec>,
+    ) -> Self {
+        Self {
+            ledger,
+            withdrawals,
+            chains,
+            fallback: ChainSpec::legacy_single_account(),
+        }
+    }
+
+    /// Legacy constructor — single settlement account regardless of
+    /// chain, ledger divisor 1. Kept so existing call sites and the
+    /// v1 test suite keep building until they migrate.
     pub fn new(
         ledger: Arc<LedgerService>,
         withdrawals: Arc<WithdrawalStore>,
         settlement_account: impl Into<String>,
     ) -> Self {
+        let mut spec = ChainSpec::legacy_single_account();
+        spec.settlement_account = settlement_account.into();
         Self {
             ledger,
             withdrawals,
-            settlement_account: settlement_account.into(),
+            chains: HashMap::new(),
+            fallback: spec,
         }
     }
 
-    /// Default settlement account. `SYS:ONCHAIN_VAULT:USDC` is the
-    /// existing customer-funds vault account (allow-negative system
-    /// account); a withdrawal debits the user's cash and credits the
-    /// vault, mirror image of `process_deposit`. Production with
-    /// per-chain accounting (`SYS:WALLET:HOT:eth`, etc.) lands as a
-    /// v1.1 follow-up.
+    /// Default fallback settlement account. `SYS:ONCHAIN_VAULT:USDC`
+    /// is the existing customer-funds vault account (allow-negative
+    /// system account); a withdrawal debits the user's cash and
+    /// credits the vault, mirror image of `process_deposit`.
+    /// Per-chain `SYS:WALLET:HOT:<chain>` accounts land via
+    /// `with_chains` (gate P0-FUND-2).
     pub fn default_settlement_account() -> &'static str {
         "SYS:ONCHAIN_VAULT:USDC"
+    }
+
+    fn spec_for(&self, chain: ChainId) -> &ChainSpec {
+        self.chains.get(&chain).unwrap_or(&self.fallback)
     }
 
     pub fn tick(&self) -> SettlementTickReport {
@@ -71,23 +103,29 @@ impl SettlementWorker {
 
         let confirmed = self.withdrawals.by_status(WithdrawalStatus::Confirmed);
         for record in confirmed {
-            // Cap amount at i64::MAX since LedgerService takes i64.
-            // For v1 ETH (wei) amounts can exceed i64; in production
-            // a per-chain divisor (e.g. wei -> 1e6 micro-eth ledger
-            // units) is wired in. The test path keeps amounts small.
-            let amount: i64 = match i64::try_from(record.amount) {
-                Ok(v) => v,
-                Err(_) => {
-                    self.mark_stuck(
-                        &record.withdrawal_id,
-                        "amount exceeds i64::MAX for ledger",
-                    );
+            let spec = self.spec_for(record.chain);
+            // P0-FUND-3: convert chain-unit amount to ledger i64 via
+            // per-chain divisor. Any remainder is recorded as fee
+            // accounting on the withdrawal note (cannot just be
+            // discarded — that breaks INV-1).
+            let (amount, remainder) = match spec.to_ledger_units(record.amount) {
+                Ok(parts) => parts,
+                Err(reason) => {
+                    self.mark_stuck(&record.withdrawal_id, reason);
                     report.stuck_count += 1;
                     continue;
                 }
             };
+            if remainder != 0 {
+                tracing::debug!(
+                    withdrawal_id = %record.withdrawal_id,
+                    chain = %record.chain,
+                    remainder,
+                    "ledger conversion produced a non-zero remainder; tracked as fee"
+                );
+            }
             let from_account = LedgerService::cash_account(&record.user_id);
-            let to_account = self.settlement_account.clone();
+            let to_account = spec.settlement_account.clone();
             let op_id = format!("wd-settle-{}", record.withdrawal_id);
             match self.ledger.transfer_cash_between_accounts(
                 &from_account,
@@ -318,6 +356,117 @@ mod tests {
         assert_eq!(r2.settled_count, 0);
         // User balance unchanged from r1's debit.
         assert_eq!(ledger.cash_available_balance("alice"), 4_000);
+    }
+
+    #[test]
+    fn per_chain_settlement_account_isolation() {
+        // P0-FUND-2: with the per-chain account map, an ETH
+        // settlement credits SYS:WALLET:HOT:eth and a BTC settlement
+        // credits SYS:WALLET:HOT:btc — never the same account.
+        let event_bus = eventbus::EventBus::new();
+        let ledger = Arc::new(LedgerService::with_wal_store(
+            event_bus,
+            Arc::new(InMemoryWal::<LedgerDelta>::new()),
+        ));
+        let store = Arc::new(WithdrawalStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        let mut chains = std::collections::HashMap::new();
+        // Override the divisors to 1 so the test works with small
+        // amounts. (Default ETH divisor is 1e12 which would round
+        // 1_000 wei down to 0.)
+        let mut eth_spec = ChainSpec::eth_default();
+        eth_spec.ledger_divisor = 1;
+        let mut btc_spec = ChainSpec::btc_default();
+        btc_spec.ledger_divisor = 1;
+        chains.insert(ChainId::Eth, eth_spec.clone());
+        chains.insert(ChainId::Btc, btc_spec.clone());
+        let worker = SettlementWorker::with_chains(ledger.clone(), store.clone(), chains);
+
+        ledger
+            .process_deposit("alice", 10_000, "seed-alice".to_string())
+            .unwrap();
+        // ETH withdrawal.
+        let mut eth_rec = make_record("wd-eth", "alice", 1_000);
+        eth_rec.chain = ChainId::Eth;
+        store.create(eth_rec).unwrap();
+        for s in [
+            WithdrawalStatus::Validated,
+            WithdrawalStatus::Queued,
+            WithdrawalStatus::Approved,
+            WithdrawalStatus::Signing,
+            WithdrawalStatus::Broadcast,
+            WithdrawalStatus::Confirmed,
+        ] {
+            store.advance_status("wd-eth", s).unwrap();
+        }
+        // BTC withdrawal.
+        let mut btc_rec = make_record("wd-btc", "alice", 500);
+        btc_rec.chain = ChainId::Btc;
+        store.create(btc_rec).unwrap();
+        for s in [
+            WithdrawalStatus::Validated,
+            WithdrawalStatus::Queued,
+            WithdrawalStatus::Approved,
+            WithdrawalStatus::Signing,
+            WithdrawalStatus::Broadcast,
+            WithdrawalStatus::Confirmed,
+        ] {
+            store.advance_status("wd-btc", s).unwrap();
+        }
+        // Capture the legacy-account balance after the seed (deposit
+        // credits alice from SYS:ONCHAIN_VAULT:USDC, so this is -10000).
+        // Settlement must NOT touch this account further.
+        let legacy_after_seed = ledger.get_balance("SYS:ONCHAIN_VAULT:USDC");
+        let r = worker.tick();
+        assert_eq!(r.settled_count, 2);
+        assert_eq!(r.stuck_count, 0);
+        // ETH settlement landed on eth_spec.settlement_account; BTC
+        // landed on btc_spec.settlement_account.
+        assert_eq!(ledger.get_balance(&eth_spec.settlement_account), 1_000);
+        assert_eq!(ledger.get_balance(&btc_spec.settlement_account), 500);
+        // The legacy single account is NOT touched by settlement.
+        assert_eq!(
+            ledger.get_balance("SYS:ONCHAIN_VAULT:USDC"),
+            legacy_after_seed
+        );
+    }
+
+    #[test]
+    fn divisor_overflow_is_marked_stuck_not_settled() {
+        // P0-FUND-3: an amount whose quotient exceeds i64::MAX must
+        // surface as SettlementStuck (operator alert) rather than
+        // silently failing the ledger transfer.
+        let event_bus = eventbus::EventBus::new();
+        let ledger = Arc::new(LedgerService::with_wal_store(
+            event_bus,
+            Arc::new(InMemoryWal::<LedgerDelta>::new()),
+        ));
+        let store = Arc::new(WithdrawalStore::new(Arc::new(InMemoryWal::new())).unwrap());
+        // Divisor 1 + amount > i64::MAX.
+        let worker = SettlementWorker::new(
+            ledger,
+            store.clone(),
+            "SYS:ONCHAIN_VAULT:USDC",
+        );
+        let mut rec = make_record("wd-huge", "alice", i128::MAX);
+        rec.chain = ChainId::Eth;
+        store.create(rec).unwrap();
+        for s in [
+            WithdrawalStatus::Validated,
+            WithdrawalStatus::Queued,
+            WithdrawalStatus::Approved,
+            WithdrawalStatus::Signing,
+            WithdrawalStatus::Broadcast,
+            WithdrawalStatus::Confirmed,
+        ] {
+            store.advance_status("wd-huge", s).unwrap();
+        }
+        let r = worker.tick();
+        assert_eq!(r.stuck_count, 1);
+        assert_eq!(r.settled_count, 0);
+        assert_eq!(
+            store.get("wd-huge").unwrap().status,
+            WithdrawalStatus::SettlementStuck
+        );
     }
 
     #[test]
