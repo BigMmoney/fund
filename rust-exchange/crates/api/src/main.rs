@@ -59,6 +59,7 @@ mod capacity;
 mod config;
 mod control;
 mod custody;
+mod customer_wallet_http;
 mod dto;
 mod failpoint;
 mod fee_tiers;
@@ -3791,8 +3792,9 @@ async fn main() {
         wallet_eth_adapter.clone(),
         wallet_eth_hot_address.clone(),
     );
-    // Suppress dead_code on the not-yet-wired stores. Future commits
-    // (7-final + 8) consume them.
+    // The address book is consumed below by the customer-facing
+    // /v2/wallet/* routes (parallel to the legacy /withdraw on the
+    // older custody module).
     let _ = &wallet_address_book;
     // Test-only adapter map: lets POST /admin/wallet/test-confirm bump
     // confirmation depth on the in-memory adapter. Empty in
@@ -3886,6 +3888,29 @@ async fn main() {
             }
         });
     }
+
+    // Customer-facing wallet endpoints under /v2/wallet/* on the new
+    // wallet stack. Parallel to the legacy /withdraw (which still runs
+    // on the older custody module). The cutover from the old to the
+    // new path is a frontend / SDK migration. Sanctions provider is
+    // the in-process stub for v1; the real Chainalysis adapter lands
+    // behind a feature flag once API keys are provisioned.
+    let customer_wallet_sanctions: Arc<dyn wallet::SanctionsProvider> =
+        Arc::new(wallet::StubSanctionsProvider::new());
+    // Velocity tracker starts empty on each boot — within the first
+    // 24h of an upgrade the cap may under-count past withdrawals.
+    // Acceptable for v1 since this path is not yet customer-default.
+    // A future commit can rebuild from `wallet_withdrawals` history at
+    // boot via `wallet::build_velocity_tracker`.
+    let customer_wallet_velocity = Arc::new(wallet::VelocityTracker::with_default_window());
+    let customer_wallet_runtime = customer_wallet_http::CustomerWalletRuntime::new(
+        wallet_address_book.clone(),
+        wallet_withdrawals.clone(),
+        customer_wallet_sanctions,
+        customer_wallet_velocity,
+    );
+    let customer_wallet_routes =
+        customer_wallet_http::build_customer_wallet_routes(customer_wallet_runtime, with_principal());
 
     let ws_hub = Arc::new(websocket::WsHub::with_max_connections(
         cfg().websocket.max_connections,
@@ -4401,6 +4426,7 @@ async fn main() {
         .or(market_routes)
         .or(withdrawal_routes)
         .or(custody_routes)
+        .or(customer_wallet_routes)
         .or(sentinel_routes)
         .or(fee_tier_routes)
         .or(monitor_routes)
