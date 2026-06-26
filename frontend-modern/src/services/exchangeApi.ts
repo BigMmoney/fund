@@ -320,7 +320,37 @@ export function createExchangeApi(auth: AuthConfig) {
         `/monitor/orders/${encodeURIComponent(orderId)}/timeline${qs.length > 0 ? `?${qs}` : ''}`,
       )
     },
+
+    // Mint a short-TTL bearer token bound to a specific WS path. The
+    // browser cannot set custom headers on a WS upgrade, so it uses
+    // this to authenticate `/ws/order-trace?token=<...>`.
+    mintWsToken: (wsPath: string): Promise<WsTokenResponse> =>
+      requestJson(auth, '/v2/ws-token', {
+        method: 'POST',
+        body: JSON.stringify({ ws_path: wsPath }),
+      }),
   }
+}
+
+export interface WsTokenResponse {
+  token: string
+  ttl_secs: number
+  ws_path: string
+}
+
+/// Resolve the WebSocket origin (`wss://...` or `ws://...`) from the
+/// REST baseUrl. Browsers reject mixed http/wss, so we mirror the
+/// scheme: https → wss, http → ws, empty (same-origin) → derive from
+/// `window.location`.
+export function resolveWsOrigin(auth: AuthConfig): string {
+  const trimmed = auth.baseUrl.trim()
+  if (trimmed.length === 0) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${window.location.host}`
+  }
+  const url = new URL(trimmed)
+  const proto = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${url.host}`
 }
 
 export interface MonitorOrderListQuery {

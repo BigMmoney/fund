@@ -6,9 +6,13 @@ import {
   asList,
   asRecord,
   createExchangeApi,
+  resolveWsOrigin,
   type AuthConfig,
   type JsonRecord,
 } from '@/services/exchangeApi'
+
+const ORDER_TRACE_WS_PATH = '/ws/order-trace'
+const LIVE_TAIL_MAX_EVENTS = 100
 
 interface PageProps {
   auth: AuthConfig
@@ -79,6 +83,12 @@ export function MonitorPage({ auth, onNotice }: PageProps) {
   const [lastError, setLastError] = useState<string | null>(null)
   const refreshTimer = useRef<number | null>(null)
 
+  // Live (WebSocket) tail state.
+  const [liveOn, setLiveOn] = useState(false)
+  const [liveStatus, setLiveStatus] = useState<'idle' | 'connecting' | 'open' | 'closed' | 'error'>('idle')
+  const [liveEvents, setLiveEvents] = useState<JsonRecord[]>([])
+  const wsRef = useRef<WebSocket | null>(null)
+
   const fetchOrders = useCallback(async () => {
     try {
       setBusy(true)
@@ -147,6 +157,90 @@ export function MonitorPage({ auth, onNotice }: PageProps) {
     void fetchOrders()
   }, [fetchOrders])
 
+  // Live WS streaming. Mint a fresh token (browser cannot set custom
+  // headers on the WS upgrade) then open `wss://host/ws/order-trace?token=…`.
+  // On message: prepend to the live tail and, if the event is for the
+  // selected order, refresh that order's timeline.
+  useEffect(() => {
+    if (!liveOn) {
+      // Tear down any existing socket.
+      if (wsRef.current !== null) {
+        try {
+          wsRef.current.close()
+        } catch {
+          // ignore
+        }
+        wsRef.current = null
+      }
+      setLiveStatus('idle')
+      return
+    }
+    let cancelled = false
+    setLiveStatus('connecting')
+    setLiveEvents([])
+    void (async () => {
+      try {
+        const minted = await api.mintWsToken(ORDER_TRACE_WS_PATH)
+        if (cancelled) return
+        const url = `${resolveWsOrigin(auth)}${ORDER_TRACE_WS_PATH}?token=${encodeURIComponent(minted.token)}`
+        const ws = new WebSocket(url)
+        wsRef.current = ws
+        ws.onopen = () => {
+          if (cancelled) return
+          setLiveStatus('open')
+          onNotice('Order-trace WebSocket connected')
+        }
+        ws.onclose = () => {
+          if (cancelled) return
+          setLiveStatus('closed')
+        }
+        ws.onerror = () => {
+          if (cancelled) return
+          setLiveStatus('error')
+          setLastError('WebSocket error — falling back to polling')
+        }
+        ws.onmessage = (event) => {
+          if (cancelled) return
+          try {
+            const frame = asRecord(JSON.parse(String(event.data)))
+            if (frame.type === 'trace') {
+              const trace = asRecord(frame.event)
+              setLiveEvents((prev) => {
+                const next = [trace, ...prev]
+                return next.slice(0, LIVE_TAIL_MAX_EVENTS)
+              })
+              const traceOrderId = readText(trace.order_id)
+              if (selectedOrderId && traceOrderId === selectedOrderId) {
+                void fetchTimeline(selectedOrderId)
+              }
+            }
+          } catch {
+            // Ignore frames that aren't JSON.
+          }
+        }
+      } catch (error) {
+        if (cancelled) return
+        setLiveStatus('error')
+        if (error instanceof ApiError) {
+          setLastError(`HTTP ${error.status}: ${error.message}`)
+        } else {
+          setLastError(`failed to mint ws token: ${String(error)}`)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (wsRef.current !== null) {
+        try {
+          wsRef.current.close()
+        } catch {
+          // ignore
+        }
+        wsRef.current = null
+      }
+    }
+  }, [liveOn, api, auth, onNotice, selectedOrderId, fetchTimeline])
+
   useEffect(() => {
     if (refreshMs <= 0) {
       if (refreshTimer.current !== null) {
@@ -182,7 +276,7 @@ export function MonitorPage({ auth, onNotice }: PageProps) {
     <div className="page-stack">
       <Panel
         title="Order Flow Monitor"
-        subtitle="Live view of orders flowing through the backend (docs/MONITOR_DESIGN.md). Polling-only; WebSocket streaming is a future step."
+        subtitle="Live view of orders flowing through the backend (docs/MONITOR_DESIGN.md). Toggle Live (WS) to stream events; otherwise polls REST."
         actions={
           <>
             <button
@@ -197,6 +291,7 @@ export function MonitorPage({ auth, onNotice }: PageProps) {
               value={String(refreshMs)}
               onChange={(event) => setRefreshMs(Number(event.target.value))}
               className="button button-secondary"
+              disabled={liveOn}
             >
               {REFRESH_INTERVALS_MS.map((ms) => (
                 <option key={ms} value={ms}>
@@ -204,6 +299,14 @@ export function MonitorPage({ auth, onNotice }: PageProps) {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className={`button ${liveOn ? 'button-primary' : 'button-secondary'}`}
+              onClick={() => setLiveOn((v) => !v)}
+              title={liveOn ? `WS status: ${liveStatus}` : 'Switch to live WebSocket'}
+            >
+              {liveOn ? `Live (WS) · ${liveStatus}` : 'Live (WS): off'}
+            </button>
           </>
         }
       >
@@ -390,6 +493,54 @@ export function MonitorPage({ auth, onNotice }: PageProps) {
           </>
         )}
       </Panel>
+
+      {liveOn ? (
+        <Panel
+          title="Live tail (WebSocket)"
+          subtitle={`Last ${LIVE_TAIL_MAX_EVENTS} OrderTrace events from /ws/order-trace · status=${liveStatus}`}
+        >
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>recorded_at</th>
+                  <th>order_id</th>
+                  <th>user</th>
+                  <th>market</th>
+                  <th>stage</th>
+                  <th>cmd_seq</th>
+                  <th>filled</th>
+                  <th>remaining</th>
+                </tr>
+              </thead>
+              <tbody>
+                {liveEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="muted">
+                      {liveStatus === 'open'
+                        ? 'connected, waiting for events…'
+                        : `socket ${liveStatus}`}
+                    </td>
+                  </tr>
+                ) : (
+                  liveEvents.map((ev, idx) => (
+                    <tr key={`${readText(ev.event_id)}-${idx}`}>
+                      <td>{fmtIso(ev.recorded_at)}</td>
+                      <td>{readText(ev.order_id)}</td>
+                      <td>{readText(ev.user_id)}</td>
+                      <td>{readText(ev.market_id)}</td>
+                      <td>{readText(ev.stage)}</td>
+                      <td>{readText(ev.command_seq)}</td>
+                      <td>{readText(ev.filled_amount)}</td>
+                      <td>{readText(ev.remaining_amount)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ) : null}
     </div>
   )
 }

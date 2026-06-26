@@ -34,6 +34,7 @@ export default defineConfig({
       '/markets': { target: backendTarget, changeOrigin: true },
       '/mass-cancel': { target: backendTarget, changeOrigin: true },
       '/metrics': { target: backendTarget, changeOrigin: true },
+      '/monitor': { target: backendTarget, changeOrigin: true },
       '/orders': { target: backendTarget, changeOrigin: true },
       '/pnl': { target: backendTarget, changeOrigin: true },
       '/positions': { target: backendTarget, changeOrigin: true },
@@ -47,6 +48,7 @@ export default defineConfig({
       '/fee-tier': { target: backendTarget, changeOrigin: true },
       '/fee-tiers': { target: backendTarget, changeOrigin: true },
       '/version': { target: backendTarget, changeOrigin: true },
+      '/v2': { target: backendTarget, changeOrigin: true },
       '/ws': { target: 'ws://127.0.0.1:3030', ws: true },
       '/fr-api': {
         target: 'https://www.federalregister.gov',
