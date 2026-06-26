@@ -54,6 +54,27 @@ impl OrderBook {
         }
     }
 
+    /// 按订单 id 取消：扫描两侧的价格档位，命中则移除并返回该订单。
+    /// 空档位顺手清理，避免 BTreeMap 长期累积空 Vec。
+    pub fn cancel_order(&mut self, order_id: &str) -> Option<Order> {
+        for side_map in [&mut self.bids, &mut self.asks] {
+            let mut empty_price: Option<i64> = None;
+            for (price, level) in side_map.iter_mut() {
+                if let Some(pos) = level.iter().position(|o| o.id == order_id) {
+                    let removed = level.remove(pos);
+                    if level.is_empty() {
+                        empty_price = Some(*price);
+                    }
+                    if let Some(p) = empty_price {
+                        side_map.remove(&p);
+                    }
+                    return Some(removed);
+                }
+            }
+        }
+        None
+    }
+
     /// 获取最优买单
     pub fn best_bid(&self) -> Option<i64> {
         self.bids.keys().last().copied()
