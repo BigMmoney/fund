@@ -1518,9 +1518,11 @@ dependencies = [
  "anyhow",
  "crc32fast",
  "criterion",
+ "hex",
  "parking_lot",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tracing",
 ]

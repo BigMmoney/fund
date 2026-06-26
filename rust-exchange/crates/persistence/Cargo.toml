@@ -10,6 +10,12 @@ anyhow.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 crc32fast = "1.4"
+# P2-SCALE-2: per-segment SHA256 sidecar written on rotation, verified
+# on replay. Per-line integrity stays on crc32fast (fast, no hash cost
+# on the hot path); SHA256 is segment-level and only paid at rotate +
+# cold-boot recovery.
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 criterion = "0.5"

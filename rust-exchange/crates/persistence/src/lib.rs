@@ -11,8 +11,9 @@
 use anyhow::{bail, Result};
 use parking_lot::Mutex;
 use serde::{de::DeserializeOwned, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{create_dir_all, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -106,6 +107,14 @@ where
     append_count: AtomicU64,
     /// Maximum entries before automatic rotation (0 = disabled).
     max_entries: u64,
+    /// Maximum bytes in the current segment before automatic rotation
+    /// (0 = disabled). When both `max_entries` and `max_bytes` are set,
+    /// whichever threshold is hit first triggers the rotation
+    /// (P2-SCALE-2 acceptance: "Files rotate at 1 GB").
+    max_bytes: u64,
+    /// Bytes written to the current segment since open or last rotate.
+    /// Initialised from file metadata on open and incremented per append.
+    current_bytes: AtomicU64,
     /// Group-commit batch size (informational only — no longer triggers fsync).
     group_commit_size: u64,
     /// Flush interval in milliseconds (informational only).
@@ -146,17 +155,95 @@ where
         };
         // Open persistent file handle for append operations — avoids open/close overhead.
         let file_handle = OpenOptions::new().create(true).append(true).open(&path)?;
+        // Initialise current_bytes from on-disk size so a process restart
+        // does not under-count toward the rotation threshold.
+        let initial_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         Ok(Self {
             path,
             write_lock: Mutex::new(()),
             append_count: AtomicU64::new(initial_count),
             max_entries,
+            max_bytes: 0,
+            current_bytes: AtomicU64::new(initial_bytes),
             group_commit_size: 0,
             flush_interval_ms: 5,
             pending_syncs: AtomicU64::new(0),
             file_handle: Mutex::new(Some(file_handle)),
             _marker: PhantomData,
         })
+    }
+
+    /// P2-SCALE-2: enable size-based rotation. `max_bytes = 0` disables
+    /// (default). Production target: 1 GiB. Both `with_rotation`
+    /// (entry count) and `with_size_rotation` may be combined; either
+    /// threshold triggers a rotate.
+    pub fn with_size_rotation(mut self, max_bytes: u64) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+
+    /// P2-SCALE-2 opt-in: replay across all rotated segments AND the
+    /// active file, in oldest-first order. Each rotated segment is
+    /// verified against its `.sha256` sidecar before parsing — a
+    /// mismatch aborts in Strict mode, skips the segment in BestEffort.
+    ///
+    /// Callers that depend on snapshot-then-replay semantics (the
+    /// sequencer, ledger, trade journal) must NOT use this — they read
+    /// the active file only via `entries`/`entries_with_recovery` so
+    /// that rotation does not double-apply already-snapshotted commands.
+    ///
+    /// Use cases: audit tooling that needs the full history; cold-boot
+    /// recovery from off-host backups where the rotated segments are
+    /// the only source of truth.
+    pub fn entries_all_segments_with_recovery(
+        &self,
+        mode: WalRecoveryMode,
+    ) -> Result<Vec<T>> {
+        let _guard = self.write_lock.lock();
+        let mut entries = Vec::new();
+        let mut skipped = 0u64;
+
+        for segment in enumerate_rotated_segments(&self.path) {
+            match verify_sha256_sidecar(&segment) {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(
+                        segment = %segment.display(),
+                        "WAL: rotated segment has no SHA256 sidecar — parsing without segment-level verification"
+                    );
+                }
+                Err(e) => {
+                    if mode == WalRecoveryMode::BestEffort {
+                        tracing::error!(
+                            segment = %segment.display(),
+                            error = %e,
+                            "WAL: SHA256 mismatch on rotated segment — skipping entire segment"
+                        );
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+            let mut seg_skipped = 0u64;
+            parse_jsonl_segment(&segment, mode, &mut entries, &mut seg_skipped)?;
+            skipped += seg_skipped;
+        }
+
+        // Active file is always read last (and never has a sidecar — it
+        // is still being appended to).
+        let mut active_skipped = 0u64;
+        parse_jsonl_segment(&self.path, mode, &mut entries, &mut active_skipped)?;
+        skipped += active_skipped;
+
+        if skipped > 0 {
+            tracing::warn!(
+                skipped,
+                total = entries.len() + skipped as usize,
+                recovered = entries.len(),
+                "WAL: best-effort cross-segment recovery completed with skipped entries"
+            );
+        }
+        Ok(entries)
     }
 
     /// Configure group-commit batch size (informational only — no longer triggers fsync).
@@ -175,64 +262,21 @@ where
 
     /// Load entries with the specified recovery mode.
     ///
+    /// **Reads the ACTIVE file only.** Rotated segments (`*.bak.<ts>`)
+    /// are not replayed — they are considered archived for backup or
+    /// audit. Callers that need cross-segment replay must call
+    /// `entries_all_segments_with_recovery` explicitly (P2-SCALE-2).
+    ///
     /// In `BestEffort` mode, CRC-mismatched or malformed entries are skipped
     /// (with a tracing::error log) instead of aborting the entire load.
     pub fn entries_with_recovery(&self, mode: WalRecoveryMode) -> Result<Vec<T>> {
         let _guard = self.write_lock.lock();
-        let file = OpenOptions::new().read(true).open(&self.path)?;
-        let reader = BufReader::new(file);
         let mut entries = Vec::new();
         let mut skipped = 0u64;
-        for (lineno, line) in reader.lines().enumerate() {
-            let line = match line {
-                Ok(l) => l,
-                Err(e) => {
-                    if mode == WalRecoveryMode::BestEffort {
-                        tracing::error!(line = lineno + 1, error = %e, "WAL: skipping unreadable line");
-                        skipped += 1;
-                        continue;
-                    }
-                    return Err(e.into());
-                }
-            };
-            if line.trim().is_empty() {
-                continue;
-            }
-            let json_str = if let Some((crc_hex, payload)) = line.split_once('\t') {
-                let expected = u32::from_str_radix(crc_hex, 16).unwrap_or(0);
-                let actual = crc32(payload.as_bytes());
-                if expected != actual {
-                    if mode == WalRecoveryMode::BestEffort {
-                        tracing::error!(
-                            line = lineno + 1,
-                            expected = format!("{expected:08x}"),
-                            actual = format!("{actual:08x}"),
-                            "WAL: CRC mismatch — skipping corrupt entry"
-                        );
-                        skipped += 1;
-                        continue;
-                    }
-                    bail!(
-                        "WAL CRC mismatch at line {}: expected {expected:08x}, got {actual:08x}",
-                        lineno + 1
-                    );
-                }
-                payload
-            } else {
-                &line
-            };
-            match serde_json::from_str(json_str) {
-                Ok(entry) => entries.push(entry),
-                Err(e) => {
-                    if mode == WalRecoveryMode::BestEffort {
-                        tracing::error!(line = lineno + 1, error = %e, "WAL: skipping malformed JSON entry");
-                        skipped += 1;
-                        continue;
-                    }
-                    return Err(e.into());
-                }
-            }
-        }
+
+        // Active file only — see method doc.
+        parse_jsonl_segment(&self.path, mode, &mut entries, &mut skipped)?;
+
         if skipped > 0 {
             tracing::warn!(
                 skipped,
@@ -245,22 +289,238 @@ where
     }
 
     /// Rotate the WAL file: rename current to `.bak.<timestamp>` and create a fresh file.
+    ///
+    /// P2-SCALE-2: a sidecar `<rotated>.sha256` is written alongside
+    /// the rotated segment, containing the hex SHA256 of the segment
+    /// followed by two spaces and the segment basename — the same
+    /// layout `sha256sum` would produce, so operators can verify with
+    /// `sha256sum -c`. Replay (`entries*`) verifies this hash before
+    /// parsing.
     pub fn rotate(&self) -> Result<()> {
         let _guard = self.write_lock.lock();
+        // Nanoseconds — second-resolution collides if two rotations
+        // happen in the same second (tests, fast-cycling triggers).
+        // `as_u128()` truncated to u64 still fits ~584 years of nanos.
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
+            .as_nanos() as u64;
         let bak = self.path.with_extension(format!("bak.{ts}"));
+        // Close handle BEFORE rename so Windows allows the rename.
+        {
+            let mut file_guard = self.file_handle.lock();
+            *file_guard = None;
+        }
         std::fs::rename(&self.path, &bak)?;
-        // Close old handle and open fresh one.
+        // Write the sidecar. If hashing fails for any reason (disk
+        // pressure, permissions), tracing::error but continue — losing
+        // the sidecar must never block the rotate from completing,
+        // because that would freeze appends and risk a stuck producer.
+        if let Err(err) = write_sha256_sidecar(&bak) {
+            tracing::error!(
+                rotated = %bak.display(),
+                error = %err,
+                "WAL: failed to write SHA256 sidecar (rotated file is intact; replay will skip the verification step)"
+            );
+        }
+        // Open the fresh active file.
         let new_file = File::create(&self.path)?;
         let mut file_guard = self.file_handle.lock();
         *file_guard = Some(new_file);
         self.append_count.store(0, Ordering::Release);
         self.pending_syncs.store(0, Ordering::Release);
+        self.current_bytes.store(0, Ordering::Release);
         Ok(())
     }
+}
+
+/// Compute SHA256 of a file and write the canonical sidecar.
+/// Layout matches GNU `sha256sum`: `<hex>  <basename>\n`.
+fn write_sha256_sidecar(segment: &Path) -> Result<()> {
+    let mut hasher = Sha256::new();
+    let mut file = OpenOptions::new().read(true).open(segment)?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let basename = segment
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let line = format!("{}  {}\n", hex::encode(digest), basename);
+    let sidecar_path = path_with_appended_extension(segment, "sha256");
+    let mut sidecar = File::create(&sidecar_path)?;
+    sidecar.write_all(line.as_bytes())?;
+    sidecar.sync_all()?;
+    Ok(())
+}
+
+/// `Path::with_extension` REPLACES the extension. We want to APPEND
+/// `.sha256` so `data.bak.123.sha256` ≠ `data.bak.sha256`. Build it
+/// manually.
+fn path_with_appended_extension(path: &Path, extra_ext: &str) -> PathBuf {
+    let mut s = path.as_os_str().to_owned();
+    s.push(".");
+    s.push(extra_ext);
+    PathBuf::from(s)
+}
+
+/// Verify a segment file's SHA256 against its sidecar. Returns:
+///   Ok(true)  — sidecar present and digest matches
+///   Ok(false) — sidecar absent (legacy / unrotated file)
+///   Err(_)    — sidecar present but digest mismatched, or IO error
+fn verify_sha256_sidecar(segment: &Path) -> Result<bool> {
+    let sidecar_path = path_with_appended_extension(segment, "sha256");
+    if !sidecar_path.exists() {
+        return Ok(false);
+    }
+    // Read the expected hex from column 1 of the sidecar (sha256sum layout).
+    let raw = std::fs::read_to_string(&sidecar_path)?;
+    let expected_hex = raw.split_whitespace().next().unwrap_or("").to_string();
+    if expected_hex.len() != 64 {
+        bail!(
+            "WAL: SHA256 sidecar {} is malformed (expected 64 hex chars in column 1)",
+            sidecar_path.display()
+        );
+    }
+    let mut hasher = Sha256::new();
+    let mut file = OpenOptions::new().read(true).open(segment)?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let actual_hex = hex::encode(hasher.finalize());
+    if !actual_hex.eq_ignore_ascii_case(&expected_hex) {
+        bail!(
+            "WAL: SHA256 mismatch on segment {}: expected {expected_hex}, got {actual_hex}",
+            segment.display()
+        );
+    }
+    Ok(true)
+}
+
+/// Parse one JSONL segment file into `entries`. Per-line CRC32 is
+/// verified (existing behaviour); BestEffort mode skips bad lines
+/// with a tracing::error log and bumps `skipped`. Strict mode aborts.
+fn parse_jsonl_segment<T>(
+    path: &Path,
+    mode: WalRecoveryMode,
+    entries: &mut Vec<T>,
+    skipped: &mut u64,
+) -> Result<()>
+where
+    T: DeserializeOwned,
+{
+    let file = OpenOptions::new().read(true).open(path)?;
+    let reader = BufReader::new(file);
+    for (lineno, line) in reader.lines().enumerate() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                if mode == WalRecoveryMode::BestEffort {
+                    tracing::error!(
+                        segment = %path.display(),
+                        line = lineno + 1,
+                        error = %e,
+                        "WAL: skipping unreadable line"
+                    );
+                    *skipped += 1;
+                    continue;
+                }
+                return Err(e.into());
+            }
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let json_str = if let Some((crc_hex, payload)) = line.split_once('\t') {
+            let expected = u32::from_str_radix(crc_hex, 16).unwrap_or(0);
+            let actual = crc32(payload.as_bytes());
+            if expected != actual {
+                if mode == WalRecoveryMode::BestEffort {
+                    tracing::error!(
+                        segment = %path.display(),
+                        line = lineno + 1,
+                        expected = format!("{expected:08x}"),
+                        actual = format!("{actual:08x}"),
+                        "WAL: CRC mismatch — skipping corrupt entry"
+                    );
+                    *skipped += 1;
+                    continue;
+                }
+                bail!(
+                    "WAL CRC mismatch at {} line {}: expected {expected:08x}, got {actual:08x}",
+                    path.display(),
+                    lineno + 1
+                );
+            }
+            payload
+        } else {
+            &line
+        };
+        match serde_json::from_str(json_str) {
+            Ok(entry) => entries.push(entry),
+            Err(e) => {
+                if mode == WalRecoveryMode::BestEffort {
+                    tracing::error!(
+                        segment = %path.display(),
+                        line = lineno + 1,
+                        error = %e,
+                        "WAL: skipping malformed JSON entry"
+                    );
+                    *skipped += 1;
+                    continue;
+                }
+                return Err(e.into());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Enumerate rotated segments (`<basename>.bak.<ts>`) in oldest-first
+/// order. The active file at `<basename>` is NOT included; callers
+/// concatenate it themselves after the rotated set.
+fn enumerate_rotated_segments(active: &Path) -> Vec<PathBuf> {
+    let parent = match active.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let active_stem = active.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let entries = match std::fs::read_dir(&parent) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let mut rotated: Vec<(u64, PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        // sidecars end in .sha256 — never replay-parse them.
+        if name.ends_with(".sha256") {
+            continue;
+        }
+        // Match `<active_stem>.bak.<digits>`.
+        let prefix = format!("{}.bak.", active_stem);
+        if let Some(ts_str) = name.strip_prefix(&prefix) {
+            if let Ok(ts) = ts_str.parse::<u64>() {
+                rotated.push((ts, path));
+            }
+        }
+    }
+    rotated.sort_by_key(|(ts, _)| *ts);
+    rotated.into_iter().map(|(_, p)| p).collect()
 }
 
 impl<T> WalStore<T> for JsonlFileWal<T>
@@ -273,13 +533,18 @@ where
         let checksum = crc32(json.as_bytes());
         let line = format!("{checksum:08x}\t{json}\n");
         let bytes = line.into_bytes();
+        let n_bytes = bytes.len() as u64;
 
         // Brief lock for the buffered write only — no fsync on critical path
         let _guard = self.write_lock.lock();
 
-        // Auto-rotate if threshold reached.
+        // Auto-rotate if either threshold reached. Check count first
+        // (cheaper), then size.
         let count = self.append_count.load(Ordering::Acquire);
-        if self.max_entries > 0 && count >= self.max_entries {
+        let bytes_now = self.current_bytes.load(Ordering::Acquire);
+        let count_trip = self.max_entries > 0 && count >= self.max_entries;
+        let size_trip = self.max_bytes > 0 && bytes_now >= self.max_bytes;
+        if count_trip || size_trip {
             drop(_guard);
             self.rotate()?;
             return self.append(record);
@@ -300,36 +565,21 @@ where
         // Increment counters (informational only — background thread handles fsync)
         self.pending_syncs.fetch_add(1, Ordering::AcqRel);
         self.append_count.fetch_add(1, Ordering::Release);
+        self.current_bytes.fetch_add(n_bytes, Ordering::Release);
         Ok(())
     }
 
     fn entries(&self) -> Result<Vec<T>> {
+        // ACTIVE file only — keeps behaviour bit-for-bit compatible
+        // with the pre-P2-SCALE-2 contract. The sequencer / ledger
+        // replay path depends on this: snapshots cover everything up
+        // to rotation, so rotated segments are not replayed. See
+        // `entries_all_segments_with_recovery` for the opt-in
+        // cross-segment + sidecar-verified variant.
         let _guard = self.write_lock.lock();
-        let file = OpenOptions::new().read(true).open(&self.path)?;
-        let reader = BufReader::new(file);
         let mut entries = Vec::new();
-        for (lineno, line) in reader.lines().enumerate() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            // Support both legacy (bare JSON) and CRC-prefixed format.
-            let json_str = if let Some((crc_hex, payload)) = line.split_once('\t') {
-                let expected = u32::from_str_radix(crc_hex, 16).unwrap_or(0);
-                let actual = crc32(payload.as_bytes());
-                if expected != actual {
-                    bail!(
-                        "WAL CRC mismatch at line {}: expected {expected:08x}, got {actual:08x}",
-                        lineno + 1
-                    );
-                }
-                payload
-            } else {
-                // Legacy line without CRC — accept for backward compatibility.
-                &line
-            };
-            entries.push(serde_json::from_str(json_str)?);
-        }
+        let mut ignored = 0u64;
+        parse_jsonl_segment(&self.path, WalRecoveryMode::Strict, &mut entries, &mut ignored)?;
         Ok(entries)
     }
 
@@ -641,5 +891,205 @@ mod tests {
         assert_eq!(recovered, vec!["good-1".to_string(), "good-3".to_string()]);
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // P2-SCALE-2: size-based rotation + SHA256 sidecar + cross-segment
+    // replay.
+    // ─────────────────────────────────────────────────────────────────
+
+    fn unique_path(tag: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("rust_exchange_wal_{tag}_{unique}.jsonl"))
+    }
+
+    fn cleanup_segments(active: &Path) {
+        let _ = std::fs::remove_file(active);
+        let parent = active.parent().unwrap_or_else(|| Path::new("."));
+        let stem = active
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        if let Ok(read) = std::fs::read_dir(parent) {
+            for entry in read.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with(&format!("{stem}.bak.")) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn size_rotation_triggers_when_threshold_exceeded() {
+        let path = unique_path("size_rot");
+        // Threshold: 200 bytes. Each `"x..."` entry is ~30 bytes after
+        // JSON+CRC+\n, so a handful of appends crosses the limit.
+        let wal = JsonlFileWal::<String>::new(&path)
+            .unwrap()
+            .with_size_rotation(200);
+        for i in 0..20 {
+            wal.append(&format!("entry-{i}-payload")).unwrap();
+        }
+        // Verify at least one rotated segment exists.
+        let rotated = enumerate_rotated_segments(&path);
+        assert!(
+            !rotated.is_empty(),
+            "size-based rotation should have produced at least one .bak.<ts> segment"
+        );
+
+        // Every rotated segment should have a sidecar.
+        for seg in &rotated {
+            let sidecar = path_with_appended_extension(seg, "sha256");
+            assert!(
+                sidecar.exists(),
+                "sidecar missing for rotated segment {}",
+                seg.display()
+            );
+            assert!(
+                verify_sha256_sidecar(seg).unwrap(),
+                "sidecar verification should pass for fresh rotation"
+            );
+        }
+        cleanup_segments(&path);
+    }
+
+    #[test]
+    fn sha256_sidecar_layout_matches_sha256sum() {
+        let path = unique_path("sidecar_layout");
+        let wal = JsonlFileWal::<String>::new(&path).unwrap();
+        wal.append(&"row".to_string()).unwrap();
+        wal.rotate().unwrap();
+
+        let rotated = enumerate_rotated_segments(&path);
+        assert_eq!(rotated.len(), 1);
+        let seg = &rotated[0];
+        let sidecar = path_with_appended_extension(seg, "sha256");
+        let body = std::fs::read_to_string(&sidecar).unwrap();
+        let mut iter = body.split_whitespace();
+        let hex = iter.next().unwrap();
+        let name = iter.next().unwrap();
+        assert_eq!(hex.len(), 64, "first column should be 64-hex SHA256");
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(
+            name,
+            seg.file_name().unwrap().to_str().unwrap(),
+            "second column should be the segment basename"
+        );
+
+        cleanup_segments(&path);
+    }
+
+    #[test]
+    fn cross_segment_replay_returns_rotated_then_active_in_order() {
+        let path = unique_path("cross_replay");
+        let wal = JsonlFileWal::<String>::new(&path).unwrap();
+
+        wal.append(&"r1-a".to_string()).unwrap();
+        wal.append(&"r1-b".to_string()).unwrap();
+        wal.rotate().unwrap();
+
+        wal.append(&"r2-a".to_string()).unwrap();
+        wal.rotate().unwrap();
+
+        wal.append(&"active-1".to_string()).unwrap();
+
+        let all = wal
+            .entries_all_segments_with_recovery(WalRecoveryMode::Strict)
+            .unwrap();
+        assert_eq!(
+            all,
+            vec![
+                "r1-a".to_string(),
+                "r1-b".to_string(),
+                "r2-a".to_string(),
+                "active-1".to_string(),
+            ]
+        );
+
+        // Active-only path stays unchanged.
+        assert_eq!(wal.entries().unwrap(), vec!["active-1".to_string()]);
+
+        cleanup_segments(&path);
+    }
+
+    #[test]
+    fn cross_segment_replay_strict_aborts_on_sha256_mismatch() {
+        let path = unique_path("sha_strict");
+        let wal = JsonlFileWal::<String>::new(&path).unwrap();
+        wal.append(&"r1".to_string()).unwrap();
+        wal.rotate().unwrap();
+
+        // Tamper with the rotated segment, sidecar untouched.
+        let rotated = enumerate_rotated_segments(&path);
+        let seg = &rotated[0];
+        let original = std::fs::read_to_string(seg).unwrap();
+        std::fs::write(seg, original.replace("r1", "x9")).unwrap();
+
+        let err = wal
+            .entries_all_segments_with_recovery(WalRecoveryMode::Strict)
+            .unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("SHA256 mismatch"),
+            "expected SHA256 mismatch error, got: {msg}"
+        );
+
+        cleanup_segments(&path);
+    }
+
+    #[test]
+    fn cross_segment_replay_best_effort_skips_corrupt_segment() {
+        let path = unique_path("sha_besteffort");
+        let wal = JsonlFileWal::<String>::new(&path).unwrap();
+        wal.append(&"r1-keep".to_string()).unwrap();
+        wal.rotate().unwrap();
+        wal.append(&"r2-tamper".to_string()).unwrap();
+        wal.rotate().unwrap();
+        wal.append(&"active".to_string()).unwrap();
+
+        // Tamper with the second rotated segment.
+        let rotated = enumerate_rotated_segments(&path);
+        assert_eq!(rotated.len(), 2);
+        let bad = &rotated[1];
+        let body = std::fs::read_to_string(bad).unwrap();
+        std::fs::write(bad, body.replace("r2-tamper", "broken-pl")).unwrap();
+
+        let recovered = wal
+            .entries_all_segments_with_recovery(WalRecoveryMode::BestEffort)
+            .unwrap();
+        // Bad segment dropped; good segment + active kept.
+        assert_eq!(
+            recovered,
+            vec!["r1-keep".to_string(), "active".to_string()]
+        );
+
+        cleanup_segments(&path);
+    }
+
+    #[test]
+    fn rotated_segment_without_sidecar_is_warned_but_parsed() {
+        let path = unique_path("no_sidecar");
+        let wal = JsonlFileWal::<String>::new(&path).unwrap();
+        wal.append(&"only".to_string()).unwrap();
+        wal.rotate().unwrap();
+
+        // Delete the sidecar to simulate a manually-rotated / legacy
+        // file that came in from an off-host backup.
+        let rotated = enumerate_rotated_segments(&path);
+        let sidecar = path_with_appended_extension(&rotated[0], "sha256");
+        std::fs::remove_file(&sidecar).unwrap();
+
+        // Still parses (warn-only, no error).
+        let recovered = wal
+            .entries_all_segments_with_recovery(WalRecoveryMode::Strict)
+            .unwrap();
+        assert_eq!(recovered, vec!["only".to_string()]);
+
+        cleanup_segments(&path);
     }
 }
