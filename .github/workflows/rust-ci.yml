@@ -32,7 +32,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust-exchange
-      - run: cargo check --workspace --all-targets
+      # `--locked` enforces that Cargo.lock matches what's committed —
+      # P1-CI-1 acceptance: intentional Cargo.lock drift fails the build.
+      - run: cargo check --workspace --all-targets --locked
 
   test:
     name: cargo test
@@ -44,7 +46,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust-exchange
-      - run: cargo test --workspace --no-fail-fast
+      # P1-CI-2 acceptance: workspace test suite is the PR gate.
+      - run: cargo test --workspace --no-fail-fast --locked
         env:
           RUST_LOG: error
 
