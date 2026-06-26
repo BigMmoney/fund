@@ -49,6 +49,23 @@ data/
 # Configuration overrides
 config.local.yaml
 config.production.yaml
+config.local.toml
+rust-exchange/config.local.toml
+
+# Claude Code agent harness state (never committed)
+.claude/
+
+# C#/.NET bench scratch (under rust-exchange/scripts/*_bench/)
+rust-exchange/scripts/**/obj/
+rust-exchange/scripts/**/bin/Debug/
+rust-exchange/scripts/**/bin/Release/
+
+# Per-run benchmark log captures (raw logs, not committed — the JSON
+# summary at the parent level IS committed; logs are reproducer
+# scratch).
+docs/benchmarks/*/raw/**/*.log
+docs/benchmarks/*/raw/**/*.log.err
+docs/benchmarks/*/raw/**/*.err
 
 # Build artifacts
 bin/
