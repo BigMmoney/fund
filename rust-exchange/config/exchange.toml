@@ -51,6 +51,14 @@ position_cost_resync_interval_ms  = 60000
 allowed_origins = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    # Legacy plain-JS console served by the api itself. ES module
+    # scripts (<script type="module">) trigger CORS mode even for
+    # same-origin fetches, so the api's own origin must be on the list.
+    "http://127.0.0.1:3030",
+    "http://localhost:3030",
+    # frontend-modern dev server (vite.config.ts pins 3000).
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
 ]
 
 # ── WebSocket ─────────────────────────────────────────────

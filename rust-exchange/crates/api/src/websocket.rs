@@ -414,11 +414,12 @@ pub fn build_ws_routes(
     };
 
     // ── /ws/order-trace ── Order Flow Monitor live stream (design §5.4).
-    // Authenticated via with_principal; admin sees every order, non-admin
-    // sees only events tagged with their own subject (matches REST §5.1
-    // semantics). Forwards Event::OrderTrace events from the eventbus
-    // `order.trace` channel directly — no WsHub bridge needed.
-    let order_trace = {
+    // Authenticated either via `with_principal` (HMAC headers — the
+    // server-to-server CLI client path) OR via `?token=<ws-token>` minted
+    // by `POST /v2/ws-token` (the browser path: browsers cannot set
+    // custom headers on a WS upgrade). Admin sees every order; non-admin
+    // sees only events tagged with their own subject (matches REST §5.1).
+    let order_trace_header_authed = {
         let hub = hub.clone();
         let event_bus = event_bus.clone();
         warp::path!("ws" / "order-trace")
@@ -447,6 +448,45 @@ pub fn build_ws_routes(
             )
             .boxed()
     };
+    let order_trace_token_authed = {
+        let hub = hub.clone();
+        let event_bus = event_bus.clone();
+        warp::path!("ws" / "order-trace")
+            .and(warp::query::<crate::ws_token::TokenQuery>())
+            .and(warp::ws())
+            .and(warp::addr::remote())
+            .and_then(
+                move |query: crate::ws_token::TokenQuery,
+                      ws: warp::ws::Ws,
+                      remote: Option<std::net::SocketAddr>| {
+                    let hub = hub.clone();
+                    let event_bus = event_bus.clone();
+                    async move {
+                        let principal =
+                            crate::ws_token::resolve_principal_from_token(&query, "/ws/order-trace")
+                                .map_err(|err| {
+                                    warp::reject::custom(crate::ws_token::WsTokenRejection(err))
+                                })?;
+                        let ip = remote
+                            .map(|s| s.ip())
+                            .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+                        Ok::<warp::reply::Response, warp::Rejection>(
+                            ws.on_upgrade(move |socket| {
+                                handle_order_trace_ws(socket, principal, ip, hub, event_bus)
+                            })
+                            .into_response(),
+                        )
+                    }
+                },
+            )
+            .boxed()
+    };
+    // Header-authed branch first (cheaper if headers present); fall
+    // through to the token branch if no internal-auth headers set.
+    let order_trace = order_trace_header_authed
+        .or(order_trace_token_authed)
+        .unify()
+        .boxed();
 
     trades
         .or(orderbook)

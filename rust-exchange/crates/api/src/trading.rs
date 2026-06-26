@@ -843,6 +843,9 @@ pub(crate) fn build_trading_routes(
                     match engine.cancel_order(command).await {
                         Ok(result) => {
                             update_lifecycle_after_cancel(&sequencer, &request_id);
+                            observability::METRICS
+                                .orders_cancelled
+                                .fetch_add(result.cancelled_order_ids.len() as u64, Ordering::Relaxed);
                             if let Err(error) = order_projection.record_cancelled_orders(
                                 &user_id,
                                 &result.cancelled_order_ids,
@@ -1122,6 +1125,9 @@ pub(crate) fn build_trading_routes(
                     match engine.mass_cancel_by_user(command).await {
                         Ok(result) => {
                             update_lifecycle_after_cancel(&sequencer, &request_id);
+                            observability::METRICS
+                                .orders_cancelled
+                                .fetch_add(result.cancelled_order_ids.len() as u64, Ordering::Relaxed);
                             if let Err(error) = order_projection.record_cancelled_orders(
                                 &user_id,
                                 &result.cancelled_order_ids,
@@ -1193,6 +1199,9 @@ pub(crate) fn build_trading_routes(
                     match engine.mass_cancel_by_session(command).await {
                         Ok(result) => {
                             update_lifecycle_after_cancel(&sequencer, &request_id);
+                            observability::METRICS
+                                .orders_cancelled
+                                .fetch_add(result.cancelled_order_ids.len() as u64, Ordering::Relaxed);
                             if let Err(error) = order_projection.record_cancelled_orders(
                                 &user_id,
                                 &result.cancelled_order_ids,

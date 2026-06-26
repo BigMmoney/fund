@@ -528,6 +528,7 @@ pub(crate) async fn handle_add_address(
         // synchronous so this branch is defensive against future
         // async providers. Soft-block, do not let into the book.
         SanctionsScreenStatus::Pending | SanctionsScreenStatus::Error => {
+            crate::observability::METRICS.record_wallet_sanctions_error();
             let err = WalletError::SanctionsUnavailable;
             audit_err(&runtime, &err);
             return Err(reject(err));
@@ -677,6 +678,7 @@ pub(crate) async fn handle_submit_withdraw(
             return Err(reject(err));
         }
         SanctionsScreenStatus::Pending | SanctionsScreenStatus::Error => {
+            crate::observability::METRICS.record_wallet_sanctions_error();
             let err = WalletError::SanctionsUnavailable;
             audit_err(&runtime, &err);
             return Err(reject(err));

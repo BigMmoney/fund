@@ -95,6 +95,7 @@ mod trading;
 mod transfers;
 mod websocket;
 mod withdrawals;
+mod ws_token;
 
 use accounts::*;
 use admin::*;
@@ -1178,6 +1179,24 @@ fn remote_ip() -> impl Filter<Extract = (Option<SocketAddr>,), Error = Infallibl
 }
 
 async fn handle_rejection(rejection: Rejection) -> Result<impl Reply, Infallible> {
+    // ws_token errors come from `/ws/order-trace?token=...` failures. Check
+    // BEFORE the generic ApiError branch — when the WS upgrade has both
+    // branches (token-authed + header-authed) reject, warp combines both
+    // rejections and the more-actionable one (token-specific) should win.
+    // Otherwise the client sees the misleading "missing x-api-key" message
+    // from the header-authed branch when the real problem is the token.
+    if let Some(err) = rejection.find::<ws_token::WsTokenRejection>() {
+        let body = serde_json::json!({
+            "status": "error",
+            "code": "WS_TOKEN_INVALID",
+            "message": err.0.to_string(),
+            "error": err.0.to_string(),
+        });
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&body),
+            StatusCode::UNAUTHORIZED,
+        ));
+    }
     if let Some(error) = rejection.find::<ApiError>() {
         let mut body = serde_json::json!({"status":"error","message":error.message});
         if let Some(code) = &error.code {
@@ -3835,6 +3854,27 @@ async fn main() {
         with_principal(),
     );
 
+    // P1-OPS-1: poll the hot-wallet on-chain balance every 60 s and
+    // expose it as a gauge (`wallet_hot_wallet_balance{chain="eth"}`).
+    // Prometheus alerting fires when this drops below threshold.
+    {
+        use wallet::ChainAdapter as _;
+        let adapter = wallet_eth_adapter.clone();
+        let hot_address = wallet_eth_hot_address.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                if let Ok(balance) = adapter.balance(&hot_address) {
+                    let micro = (balance / 1_000_000_000_000_i128)
+                        .clamp(i64::MIN as i128, i64::MAX as i128)
+                        as i64;
+                    crate::observability::record_wallet_hot_balance("eth", micro);
+                }
+            }
+        });
+    }
+
     // Step 8 part 3: spawn the in-process hot-wallet worker. One task
     // per chain. Tick interval defaults to 5 s; override via
     // `WALLET_WORKER_TICK_MS`. The worker drives Approved -->
@@ -3931,6 +3971,11 @@ async fn main() {
             loop {
                 interval.tick().await;
                 let report = worker.tick();
+                crate::observability::METRICS.record_wallet_settlement_tick(
+                    report.settled_count as u64,
+                    report.failed_count as u64,
+                    report.stuck_count as u64,
+                );
                 if report.settled_count + report.failed_count + report.stuck_count > 0 {
                     tracing::info!(
                         settled = report.settled_count,
@@ -4053,6 +4098,64 @@ async fn main() {
     ));
     let ws_routes = websocket::build_ws_routes(ws_hub.clone(), event_bus_for_ws_routes);
 
+    // POST /v2/ws-token — mint a short-TTL bearer token for browser
+    // WebSocket auth on `/ws/order-trace`. The browser cannot set the
+    // x-internal-auth-* headers on a WS upgrade, so it calls this
+    // endpoint over signed REST (which it can do) and presents the
+    // returned token as `?token=<...>` on the WS URL.
+    //
+    // Token TTL is short (default 60 s, clamped [10, 300]); the
+    // frontend mints fresh just before each connect.
+    let ws_token_route = warp::path!("v2" / "ws-token")
+        .and(warp::post())
+        .and(with_principal())
+        .and(warp::body::json::<serde_json::Value>())
+        .and_then(|principal: AuthenticatedPrincipal, body: serde_json::Value| async move {
+            let ws_path = body
+                .get("ws_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            // v1 only mints for the order-trace endpoint. As more WS
+            // endpoints become browser-reachable, expand this allow-list
+            // — never honour an arbitrary client-supplied path.
+            let allowed_paths: &[&str] = &["/ws/order-trace"];
+            if !allowed_paths.contains(&ws_path) {
+                return Err(warp::reject::custom(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    code: Some("INVALID_WS_PATH".into()),
+                    message: format!(
+                        "ws_path must be one of {:?}",
+                        allowed_paths
+                    ),
+                    details: None,
+                }));
+            }
+            let secret = security::internal_auth_secret_opt().ok_or_else(|| {
+                warp::reject::custom(ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    code: Some("AUTH_NOT_CONFIGURED".into()),
+                    message: "internal auth secret not configured".into(),
+                    details: None,
+                })
+            })?;
+            let token = ws_token::mint_token(secret, &principal, ws_path).map_err(|e| {
+                warp::reject::custom(ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    code: Some("WS_TOKEN_MINT_FAILED".into()),
+                    message: e.to_string(),
+                    details: None,
+                })
+            })?;
+            let ttl = ws_token::ws_token_ttl_secs();
+            let body = serde_json::json!({
+                "token": token,
+                "ttl_secs": ttl,
+                "ws_path": ws_path,
+            });
+            Ok::<_, Rejection>(warp::reply::json(&body))
+        })
+        .boxed();
+
     let settlement_reconciliation_ledger = ledger.clone();
     let settlement_reconciliation_journal = trade_journal_wal.clone();
     let settlement_reconciliation_wal = trade_settlement_wal.clone();
@@ -4171,7 +4274,113 @@ async fn main() {
                 },
             );
 
-    let static_files = warp::fs::dir("./frontend");
+    // ── Binance public-data REST proxy ───────────────────────────
+    //
+    // Browser hits `/binance/rest/<path>?<query>` → server fetches
+    // `https://data-api.binance.vision/api/v3/<path>?<query>` and pipes
+    // the body back. The browser only ever talks to 127.0.0.1:3030,
+    // sidestepping CORS variability, browser extensions, AV intercepts,
+    // and any geo-block that affects browser DNS but not the host's.
+    //
+    // Read-only, ~1KB responses, public data — no auth, minimal risk.
+    let binance_rest_route = warp::path("binance")
+        .and(warp::path("rest"))
+        .and(warp::path::tail())
+        .and(warp::query::raw().or(warp::any().map(String::new)).unify())
+        .and(warp::get())
+        .and_then(|tail: warp::path::Tail, raw_query: String| async move {
+            // Accept both `/binance/rest/klines` and the more natural
+            // `/binance/rest/api/v3/klines` form so the same client URL
+            // pattern works against both Binance directly and this proxy.
+            let path = tail
+                .as_str()
+                .trim_start_matches('/')
+                .trim_start_matches("api/v3/");
+            // Whitelist the v3 public-data endpoints we actually consume.
+            // Anything else returns 404 — refuses to be used as an open
+            // forwarder.
+            const ALLOWED: &[&str] = &["klines", "ticker/24hr", "depth", "trades"];
+            if !ALLOWED.iter().any(|p| path == *p) {
+                return Err(warp::reject::custom(ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    code: Some("BINANCE_PROXY_PATH_NOT_ALLOWED".into()),
+                    message: format!(
+                        "binance proxy: path '{}' not in allow-list {:?}",
+                        path, ALLOWED
+                    ),
+                    details: None,
+                }));
+            }
+            let upstream = if raw_query.is_empty() {
+                format!("https://data-api.binance.vision/api/v3/{}", path)
+            } else {
+                format!("https://data-api.binance.vision/api/v3/{}?{}", path, raw_query)
+            };
+            // Run the blocking ureq call on a worker thread.
+            let response = tokio::task::spawn_blocking(move || {
+                let agent = ureq::AgentBuilder::new()
+                    .timeout(std::time::Duration::from_secs(8))
+                    .build();
+                agent.get(&upstream).call()
+            })
+            .await
+            .map_err(|e| {
+                warp::reject::custom(ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    code: Some("BINANCE_PROXY_TASK_PANIC".into()),
+                    message: format!("binance proxy task panic: {e}"),
+                    details: None,
+                })
+            })?;
+            match response {
+                Ok(resp) => {
+                    let status_u16 = resp.status();
+                    let body = match resp.into_string() {
+                        Ok(s) => s,
+                        Err(e) => return Err(warp::reject::custom(ApiError {
+                            status: StatusCode::BAD_GATEWAY,
+                            code: Some("BINANCE_PROXY_READ_FAILED".into()),
+                            message: format!("binance proxy: read body failed: {e}"),
+                            details: None,
+                        })),
+                    };
+                    let status = StatusCode::from_u16(status_u16).unwrap_or(StatusCode::OK);
+                    let reply = warp::reply::with_header(
+                        warp::reply::with_status(body, status),
+                        "Content-Type",
+                        "application/json; charset=utf-8",
+                    );
+                    Ok::<_, Rejection>(reply)
+                }
+                Err(ureq::Error::Status(code, resp)) => {
+                    let body = resp.into_string().unwrap_or_default();
+                    let status = StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY);
+                    let reply = warp::reply::with_header(
+                        warp::reply::with_status(body, status),
+                        "Content-Type",
+                        "application/json; charset=utf-8",
+                    );
+                    Ok(reply)
+                }
+                Err(e) => Err(warp::reject::custom(ApiError {
+                    status: StatusCode::BAD_GATEWAY,
+                    code: Some("BINANCE_PROXY_UPSTREAM_ERROR".into()),
+                    message: format!("binance proxy: upstream error: {e}"),
+                    details: None,
+                })),
+            }
+        })
+        .boxed();
+
+    // Static frontend files. Send `Cache-Control: no-cache` so the browser
+    // always revalidates — without this, the legacy ES-module loader
+    // aggressively caches `binance.js` etc. and a code change does not
+    // take effect on refresh until the user clears site data.
+    let static_files = warp::fs::dir("./frontend")
+        .with(warp::reply::with::header(
+            "Cache-Control",
+            "no-cache, must-revalidate",
+        ));
     let mut cors_builder = warp::cors()
         .allow_methods(vec!["GET", "POST"])
         .allow_headers(vec![
@@ -4566,6 +4775,7 @@ async fn main() {
         .or(sentinel_routes)
         .or(fee_tier_routes)
         .or(monitor_routes)
+        .or(ws_token_route)
         .boxed();
     let trade_aux_group = transfer_routes
         .or(stop_order_routes)
@@ -4593,6 +4803,7 @@ async fn main() {
         .or(ws_routes)
         .or(settlement_reconciliation_route)
         .or(core_chain_reconciliation_route)
+        .or(binance_rest_route)
         .or(static_files)
         .boxed();
 

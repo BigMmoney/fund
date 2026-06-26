@@ -34,10 +34,6 @@ pub(crate) struct ExchangeMetrics {
     pub submit_order_ip_rate_limited: AtomicU64,
     pub submit_order_user_rate_limited: AtomicU64,
     pub submit_order_engine_rate_limited: AtomicU64,
-    // Batch order tracking.
-    pub batch_orders_submitted: AtomicU64,
-    pub batch_orders_success: AtomicU64,
-    pub batch_latency: HistogramTracker,
     // EventBus → WS bridge health.
     pub bridge_alive: AtomicBool,
     // Histogram latency trackers (microseconds) with p50/p95/p99.
@@ -54,6 +50,12 @@ pub(crate) struct ExchangeMetrics {
     // Per-partition fill counters.
     pub partition_fills: [AtomicU64; MAX_PARTITIONS],
     pub partition_orders: [AtomicU64; MAX_PARTITIONS],
+    // Wallet — settlement worker (P1-OPS-1).
+    pub wallet_settlements_settled: AtomicU64,
+    pub wallet_settlements_failed: AtomicU64,
+    pub wallet_settlements_stuck: AtomicU64,
+    // Wallet — sanctions provider hard-block (503) count (P1-OPS-1).
+    pub wallet_sanctions_errors: AtomicU64,
 }
 
 /// Lock-free histogram latency tracker (microseconds) with percentiles.
@@ -190,9 +192,6 @@ impl ExchangeMetrics {
             submit_order_ip_rate_limited: AtomicU64::new(0),
             submit_order_user_rate_limited: AtomicU64::new(0),
             submit_order_engine_rate_limited: AtomicU64::new(0),
-            batch_orders_submitted: AtomicU64::new(0),
-            batch_orders_success: AtomicU64::new(0),
-            batch_latency: HistogramTracker::new(),
             bridge_alive: AtomicBool::new(false),
             match_latency: HistogramTracker::new(),
             wal_append_latency: HistogramTracker::new(),
@@ -205,7 +204,30 @@ impl ExchangeMetrics {
             post_match_latency: HistogramTracker::new(),
             partition_fills: [const { AtomicU64::new(0) }; MAX_PARTITIONS],
             partition_orders: [const { AtomicU64::new(0) }; MAX_PARTITIONS],
+            wallet_settlements_settled: AtomicU64::new(0),
+            wallet_settlements_failed: AtomicU64::new(0),
+            wallet_settlements_stuck: AtomicU64::new(0),
+            wallet_sanctions_errors: AtomicU64::new(0),
         }
+    }
+
+    pub fn record_wallet_settlement_tick(&self, settled: u64, failed: u64, stuck: u64) {
+        if settled > 0 {
+            self.wallet_settlements_settled
+                .fetch_add(settled, Ordering::Relaxed);
+        }
+        if failed > 0 {
+            self.wallet_settlements_failed
+                .fetch_add(failed, Ordering::Relaxed);
+        }
+        if stuck > 0 {
+            self.wallet_settlements_stuck
+                .fetch_add(stuck, Ordering::Relaxed);
+        }
+    }
+
+    pub fn record_wallet_sanctions_error(&self) {
+        self.wallet_sanctions_errors.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_partition_fill(&self, partition_id: usize, count: u64) {
@@ -220,21 +242,10 @@ impl ExchangeMetrics {
         }
     }
 
-    pub fn record_cancel(&self) {
-        self.orders_cancelled.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_order_received(&self) {
-        self.orders_received.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_order_filled(&self) {
-        self.orders_filled.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_order_rejected(&self) {
-        self.orders_rejected.fetch_add(1, Ordering::Relaxed);
-    }
+    // Note: `orders_received` / `orders_filled` / `orders_rejected` /
+    // `orders_cancelled` are incremented directly via `fetch_add` from
+    // the trading routes in `trading.rs`. There used to be helper methods
+    // here too; they were dead code and were removed.
 
     pub fn record_submit_order_ip_rate_limited(&self) {
         self.submit_order_ip_rate_limited
@@ -305,6 +316,23 @@ pub(crate) static METRICS: ExchangeMetrics = ExchangeMetrics::new();
 
 /// Per-path HTTP request counters (path → count).
 pub(crate) static HTTP_PATH_COUNTERS: LazyLock<DashMap<String, u64>> = LazyLock::new(DashMap::new);
+
+/// Per-chain hot-wallet on-chain balance, in chain-native ledger units
+/// (i.e. after `ChainSpec::ledger_divisor`). The sampler in `main.rs`
+/// updates this after each chain-adapter `balance()` call. Exposed
+/// as a labelled gauge by `prometheus.rs`.
+pub(crate) static WALLET_HOT_BALANCES: LazyLock<DashMap<String, AtomicI64>> =
+    LazyLock::new(DashMap::new);
+
+/// Set the hot-wallet balance gauge for a chain. `value` is the
+/// balance in ledger units (already divided by `ChainSpec::ledger_divisor`),
+/// stored in i64 because that's what the ledger uses everywhere else.
+pub(crate) fn record_wallet_hot_balance(chain: &str, value: i64) {
+    WALLET_HOT_BALANCES
+        .entry(chain.to_string())
+        .or_insert_with(|| AtomicI64::new(0))
+        .store(value, Ordering::Relaxed);
+}
 
 /// Record an HTTP request for a normalised path.
 pub(crate) fn record_http_path(path: &str) {

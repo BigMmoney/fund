@@ -467,6 +467,16 @@ fn internal_auth_secret() -> Result<&'static str, Rejection> {
         })
 }
 
+/// Same secret as `internal_auth_secret`, but exposed as `Option<&str>`
+/// for non-Rejection contexts (the WS token mint endpoint and the WS
+/// upgrade handler need to pass the secret to `ws_token::mint`/`verify`
+/// without going through warp's rejection plumbing).
+pub(crate) fn internal_auth_secret_opt() -> Option<&'static str> {
+    INTERNAL_AUTH_SHARED_SECRET
+        .get()
+        .map(|value| value.as_str())
+}
+
 fn api_key_registry() -> &'static std::collections::HashMap<String, ApiKeyRecord> {
     API_KEY_REGISTRY.get_or_init(std::collections::HashMap::new)
 }

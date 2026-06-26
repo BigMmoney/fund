@@ -30,6 +30,10 @@ sha2 = "0.10"
 hex = "0.4"
 toml = "0.8"
 futures-util = "0.3"
+# Used by `/binance/rest/*` proxy route (browser-side fallback for users
+# behind firewalls or with browser extensions that block fetches direct
+# to data-api.binance.vision). Same crate already pulled in via wallet.
+ureq = { version = "2.10", features = ["tls"] }
 
 [dev-dependencies]
 proptest = "1.5"

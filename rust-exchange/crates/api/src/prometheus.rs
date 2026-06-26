@@ -7,7 +7,9 @@
 use std::fmt::Write;
 use std::sync::atomic::Ordering;
 
-use super::observability::{HISTOGRAM_BOUNDARIES_US, HTTP_PATH_COUNTERS, METRICS};
+use super::observability::{
+    HISTOGRAM_BOUNDARIES_US, HTTP_PATH_COUNTERS, METRICS, WALLET_HOT_BALANCES,
+};
 
 /// Render all exchange metrics in Prometheus exposition format.
 pub fn render_prometheus() -> String {
@@ -235,6 +237,50 @@ pub fn render_prometheus() -> String {
                 "exchange_partition_orders_total{{partition=\"{i}\"}} {v}"
             );
         }
+    }
+
+    // ── Wallet (P1-OPS-1) ────────────────────────────────
+    counter(
+        &mut out,
+        "wallet_settlements_settled_total",
+        "Wallet settlement worker — withdrawals flipped Confirmed -> Settled",
+        METRICS.wallet_settlements_settled.load(Ordering::Relaxed),
+    );
+    counter(
+        &mut out,
+        "wallet_settlements_failed_total",
+        "Wallet settlement worker — transient failures (record-not-found, store-update-failed)",
+        METRICS.wallet_settlements_failed.load(Ordering::Relaxed),
+    );
+    // The headline alert metric: every increment of this counter is a
+    // record where the on-chain broadcast already happened but the
+    // customer-side ledger debit could not be applied. PagerDuty.
+    counter(
+        &mut out,
+        "wallet_settlements_stuck_total",
+        "Wallet settlement worker — withdrawals flipped Confirmed -> SettlementStuck (operator action required)",
+        METRICS.wallet_settlements_stuck.load(Ordering::Relaxed),
+    );
+    counter(
+        &mut out,
+        "wallet_sanctions_errors_total",
+        "Sanctions provider returned Error (request hard-blocked with 503 SanctionsUnavailable)",
+        METRICS.wallet_sanctions_errors.load(Ordering::Relaxed),
+    );
+
+    // Per-chain hot-wallet balance gauge.
+    let _ = writeln!(
+        out,
+        "# HELP wallet_hot_wallet_balance Hot-wallet on-chain balance (ledger units, post-divisor)"
+    );
+    let _ = writeln!(out, "# TYPE wallet_hot_wallet_balance gauge");
+    for entry in WALLET_HOT_BALANCES.iter() {
+        let _ = writeln!(
+            out,
+            "wallet_hot_wallet_balance{{chain=\"{}\"}} {}",
+            entry.key(),
+            entry.value().load(Ordering::Relaxed)
+        );
     }
 
     out
