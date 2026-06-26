@@ -35,6 +35,24 @@ futures-util = "0.3"
 # to data-api.binance.vision). Same crate already pulled in via wallet.
 ureq = { version = "2.10", features = ["tls"] }
 
+# P1-OPS-2: OpenTelemetry stack is feature-gated to keep default build
+# fast. Enable with `--features otel`; activate at runtime by setting
+# `OTEL_EXPORTER_OTLP_ENDPOINT`. Without the env var, the OTel layer is
+# constructed but exports nothing (no-op exporter).
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "0.28", optional = true }
+
+[features]
+default = []
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+
 [dev-dependencies]
 proptest = "1.5"
 tempfile = "3.14"

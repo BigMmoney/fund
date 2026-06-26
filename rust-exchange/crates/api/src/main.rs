@@ -93,6 +93,7 @@ mod stress;
 mod tracing_ctx;
 mod security_headers;
 mod trading;
+mod tracing_init;
 mod transfers;
 mod websocket;
 mod withdrawals;
@@ -3204,13 +3205,11 @@ fn spawn_monitor_consumer(
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .json()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // P1-OPS-2: tracing setup is in its own module so the OTel layer
+    // can be feature-gated without churning main. Default build still
+    // emits JSON to stdout; `--features otel` adds an OTLP/HTTP layer
+    // when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+    tracing_init::init();
     initialize_internal_auth_secret().expect("failed to initialize internal auth secret");
     initialize_api_key_registry().expect("failed to initialize API key registry");
     initialize_role_mapping().expect("failed to initialize role mapping");
@@ -4936,6 +4935,10 @@ async fn main() {
         Ok(()) => tracing::info!("shutdown: ledger balance invariant OK"),
         Err(e) => tracing::error!(error = %e, "shutdown: ledger balance invariant FAILED"),
     }
+
+    // P1-OPS-2: flush in-flight OTel spans before exit. No-op when
+    // the `otel` feature is off or no exporter was wired.
+    tracing_init::shutdown_telemetry();
 
     tracing::info!(
         elapsed_ms = shutdown_start.elapsed().as_millis() as u64,
