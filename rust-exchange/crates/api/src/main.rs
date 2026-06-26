@@ -91,6 +91,7 @@ mod stop_orders;
 mod stores;
 mod stress;
 mod tracing_ctx;
+mod security_headers;
 mod trading;
 mod transfers;
 mod websocket;
@@ -4815,6 +4816,11 @@ async fn main() {
         .or(misc_group)
         .boxed()
         .with(cors)
+        // P2-SEC-3: defensive response headers (nosniff, CSP, HSTS, etc).
+        // Applied to every reply on the routes chain — REST + static.
+        .with(warp::reply::with::headers(
+            security_headers::security_headers_map(),
+        ))
         .with(warp::trace(tracing_ctx::request_trace_fn()))
         .with(warp::log::custom(|info: warp::log::Info<'_>| {
             let elapsed_us = info.elapsed().as_micros() as u64;
