@@ -57,7 +57,7 @@
 | ID | Gate | Owner | Status | Acceptance | Evidence |
 |---|---|---|---|---|---|
 | P0-REC-1 | Cold-boot WAL replay reaches the same `(command_seq, ledger_root)` as the source node | b.greifen | 🟢 Verified | Existing recovery tests + `recovery_completed` Order Flow Monitor event | `96cf916` (and ancestors) |
-| P0-REC-2 | `data/` directory backed up off-host every 5 min in production | b.greifen (artifacts), UNASSIGNED (S3 bucket + IAM provisioning) | 🟡 In progress | k8s `CronJob` at `deploy/k8s/base/backup-cronjob.yaml` (5-min cadence, tarball + SHA256 manifest, S3 sync, LATEST pointer); systemd alternative at `scripts/exchange-backup.{service,timer}` for non-k8s hosts | bundle-P0 |
+| P0-REC-2 | `data/` directory backed up off-host every 5 min in production | b.greifen (artifacts), UNASSIGNED (S3 bucket + IAM provisioning) | 🟡 In progress | k8s `CronJob` at `deploy/k8s/base/backup-cronjob.yaml` (5-min cadence, tarball + SHA256 manifest, S3 sync, LATEST pointer; wired into `deploy/k8s/base/kustomization.yaml`); systemd alternative at `scripts/exchange-backup.{service,timer}` for non-k8s hosts | `6de75de` |
 | P0-REC-3 | Daily reconciliation runbook complete and tested in staging | b.greifen (drill script + local pass), UNASSIGNED (staging dry-run sign-off) | 🟡 In progress | `scripts/reconcile_drill.ps1` boots a clean api, drives load, runs INV-1/3/4 + velocity sanity. **Local execution: PASS** — INV-1 Σ==0 across 13 accounts; INV-3 no duplicate op_ids across 10 entries; INV-4 every Settled record has its `wd-settle-{id}` ledger entry; velocity 24h sums clean. Staging dry-run still required for sign-off. | bundle-P0 + drill-pass-2026-05-04 |
 
 ---
@@ -66,12 +66,12 @@
 
 | ID | Gate | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| P1-OPS-1 | Prometheus alerts wired for `wallet.settlement.stuck`, sanctions provider error rate, hot wallet balance threshold | UNASSIGNED | 🔴 Open | Alerts fire in staging via injected fault |
+| P1-OPS-1 | Prometheus alerts wired for `wallet.settlement.stuck`, sanctions provider error rate, hot wallet balance threshold | b.greifen (rules), UNASSIGNED (staging fault drill) | 🟡 In progress | Metrics + rules landed: `wallet_settlements_stuck_total`, `wallet_sanctions_errors_total`, `wallet_hot_wallet_balance{chain}` exported at `/metrics/prometheus`; alert rules at `deploy/prometheus/alerts.yml` (6 rules — `WalletSettlementStuck`, `WalletSanctionsProviderErrors/HardDown`, `WalletHotBalanceLow/Critical`, `WalletSettlementStuckBacklog`). Code in `9ebbd47`; rules in `6de75de`. Staging fault-injection drill still required to confirm rules fire. |
 | P1-OPS-2 | Distributed tracing (OpenTelemetry) across api ↔ workers ↔ chain RPCs | UNASSIGNED | 🔴 Open | Single trace ID visible end-to-end in Tempo/Jaeger |
 | P1-OPS-3 | On-call rota with paging policy for `wallet.settlement.stuck` | UNASSIGNED | 🔴 Open | PagerDuty schedule + escalation policy linked |
 | P1-OPS-4 | SLOs defined: 99.9% wallet submit success, p95 settle < 60 s | UNASSIGNED | 🔴 Open | SLO dashboard live |
-| P1-CI-1 | `cargo check --workspace --locked` in CI pre-commit | UNASSIGNED | 🔴 Open | CI pipeline green; intentional Cargo.lock drift fails build |
-| P1-CI-2 | `cargo test --workspace` in CI on every PR | UNASSIGNED | 🔴 Open | PR gate active |
+| P1-CI-1 | `cargo check --workspace --locked` in CI pre-commit | b.greifen | 🟢 Verified | `.github/workflows/rust-ci.yml` `check` job runs `cargo check --workspace --all-targets --locked` on every PR + push to `main` (`14e0568`). Verified locally green after bench rot fix `926fb0e` (`OrderBook::cancel_order` was missing — the broken bench would have failed the new gate). |
+| P1-CI-2 | `cargo test --workspace` in CI on every PR | b.greifen | 🟢 Verified | `.github/workflows/rust-ci.yml` `test` job runs `cargo test --workspace --no-fail-fast --locked`, gated on `check` (`14e0568`). Verified locally: **763 passed / 0 failed / 0 ignored** across 24 test binaries. |
 | P1-CI-3 | rbac_smoke_test.ps1 runs nightly against staging and fails noisily | UNASSIGNED | 🔴 Open | Cron + result dashboard |
 | P1-COMP-1 | All P0 audit closures verified by independent code review | UNASSIGNED | 🔴 Open | Reviewer sign-off on each commit |
 | P1-COMP-2 | Privacy + AML policy review of customer audit log retention | UNASSIGNED | 🔴 Open | Legal sign-off |
@@ -88,7 +88,7 @@
 | P2-FUND-1 | BTC chain adapter wired behind feature flag | UNASSIGNED | 🔴 Open | Testnet broadcast verified |
 | P2-FUND-2 | SOL chain adapter wired behind feature flag | UNASSIGNED | 🔴 Open | Testnet broadcast verified |
 | P2-SEC-1 | HMAC secret rotation runbook executed on schedule | UNASSIGNED | 🔴 Open | First rotation completed |
-| P2-SEC-2 | Frontend bearer-token migration (HMAC-in-browser → server-minted JWT) | UNASSIGNED | 🔴 Open | Frontend cutover complete |
+| P2-SEC-2 | Frontend bearer-token migration (HMAC-in-browser → server-minted JWT) | b.greifen (WS path), UNASSIGNED (REST cutover) | 🟡 In progress | Browser WebSocket path: `POST /v2/ws-token` mints a 60s HMAC-bound token (path + role + subject scoped); `/ws/order-trace?token=…` accepts it as fallback when HMAC headers are absent. Module: `crates/api/src/ws_token.rs` (11 tests pass). Frontend `MonitorPage` "Live (WS)" toggle in `6b2d1c8`. Server code: `9ebbd47`. REST-side cutover still pending — a full JWT minting + verifying path on every authenticated REST call is the larger v1.1 task. |
 | P2-SEC-3 | CSP + `X-Content-Type-Options: nosniff` on all REST responses | UNASSIGNED | 🔴 Open | Headers present in production response |
 | P2-OPS-1 | Quarterly DR drill: restore from backup + reconcile | UNASSIGNED | 🔴 Open | Drill report filed |
 
@@ -121,4 +121,4 @@ A red P0 row blocks all four signatures by definition. Do not negotiate.
 
 ---
 
-*Last updated 2026-05-04 against `p0-recovery-20260430@c6b790f`.*
+*Last updated 2026-06-26 against `p0-recovery-20260430@HEAD`. Commits since last refresh: `926fb0e` bench rot fix, `14e0568` CI `--locked`, `6de75de` k8s backup CronJob + Prometheus alerts, `9ebbd47` WS token + wallet metrics + binance proxy, `6b2d1c8` frontend WS token UI. P1-CI-1/2 verified locally; P0-REC-2 / P1-OPS-1 code-side artifacts in; P2-SEC-2 WS half landed. Operational provisioning (KMS, S3+IAM, Chainalysis key, staging drills, PagerDuty, OTel backend, legal review) still pending owner assignment.*
