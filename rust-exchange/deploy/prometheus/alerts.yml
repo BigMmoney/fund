@@ -1,0 +1,122 @@
+## Prometheus alert rules for rust-exchange (P1-OPS-1)
+##
+## Scope: launch-blocking signals only — settlement stuck, sanctions
+## unavailability, hot-wallet balance threshold. P0-CORR/SEC/FUND/REC
+## evidence + checklist references in `docs/PRODUCTION_LAUNCH_CHECKLIST.md`.
+##
+## Source metrics live in `crates/api/src/observability.rs` and are
+## rendered by `crates/api/src/prometheus.rs` at `/metrics/prometheus`.
+##
+## Acceptance for P1-OPS-1: every alert below has been verified to fire
+## in staging under an injected fault. See `scripts/inject_alert_faults.ps1`
+## for the harness.
+##
+## Validate locally:
+##   promtool check rules deploy/prometheus/alerts.yml
+##
+## Apply in cluster:
+##   kubectl apply -f deploy/prometheus/alerts.yml -n monitoring
+##
+groups:
+  - name: rust-exchange.wallet
+    interval: 30s
+    rules:
+      - alert: WalletSettlementStuck
+        expr: increase(wallet_settlements_stuck_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: exchange
+          runbook: docs/RECONCILIATION_AND_RECOVERY_RUNBOOK.md#settlement-stuck
+        annotations:
+          summary: "Withdrawal flipped to SettlementStuck — operator action required"
+          description: |
+            {{ $value }} withdrawal(s) moved from Confirmed to SettlementStuck in the
+            last 5 minutes. The on-chain broadcast already happened but the
+            customer-side ledger debit could not be applied. INV-1 is at risk.
+            Page on-call and follow `docs/RECONCILIATION_AND_RECOVERY_RUNBOOK.md`
+            §settlement-stuck. Query
+            `/admin/wallet/queue?status=settlement_stuck` for the offending IDs.
+
+      - alert: WalletSanctionsProviderErrors
+        # Hard-block rate above 0.1/s sustained over 5 m means the
+        # provider is failing closed for real customer requests, not
+        # just an isolated blip. Tune per traffic pattern.
+        expr: rate(wallet_sanctions_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: exchange
+          runbook: docs/SECURITY_REVIEW_2026-04-07_SUMMARY.md#sanctions
+        annotations:
+          summary: "Sanctions provider returning Error — customer requests being hard-blocked"
+          description: |
+            wallet_sanctions_errors_total is incrementing at {{ $value }}/s.
+            Each increment is a customer add-address or withdraw request
+            rejected with 503 SanctionsUnavailable because the provider
+            (Chainalysis / TRM) returned Error. Check provider status,
+            API key validity, and network egress to public.chainalysis.com.
+
+      - alert: WalletSanctionsProviderHardDown
+        # Higher rate / shorter for: pages immediately if the provider
+        # is fully unreachable.
+        expr: rate(wallet_sanctions_errors_total[2m]) > 1
+        for: 2m
+        labels:
+          severity: critical
+          team: exchange
+          runbook: docs/SECURITY_REVIEW_2026-04-07_SUMMARY.md#sanctions
+        annotations:
+          summary: "Sanctions provider hard down — > 1 reject/s sustained"
+          description: |
+            wallet_sanctions_errors_total is incrementing at {{ $value }}/s
+            (sustained 2 m). Provider is effectively unreachable; every
+            customer add-address / withdraw is being hard-blocked.
+
+      - alert: WalletHotBalanceLow
+        # Threshold expressed in ETH micro-units (post divisor 1e12).
+        # 1_000_000 micro-eth == 1 ETH. Adjust per environment.
+        # Default: page below 0.5 ETH on the eth hot wallet.
+        expr: wallet_hot_wallet_balance{chain="eth"} < 500000
+        for: 5m
+        labels:
+          severity: warning
+          team: exchange
+          runbook: docs/WITHDRAWAL_RISK_AND_CUSTODY.md#hot-wallet-refill
+        annotations:
+          summary: 'Hot wallet balance low: chain={{ $labels.chain }} balance={{ $value }} micro-units'
+          description: |
+            The on-chain balance of the hot wallet is below the operational
+            threshold. Outbound withdrawals will start failing once the
+            balance is fully drained. Trigger refill from cold storage per
+            the hot-wallet refill runbook.
+
+      - alert: WalletHotBalanceCritical
+        # Below 0.05 ETH — pages immediately.
+        expr: wallet_hot_wallet_balance{chain="eth"} < 50000
+        for: 1m
+        labels:
+          severity: critical
+          team: exchange
+          runbook: docs/WITHDRAWAL_RISK_AND_CUSTODY.md#hot-wallet-refill
+        annotations:
+          summary: 'Hot wallet balance CRITICAL: chain={{ $labels.chain }} balance={{ $value }} micro-units'
+          description: |
+            Hot wallet balance is below the critical threshold. Withdrawals
+            will fail imminently. Refill from cold storage NOW.
+
+      # Operator readability gauge: aggregate stuck count.
+      # Useful in dashboards even when no recent flips have happened.
+      - alert: WalletSettlementStuckBacklog
+        expr: wallet_settlements_stuck_total - wallet_settlements_settled_total > 5
+        for: 30m
+        labels:
+          severity: warning
+          team: exchange
+        annotations:
+          summary: "Wallet stuck-count backlog ({{ $value }}) exceeds threshold"
+          description: |
+            More than 5 cumulative SettlementStuck records have outpaced
+            successful settlements for the last 30 m. Investigate why the
+            ledger is rejecting customer-side debits — likely root cause
+            is balance went negative between submit and settle.

@@ -1,0 +1,139 @@
+# P0-REC-2: off-host backup of the `data/` volume every 5 minutes.
+# Mirror of the systemd path at `scripts/exchange-backup.{service,timer}`
+# for hosts running on Kubernetes. Same artifact layout:
+#
+#   s3://${BACKUP_BUCKET}/YYYYMMDD/HHMM/data.tar.gz
+#   s3://${BACKUP_BUCKET}/YYYYMMDD/HHMM/MANIFEST.sha256
+#   s3://${BACKUP_BUCKET}/LATEST           (text pointer to the newest stamp)
+#
+# Storage-class note: the `exchange-data` PVC is provisioned as RWO. This
+# CronJob mounts it `readOnly: true`. CSI drivers that allow a second
+# read-only attachment of an RWO volume (most cloud CSIs do for snapshot
+# semantics) work as-is. For drivers that don't, switch the storage class
+# to one supporting RWX, OR replace this CronJob with a sidecar in
+# `deployment.yaml` writing to the same volume.
+#
+# Operational provisioning (UNASSIGNED row in PRODUCTION_LAUNCH_CHECKLIST):
+#   - create the S3 bucket and the IAM role
+#   - bind the role to the `exchange-backup` ServiceAccount via IRSA
+#     (annotation below) or attach static credentials via a Secret env
+#
+# Acceptance: after deployment, `kubectl logs -n exchange -l job-name=...`
+# shows successful uploads at 5-min cadence and `aws s3 cp - s3://.../LATEST`
+# emits the newest stamp.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: exchange-backup
+  namespace: exchange
+  # IRSA hook — operator fills in the role ARN at deploy time.
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/exchange-backup
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exchange-backup
+  namespace: exchange
+  labels:
+    app: exchange
+    component: backup
+spec:
+  # Every 5 minutes, matching the systemd OnUnitActiveSec=5min cadence.
+  schedule: "*/5 * * * *"
+  # Skip a tick if the previous one is still running — never queue
+  # backups (a slow backup must not cascade into a queue storm).
+  concurrencyPolicy: Forbid
+  # If we miss the window by more than 4 minutes, skip — there's another
+  # tick coming in <60 s.
+  startingDeadlineSeconds: 240
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # Hard wall-clock cap — same as the systemd `TimeoutSec=240`.
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels:
+            app: exchange
+            component: backup
+        spec:
+          serviceAccountName: exchange-backup
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: amazon/aws-cli:2.17.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  ts=$(date -u +%Y%m%d/%H%M)
+                  workdir=$(mktemp -d)
+                  trap 'rm -rf "$workdir"' EXIT
+                  cp -a /data/. "$workdir/data"
+                  tar -czf "$workdir/data.tar.gz" -C "$workdir" data
+                  (cd "$workdir/data" && find . -type f -print0 | xargs -0 sha256sum) > "$workdir/MANIFEST.sha256"
+                  aws s3 cp "$workdir/data.tar.gz"     "s3://${BACKUP_BUCKET}/${ts}/data.tar.gz"
+                  aws s3 cp "$workdir/MANIFEST.sha256" "s3://${BACKUP_BUCKET}/${ts}/MANIFEST.sha256"
+                  echo "${ts}" | aws s3 cp - "s3://${BACKUP_BUCKET}/LATEST"
+                  echo "backup ${ts} ok"
+              env:
+                - name: BACKUP_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: exchange-backup-config
+                      key: bucket
+                - name: AWS_REGION
+                  valueFrom:
+                    configMapKeyRef:
+                      name: exchange-backup-config
+                      key: region
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "1"
+                  memory: "512Mi"
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: exchange-data
+                readOnly: true
+            - name: tmp
+              emptyDir: {}
+---
+# Configmap is shipped empty here — operators set bucket/region at
+# install time via kustomize patches or `kubectl create configmap`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exchange-backup-config
+  namespace: exchange
+data:
+  bucket: "exchange-prod-backup"
+  region: "us-east-1"
