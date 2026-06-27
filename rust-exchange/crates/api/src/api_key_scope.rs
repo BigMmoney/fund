@@ -230,6 +230,144 @@ pub(crate) fn configured_scope_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("data/api_key_scopes.json"))
 }
 
+// ── HTTP routes ────────────────────────────────────────────────
+
+#[allow(unused_imports)]
+use super::*;
+
+/// Routes:
+///   POST /admin/api-key-scopes/reload         — reload file into memory
+///   GET  /admin/api-key-scopes/unscoped       — subjects without an entry
+///   GET  /admin/api-key-scopes/check?subject= — show effective gates
+pub(crate) fn build_routes(
+    registry: SharedScopeRegistry,
+    scope_path: PathBuf,
+    ip_rate_limiter: Arc<FixedWindowRateLimiter>,
+    admin_rate_limiter: Arc<FixedWindowRateLimiter>,
+) -> JsonRoute {
+    let reg1 = registry.clone();
+    let path1 = scope_path.clone();
+    let ip1 = ip_rate_limiter.clone();
+    let adm1 = admin_rate_limiter.clone();
+    let reload_route = warp::path!("admin" / "api-key-scopes" / "reload")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and_then(
+            move |principal: AuthenticatedPrincipal, remote: Option<SocketAddr>| {
+                let reg = reg1.clone();
+                let path = path1.clone();
+                let ip_rl = ip1.clone();
+                let adm_rl = adm1.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    adm_rl.check(&format!("admin:{}", principal.subject), 10)?;
+                    reg.reload_from_file(&path)
+                        .map_err(reject_internal_error)?;
+                    tracing::info!(
+                        admin = %principal.subject,
+                        loaded = reg.entry_count(),
+                        path = %path.display(),
+                        "api-key scope registry reloaded"
+                    );
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "loaded_entries": reg.entry_count(),
+                        "path": path.to_string_lossy(),
+                    })))
+                }
+            },
+        );
+
+    let reg2 = registry.clone();
+    let ip2 = ip_rate_limiter.clone();
+    let unscoped_route = warp::path!("admin" / "api-key-scopes" / "unscoped")
+        .and(warp::get())
+        .and(with_principal())
+        .and(remote_ip())
+        .and_then(
+            move |principal: AuthenticatedPrincipal, remote: Option<SocketAddr>| {
+                let reg = reg2.clone();
+                let ip_rl = ip2.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    // Enumerate api-key registry subjects via the existing
+                    // global accessor. Subjects WITHOUT a scope entry are
+                    // currently unrestricted; ops uses this to audit.
+                    let known = crate::security::known_api_key_subjects();
+                    let unscoped = reg.list_unscoped(&known);
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "known_subjects": known.len(),
+                        "scoped_entries": reg.entry_count(),
+                        "unscoped_subjects": unscoped,
+                    })))
+                }
+            },
+        );
+
+    #[derive(Debug, serde::Deserialize)]
+    struct CheckQuery {
+        subject: String,
+        scope: Option<String>,
+        remote_ip: Option<String>,
+    }
+
+    let reg3 = registry;
+    let ip3 = ip_rate_limiter;
+    let check_route = warp::path!("admin" / "api-key-scopes" / "check")
+        .and(warp::get())
+        .and(with_principal())
+        .and(warp::query::<CheckQuery>())
+        .and(remote_ip())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  query: CheckQuery,
+                  remote: Option<SocketAddr>| {
+                let reg = reg3.clone();
+                let ip_rl = ip3.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    let probe_ip: Option<std::net::IpAddr> =
+                        query.remote_ip.as_deref().and_then(|s| s.parse().ok());
+                    let ip_allowed = match probe_ip {
+                        Some(addr) => Some(reg.check_ip_allowed(&query.subject, addr)),
+                        None => None,
+                    };
+                    let scope_allowed = query
+                        .scope
+                        .as_deref()
+                        .map(|s| reg.has_scope(&query.subject, s));
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "subject": query.subject,
+                        "ip_allowed": ip_allowed,
+                        "scope_allowed": scope_allowed,
+                    })))
+                }
+            },
+        );
+
+    reload_route
+        .or(unscoped_route)
+        .unify()
+        .or(check_route)
+        .unify()
+        .boxed()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

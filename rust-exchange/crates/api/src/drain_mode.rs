@@ -121,6 +121,107 @@ pub(crate) fn reset_for_test() {
     DRAIN_STATE.store(0, Ordering::Release);
 }
 
+// ── HTTP routes ────────────────────────────────────────────────
+
+#[allow(unused_imports)]
+use super::*;
+
+#[derive(Debug, serde::Deserialize)]
+struct DrainStateRequest {
+    target: String,
+}
+
+/// Routes:
+///   POST /admin/maintenance/drain { "target": "active|draining|drained" }
+///   GET  /admin/maintenance/drain
+///
+/// POST also syncs the legacy `ops::DRAIN_MODE` bool so existing
+/// callers that only check that flag stay correct: any non-Active
+/// state sets the bool to true.
+pub(crate) fn build_routes(
+    ip_rate_limiter: Arc<FixedWindowRateLimiter>,
+    admin_rate_limiter: Arc<FixedWindowRateLimiter>,
+) -> JsonRoute {
+    let ip_set = ip_rate_limiter.clone();
+    let adm_set = admin_rate_limiter.clone();
+    let set_route = warp::path!("admin" / "maintenance" / "drain")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(verified_json_body())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: DrainStateRequest| {
+                let ip_rl = ip_set.clone();
+                let adm_rl = adm_set.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    adm_rl.check(&format!("admin:{}", principal.subject), 10)?;
+                    let target = DrainState::parse(&req.target).ok_or_else(|| {
+                        reject_api(
+                            StatusCode::BAD_REQUEST,
+                            "target must be active|draining|drained",
+                        )
+                    })?;
+                    let (prev, next) = set(target).map_err(|err| {
+                        reject_api(StatusCode::INTERNAL_SERVER_ERROR, err)
+                    })?;
+                    // Sync the legacy `ops::DRAIN_MODE` bool — true for
+                    // any non-Active state. Backward-compat for code
+                    // that only checks the bool flag.
+                    crate::ops::DRAIN_MODE.store(
+                        next != DrainState::Active,
+                        std::sync::atomic::Ordering::SeqCst,
+                    );
+                    tracing::warn!(
+                        admin = %principal.subject,
+                        from = prev.as_str(),
+                        to = next.as_str(),
+                        "drain state transition"
+                    );
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "previous": prev.as_str(),
+                        "current": next.as_str(),
+                    })))
+                }
+            },
+        );
+
+    let ip_get = ip_rate_limiter;
+    let get_route = warp::path!("admin" / "maintenance" / "drain")
+        .and(warp::get())
+        .and(with_principal())
+        .and(remote_ip())
+        .and_then(
+            move |principal: AuthenticatedPrincipal, remote: Option<SocketAddr>| {
+                let ip_rl = ip_get.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "state": current().as_str(),
+                        "allow_new_writes": allow_new_writes(),
+                        "allow_withdrawals": allow_withdrawals(),
+                        "allow_cancels": allow_cancels(),
+                    })))
+                }
+            },
+        );
+
+    set_route.or(get_route).unify().boxed()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

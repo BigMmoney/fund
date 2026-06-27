@@ -579,6 +579,15 @@ pub(crate) async fn handle_submit_withdraw(
     body: SubmitWithdrawBody,
     runtime: Arc<CustomerWalletRuntime>,
 ) -> Result<warp::reply::Json, Rejection> {
+    // P2-OPS-2: respect the 3-state drain. Withdrawals stay open during
+    // Draining (customers must be able to pull funds during a graceful
+    // sweep) and only stop once the operator escalates to Drained.
+    if !crate::drain_mode::allow_withdrawals() {
+        return Err(crate::reject_api(
+            crate::StatusCode::SERVICE_UNAVAILABLE,
+            "withdrawals temporarily disabled (drain mode)",
+        ));
+    }
     let audit_base = || CustomerWalletAuditRow {
         schema_version: 0,
         at: Utc::now(),

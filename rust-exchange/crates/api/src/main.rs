@@ -4809,6 +4809,44 @@ async fn main() {
         admin_rate_limiter.clone(),
     );
 
+    // ── P2-OPS-2: 3-state drain mode admin endpoints ──
+    let drain_routes =
+        drain_mode::build_routes(ip_rate_limiter.clone(), admin_rate_limiter.clone());
+
+    // ── P2-INST-1: sub-account / firm registry ──
+    let sub_accounts_registry = {
+        let wal_path = std::env::var("SUB_ACCOUNT_WAL_PATH")
+            .unwrap_or_else(|_| "data/sub_account_registry.jsonl".to_string());
+        let wal: std::sync::Arc<dyn persistence::WalStore<sub_accounts::SubAccountMembership>> =
+            std::sync::Arc::new(
+                persistence::JsonlFileWal::<sub_accounts::SubAccountMembership>::new(&wal_path)
+                    .unwrap_or_else(|e| panic!("failed to open sub-account WAL {wal_path}: {e}")),
+            );
+        std::sync::Arc::new(
+            sub_accounts::SubAccountRegistry::new(wal)
+                .unwrap_or_else(|e| panic!("failed to load sub-account registry: {e}")),
+        )
+    };
+    let sub_account_routes = sub_accounts::build_routes(
+        sub_accounts_registry.clone(),
+        ledger.clone(),
+        ip_rate_limiter.clone(),
+        admin_rate_limiter.clone(),
+    );
+
+    // ── P2-INST-2: API-key IP allow-list + scope sidecar registry ──
+    let api_key_scope_path = api_key_scope::configured_scope_path();
+    let api_key_scope_registry = std::sync::Arc::new(
+        api_key_scope::ScopeRegistry::from_file(&api_key_scope_path)
+            .unwrap_or_else(|e| panic!("failed to load api-key scope registry: {e}")),
+    );
+    let api_key_scope_routes = api_key_scope::build_routes(
+        api_key_scope_registry.clone(),
+        api_key_scope_path,
+        ip_rate_limiter.clone(),
+        admin_rate_limiter.clone(),
+    );
+
     let admin_group = trading_routes
         .or(control_routes)
         .or(admin_routes)
@@ -4842,6 +4880,9 @@ async fn main() {
         .or(release_routes)
         .or(rollback_routes)
         .or(oncall_routes)
+        .or(drain_routes)
+        .or(sub_account_routes)
+        .or(api_key_scope_routes)
         .or(health_route)
         .boxed();
     let probe_group = readiness_route

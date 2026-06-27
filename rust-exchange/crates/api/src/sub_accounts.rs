@@ -137,6 +137,184 @@ where
     (firm_id.to_string(), members, total)
 }
 
+// ── HTTP routes ────────────────────────────────────────────────
+
+#[allow(unused_imports)]
+use super::*;
+
+#[derive(Debug, serde::Deserialize)]
+struct UpsertMembershipRequest {
+    user_id: String,
+    firm_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MembersQuery {
+    firm_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct FirmAggregateQuery {
+    firm_id: String,
+}
+
+/// Routes:
+///   POST /admin/firms/membership { user_id, firm_id }
+///   GET  /admin/firms/members?firm_id=X
+///   GET  /admin/firms
+///   GET  /admin/firms/balance?firm_id=X  — aggregate cash balance
+pub(crate) fn build_routes(
+    registry: Arc<SubAccountRegistry>,
+    ledger: Arc<LedgerService>,
+    ip_rate_limiter: Arc<FixedWindowRateLimiter>,
+    admin_rate_limiter: Arc<FixedWindowRateLimiter>,
+) -> JsonRoute {
+    let reg1 = registry.clone();
+    let ip1 = ip_rate_limiter.clone();
+    let adm1 = admin_rate_limiter.clone();
+    let upsert_route = warp::path!("admin" / "firms" / "membership")
+        .and(warp::post())
+        .and(with_principal())
+        .and(remote_ip())
+        .and(body_limit())
+        .and(verified_json_body())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  remote: Option<SocketAddr>,
+                  req: UpsertMembershipRequest| {
+                let reg = reg1.clone();
+                let ip_rl = ip1.clone();
+                let adm_rl = adm1.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    adm_rl.check(&format!("admin:{}", principal.subject), 10)?;
+                    let record = SubAccountMembership {
+                        user_id: req.user_id.clone(),
+                        firm_id: req.firm_id.clone(),
+                        recorded_at: chrono::Utc::now(),
+                        recorded_by: principal.subject.clone(),
+                    };
+                    reg.upsert(record)
+                        .map_err(|e| reject_internal_error(e))?;
+                    tracing::info!(
+                        admin = %principal.subject,
+                        user_id = %req.user_id,
+                        firm_id = %req.firm_id,
+                        "firm membership upsert"
+                    );
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "user_id": req.user_id,
+                        "firm_id": req.firm_id,
+                    })))
+                }
+            },
+        );
+
+    let reg2 = registry.clone();
+    let ip2 = ip_rate_limiter.clone();
+    let members_route = warp::path!("admin" / "firms" / "members")
+        .and(warp::get())
+        .and(with_principal())
+        .and(warp::query::<MembersQuery>())
+        .and(remote_ip())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  query: MembersQuery,
+                  remote: Option<SocketAddr>| {
+                let reg = reg2.clone();
+                let ip_rl = ip2.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    let members = reg.members_of(&query.firm_id);
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "firm_id": query.firm_id,
+                        "members": members,
+                    })))
+                }
+            },
+        );
+
+    let reg3 = registry.clone();
+    let ip3 = ip_rate_limiter.clone();
+    let list_firms_route = warp::path!("admin" / "firms")
+        .and(warp::get())
+        .and(with_principal())
+        .and(remote_ip())
+        .and_then(
+            move |principal: AuthenticatedPrincipal, remote: Option<SocketAddr>| {
+                let reg = reg3.clone();
+                let ip_rl = ip3.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    let firms = reg.list_firms();
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "firms": firms,
+                    })))
+                }
+            },
+        );
+
+    let reg4 = registry;
+    let ledger4 = ledger;
+    let ip4 = ip_rate_limiter;
+    let balance_route = warp::path!("admin" / "firms" / "balance")
+        .and(warp::get())
+        .and(with_principal())
+        .and(warp::query::<FirmAggregateQuery>())
+        .and(remote_ip())
+        .and_then(
+            move |principal: AuthenticatedPrincipal,
+                  query: FirmAggregateQuery,
+                  remote: Option<SocketAddr>| {
+                let reg = reg4.clone();
+                let ledger = ledger4.clone();
+                let ip_rl = ip4.clone();
+                async move {
+                    require_admin(&principal)?;
+                    let ip_key = remote
+                        .map(|v| v.ip().to_string())
+                        .unwrap_or_else(|| format!("user:{}", principal.subject));
+                    ip_rl.check(&format!("ip:{ip_key}"), 60)?;
+                    let (firm_id, members, total) = aggregate_firm(
+                        reg.as_ref(),
+                        &query.firm_id,
+                        |uid| ledger.cash_available_balance(uid),
+                    );
+                    Ok::<_, Rejection>(warp::reply::json(&serde_json::json!({
+                        "status": "ok",
+                        "firm_id": firm_id,
+                        "members": members,
+                        "aggregate_cash_balance": total.to_string(),
+                    })))
+                }
+            },
+        );
+
+    upsert_route
+        .or(members_route)
+        .unify()
+        .or(list_firms_route)
+        .unify()
+        .or(balance_route)
+        .unify()
+        .boxed()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

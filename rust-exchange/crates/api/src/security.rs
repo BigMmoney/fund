@@ -481,6 +481,17 @@ fn api_key_registry() -> &'static std::collections::HashMap<String, ApiKeyRecord
     API_KEY_REGISTRY.get_or_init(std::collections::HashMap::new)
 }
 
+/// List subjects currently registered in the api-key file. Used by the
+/// `/admin/api-key-scopes/unscoped` audit endpoint to surface keys that
+/// would still bypass the IP allow-list / scope gate.
+pub(crate) fn known_api_key_subjects() -> Vec<String> {
+    let subjects: std::collections::BTreeSet<String> = api_key_registry()
+        .values()
+        .map(|record| record.subject.clone())
+        .collect();
+    subjects.into_iter().collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn internal_auth_payload(
     method: &Method,
