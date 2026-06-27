@@ -56,6 +56,13 @@ pub(crate) struct ExchangeMetrics {
     pub wallet_settlements_stuck: AtomicU64,
     // Wallet — sanctions provider hard-block (503) count (P1-OPS-1).
     pub wallet_sanctions_errors: AtomicU64,
+    // Surveillance alerts — fired by `surveillance::Surveillance` when a
+    // pattern hits a configured threshold. Counters only; the actual
+    // alert payloads ride tracing::warn.
+    pub surveillance_wash_alerts: AtomicU64,
+    pub surveillance_rapid_cancel_alerts: AtomicU64,
+    pub surveillance_high_cancel_alerts: AtomicU64,
+    pub surveillance_unknown_alerts: AtomicU64,
 }
 
 /// Lock-free histogram latency tracker (microseconds) with percentiles.
@@ -208,6 +215,10 @@ impl ExchangeMetrics {
             wallet_settlements_failed: AtomicU64::new(0),
             wallet_settlements_stuck: AtomicU64::new(0),
             wallet_sanctions_errors: AtomicU64::new(0),
+            surveillance_wash_alerts: AtomicU64::new(0),
+            surveillance_rapid_cancel_alerts: AtomicU64::new(0),
+            surveillance_high_cancel_alerts: AtomicU64::new(0),
+            surveillance_unknown_alerts: AtomicU64::new(0),
         }
     }
 
@@ -228,6 +239,26 @@ impl ExchangeMetrics {
 
     pub fn record_wallet_sanctions_error(&self) {
         self.wallet_sanctions_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_surveillance_alert(&self, rule: &str) {
+        match rule {
+            "round_trip_wash" => {
+                self.surveillance_wash_alerts.fetch_add(1, Ordering::Relaxed);
+            }
+            "rapid_cancel" => {
+                self.surveillance_rapid_cancel_alerts
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            "high_cancel_ratio" => {
+                self.surveillance_high_cancel_alerts
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {
+                self.surveillance_unknown_alerts
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 
     pub fn record_partition_fill(&self, partition_id: usize, count: u64) {

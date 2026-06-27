@@ -92,9 +92,11 @@ mod stores;
 mod stress;
 mod tracing_ctx;
 mod security_headers;
+mod surveillance;
 mod trading;
 mod tracing_init;
 mod transfers;
+mod wallet_ha;
 mod websocket;
 mod withdrawals;
 mod ws_token;
@@ -3240,6 +3242,16 @@ async fn main() {
     let event_bus_for_projection = event_bus.clone();
     let event_bus_for_trading = event_bus.clone();
     let event_bus_for_ws_routes = event_bus.clone();
+    let event_bus_for_surveillance = event_bus.clone();
+
+    // Trade surveillance: out-of-band consumer of fill.created +
+    // order.trace that flags wash trade / spoofing patterns. Bounded
+    // memory, non-blocking, alerts via tracing::warn + Prometheus
+    // counters. Disabled via `SURVEILLANCE_ENABLED=false`.
+    let surveillance_inst = std::sync::Arc::new(surveillance::Surveillance::new(
+        surveillance::SurveillanceConfig::from_env(),
+    ));
+    surveillance::spawn_surveillance_task(surveillance_inst, &event_bus_for_surveillance);
 
     // Order Flow Monitor: construct the projector and start the consumer
     // task BEFORE bootstrap_runtime so the broadcast subscriber exists
@@ -3885,6 +3897,30 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(5_000);
+
+    // P2-SCALE-3: wallet workers MUST be single-writer (op_id
+    // collisions otherwise). Lease-file leader election gates every
+    // tick; standby replicas spin without doing work until the leader
+    // either steps down or the lease expires. By default leadership is
+    // enabled; set WALLET_HA_DISABLED=1 to bypass for single-replica
+    // / dev setups (the worker then always considers itself leader).
+    let wallet_ha_disabled = std::env::var("WALLET_HA_DISABLED")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let wallet_leader = if wallet_ha_disabled {
+        tracing::info!("WALLET_HA_DISABLED set — workers always lead");
+        None
+    } else {
+        let lease_cfg = wallet_ha::LeaseConfig::from_env(std::path::Path::new("data"));
+        tracing::info!(
+            instance_id = %lease_cfg.instance_id,
+            lease_path = %lease_cfg.lease_path.display(),
+            lease_ttl_s = lease_cfg.lease_ttl.as_secs(),
+            "wallet HA lease election starting"
+        );
+        Some(wallet_ha::spawn_lease_election(lease_cfg))
+    };
+
     let wallet_worker_eth = Arc::new(wallet::HotWalletWorker::new(
         wallet::ChainId::Eth,
         wallet_eth_adapter.clone(),
@@ -3893,6 +3929,7 @@ async fn main() {
     ));
     {
         let worker = wallet_worker_eth.clone();
+        let leader = wallet_leader.clone();
         tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(std::time::Duration::from_millis(wallet_worker_tick_ms));
@@ -3902,6 +3939,12 @@ async fn main() {
             );
             loop {
                 interval.tick().await;
+                // P2-SCALE-3 gate: only the elected leader does work.
+                if let Some(l) = &leader {
+                    if !l.is_leader() {
+                        continue;
+                    }
+                }
                 let report = worker.tick();
                 if report.signed_count
                     + report.broadcast_count
@@ -3961,6 +4004,7 @@ async fn main() {
     };
     {
         let worker = wallet_settlement_worker.clone();
+        let leader = wallet_leader.clone();
         tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(std::time::Duration::from_millis(wallet_worker_tick_ms));
@@ -3970,6 +4014,12 @@ async fn main() {
             );
             loop {
                 interval.tick().await;
+                // P2-SCALE-3 gate: only the elected leader settles.
+                if let Some(l) = &leader {
+                    if !l.is_leader() {
+                        continue;
+                    }
+                }
                 let report = worker.tick();
                 crate::observability::METRICS.record_wallet_settlement_tick(
                     report.settled_count as u64,
